@@ -90,7 +90,10 @@ async function criarApi() {
     },
     async removerArquivo(id, caminho) {
       ok(await sb.from('arquivos').delete().eq('id', id));
-      await sb.storage.from('documentos').remove([caminho]);
+      // a linha já saiu; se o arquivo ficar no armazenamento, só registra (a ficha segue certa)
+      const { error } = await sb.storage.from('documentos').remove([caminho]);
+      if (error) console.warn('Arquivo ficou no armazenamento:', caminho, error.message);
+      return true;
     },
   };
 }
