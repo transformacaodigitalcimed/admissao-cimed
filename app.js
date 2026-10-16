@@ -52,7 +52,75 @@ async function criarApi() {
     async entregas() { return ok(await sb.from('vw_entregas').select('*').order('data_inicio')); },
     async marcarEntrega(adm, area, por) { return ok(await sb.from('entregas').insert({ admissao_id: adm, area_id: area, por })); },
     async importar(linhas) { return ok(await sb.rpc('importar_admissoes', { linhas })); },
+
+    // ---------- fase 2: arquivos e leitura por IA
+    async arquivos(adm) {
+      return ok(await sb.from('arquivos').select('id, tipo, caminho, nome, mime, status, lado, motivo, enviado_por, criado_em')
+        .eq('admissao_id', adm).order('criado_em'));
+    },
+    // original = arquivo como veio (a impressão digital é dele); pronto = já reduzido para envio
+    async subirArquivo(adm, tipo, original, pronto) {
+      const sha = await sha256(original);
+      const { data: igual } = await sb.from('arquivos').select('tipo').eq('admissao_id', adm).eq('sha256', sha).maybeSingle();
+      if (igual) { const e = new Error('repetido'); e.repetidoEm = igual.tipo; throw e; }
+      const ext = { 'application/pdf': 'pdf', 'image/png': 'png', 'image/webp': 'webp' }[pronto.type] || 'jpg';
+      const caminho = `${adm}/${tipo.replace('#', '-')}/${crypto.randomUUID()}.${ext}`;
+      const up = await sb.storage.from('documentos').upload(caminho, pronto, { contentType: pronto.type, upsert: false });
+      if (up.error) throw new Error('Não consegui guardar o arquivo: ' + up.error.message);
+      const { data, error } = await sb.from('arquivos')
+        .insert({ admissao_id: adm, tipo, caminho, nome: original.name, mime: pronto.type, tamanho: pronto.size, sha256: sha })
+        .select('id').single();
+      if (error) { await sb.storage.from('documentos').remove([caminho]); throw new Error(traduzir(error.message)); }
+      return data.id;
+    },
+    async lerArquivo(id) {
+      const { data, error } = await sb.functions.invoke('ler-documento', { body: { arquivo_id: id } });
+      if (error) {
+        let msg = error.message;
+        try { msg = (await error.context.json()).erro || msg; } catch { /* resposta sem corpo */ }
+        throw new Error(msg);
+      }
+      return data;
+    },
+    async leituraFalhou(id, motivo) { return ok(await sb.rpc('leitura_falhou', { arq: id, motivo_falha: motivo })); },
+    async verArquivo(caminho) {
+      const { data, error } = await sb.storage.from('documentos').createSignedUrl(caminho, 60);
+      if (error) throw new Error(traduzir(error.message));
+      return data.signedUrl;
+    },
+    async removerArquivo(id, caminho) {
+      ok(await sb.from('arquivos').delete().eq('id', id));
+      await sb.storage.from('documentos').remove([caminho]);
+    },
   };
+}
+
+async function sha256(blob) {
+  const h = await crypto.subtle.digest('SHA-256', await blob.arrayBuffer());
+  return [...new Uint8Array(h)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Foto vira JPG de até 2000 px (lê melhor, sobe mais rápido, custa menos na IA).
+// PDF vai como está. HEIC e outros formatos são recusados com orientação.
+async function prepararArquivo(f) {
+  const LIMITE = 15 * 1024 * 1024;
+  if (f.type === 'application/pdf' || /\.pdf$/i.test(f.name)) {
+    if (f.size > LIMITE) throw new Error(`${f.name}: PDF maior que 15 MB.`);
+    return f.type === 'application/pdf' ? f : new File([f], f.name, { type: 'application/pdf' });
+  }
+  if (/heic|heif/i.test(f.type + f.name)) throw new Error(`${f.name}: formato de foto do iPhone (HEIC). Peça a foto em JPG ou envie um print da tela.`);
+  if (!/^image\/(jpeg|png|webp)$/.test(f.type)) throw new Error(`${f.name}: envie foto (JPG, PNG) ou PDF.`);
+  const url = URL.createObjectURL(f); const img = new Image();
+  try { await new Promise((ok, erro) => { img.onload = ok; img.onerror = erro; img.src = url; }); }
+  catch { throw new Error(`${f.name}: não consegui abrir esta imagem.`); }
+  finally { URL.revokeObjectURL(url); }
+  const lado = Math.max(img.naturalWidth, img.naturalHeight);
+  if (lado < 500) throw new Error(`${f.name}: imagem muito pequena (${img.naturalWidth}×${img.naturalHeight} px). O texto não vai dar para ler.`);
+  const k = Math.min(1, 2000 / lado);
+  const cv = document.createElement('canvas'); cv.width = Math.round(img.naturalWidth * k); cv.height = Math.round(img.naturalHeight * k);
+  const x = cv.getContext('2d'); x.fillStyle = '#FFFFFF'; x.fillRect(0, 0, cv.width, cv.height); x.drawImage(img, 0, 0, cv.width, cv.height);
+  const blob = await new Promise((r) => cv.toBlob(r, 'image/jpeg', 0.85));
+  return new File([blob], f.name.replace(/\.\w+$/, '') + '.jpg', { type: 'image/jpeg' });
 }
 
 function traduzir(m) {
@@ -130,17 +198,18 @@ const E = {
 };
 const tem = (...p) => !!E.perfil && (E.perfil.papeis.includes('admin') || p.some((x) => E.perfil.papeis.includes(x)));
 
+// [id, nome, ícone, quem vê, seção do menu]
 const NAV = [
-  ['inicio', 'Início', 'inicio', () => tem('rs', 'admissao')],
-  ['novo', 'Cadastrar aprovado', 'novo', () => tem('rs', 'admissao')],
-  ['painel', 'Painel da admissão', 'painel', () => tem('rs', 'admissao', 'saude', 'remuneracao', 'signatario')],
-  ['documentos', 'Documentos', 'docs', () => tem('admissao')],
-  ['remuneracao', 'Validar remuneração', 'remun', () => tem('remuneracao', 'admissao')],
-  ['saude', 'Saúde ocupacional', 'saude', () => tem('saude')],
-  ['entregas', 'Minhas entregas', 'esp', () => tem('especialista', 'admissao')],
-  ['especialistas', 'Especialistas e avisos', 'esp', () => tem('admissao')],
-  ['emails', 'Fila de e-mails', 'mail', () => tem('admissao')],
-  ['kit', 'Esteira de assinatura', 'kit', () => tem('signatario')],
+  ['inicio', 'Início', 'inicio', () => tem('rs', 'admissao'), 1],
+  ['novo', 'Cadastrar aprovado', 'novo', () => tem('rs', 'admissao'), 1],
+  ['painel', 'Painel da admissão', 'painel', () => tem('rs', 'admissao', 'saude', 'remuneracao', 'signatario'), 1],
+  ['documentos', 'Documentos', 'docs', () => tem('admissao'), 1],
+  ['kit', 'Esteira de assinatura', 'kit', () => tem('admissao', 'signatario'), 1],
+  ['remuneracao', 'Remuneração', 'remun', () => tem('remuneracao', 'admissao'), 1],
+  ['saude', 'Saúde ocupacional', 'saude', () => tem('saude'), 1],
+  ['entregas', 'Minhas entregas', 'esp', () => tem('especialista', 'admissao'), 1],
+  ['especialistas', 'Especialistas e avisos', 'esp', () => tem('admissao'), 2],
+  ['emails', 'Fila de e-mails', 'mail', () => tem('admissao'), 2],
 ];
 const navVisivel = () => NAV.filter((n) => n[3]());
 
@@ -243,11 +312,34 @@ function telaSemAcesso() {
     <button class="bt pri" data-act="sair">Sair</button></div></div>`;
 }
 function casca() {
-  $('#raiz').innerHTML = `<header class="topo"><div class="marca">CIMED<small>Plataforma de Admissão</small></div>
-    ${E.params.envio_ativo !== 'sim' && tem('admissao') ? '<span class="selo-proto">Homologação · e-mails ficam na fila</span>' : ''}
-    <div class="esp"></div><div class="quem"><span>${esc(E.perfil.nome)}</span><button data-act="sair">Sair</button></div></header>
-    <div class="casca"><nav class="menu" id="menu" aria-label="Módulos"></nav><main id="main"></main></div>`;
+  const podeBuscar = tem('rs', 'admissao', 'saude', 'remuneracao', 'signatario');
+  $('#raiz').innerHTML = `<div class="casca">
+    <nav class="menu" id="menu" aria-label="Módulos"></nav>
+    <div class="conteudo">
+      <header class="topo">
+        ${podeBuscar ? `<div class="busca"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <input id="busca" type="search" placeholder="Buscar pessoa pelo nome ou CPF" autocomplete="off" aria-label="Buscar pessoa"><div class="busca-res" id="buscaRes" hidden></div></div>` : '<div class="esp"></div>'}
+        ${E.params.envio_ativo !== 'sim' && tem('admissao') ? '<span class="selo-homolog" title="Os e-mails ficam na fila até o envio ser ligado">Homologação</span>' : ''}
+        ${tem('rs', 'admissao') ? `<button class="bt" data-act="ir" data-v="novo">${MI.novo} Cadastrar aprovado</button>` : ''}
+        <div class="quem"><span class="avatar">${esc((E.perfil.nome || '?').slice(0, 2).toUpperCase())}</span><span class="quem-nome">${esc(E.perfil.nome)}</span><button class="bt peq" data-act="sair">Sair</button></div>
+      </header>
+      <main id="main"></main>
+      <div id="esteiraHost" class="esteira-host" hidden></div>
+    </div></div>`;
+  $('#busca')?.addEventListener('input', buscar);
+  $('#busca')?.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.target.value = ''; buscar(); } });
   render();
+}
+
+// Busca de pessoa: nome ou CPF, abre a ficha
+function buscar() {
+  const q = semAcento($('#busca').value).replace(/[.\-]/g, ''); const box = $('#buscaRes');
+  if (q.length < 2) { box.hidden = true; box.innerHTML = ''; return; }
+  const achados = E.admissoes.filter((a) => semAcento(a.nome).includes(q) || (/^\d{3,}$/.test(q) && a.cpf.includes(q))).slice(0, 8);
+  box.hidden = false;
+  box.innerHTML = achados.length
+    ? achados.map((a) => `<button data-act="fichaBusca" data-id="${a.id}"><b>${esc(titulo(a.nome))}</b><span>${esc(a.cargo)} · ${esc(a.local)} · ${dmd(a.data_inicio)}</span>${chipEtapa(a)}</button>`).join('')
+    : '<div class="busca-vazio">Ninguém com esse nome ou CPF.</div>';
 }
 function render() {
   if (!E.perfil || !$('#main')) return;
@@ -260,11 +352,17 @@ function render() {
     if (id === 'entregas') return E.entregas.filter((x) => !x.pronto_em).length;
     return 0;
   };
-  $('#menu').innerHTML = '<div class="rot">Módulos</div>' + itens.map(([id, n, ic]) => {
+  const item = ([id, n, ic]) => {
     const k = cont(id);
-    return `<button data-act="ir" data-v="${id}" ${E.view === id ? 'aria-current="page"' : ''}>${MI[ic]}<span>${esc(n)}</span>${k ? `<span class="cont num">${k}</span>` : ''}</button>`;
-  }).join('') + `<div class="rodape-menu"><button data-act="recarregar">Atualizar dados</button><button data-act="tema">Alternar tema claro/escuro</button></div>`;
+    return `<button data-act="ir" data-v="${id}" ${E.view === id ? 'aria-current="page"' : ''}><span class="ponto"></span>${MI[ic]}<span class="rot-item">${esc(n)}</span>${k ? `<span class="cont num">${k}</span>` : ''}</button>`;
+  };
+  const sec2 = itens.filter((i) => i[4] === 2);
+  $('#menu').innerHTML = `<div class="marca-lateral"><span class="pilula">CIMED</span><div><b>Plataforma de Admissão</b><small>Admissão e onboarding</small></div></div>`
+    + itens.filter((i) => i[4] === 1).map(item).join('')
+    + (sec2.length ? '<div class="divisor"></div><div class="rot">Configuração</div>' + sec2.map(item).join('') : '')
+    + `<div class="rodape-menu"><button data-act="recarregar">Atualizar dados</button><button data-act="tema">Tema claro ou escuro</button></div>`;
   $('#main').innerHTML = (VIEWS[E.view] || VIEWS.inicio)();
+  if ($('#esteiraHost')) $('#esteiraHost').hidden = E.view !== 'kit';
   POS[E.view]?.();
 }
 
@@ -433,10 +531,30 @@ function tabela(lista) {
 async function abrirFicha(id) {
   const a = adm(id); if (!a) return;
   $('#camada').innerHTML = `<div class="veu" data-act="fechar"><aside class="gaveta" data-pare="1"><div class="carregando">Abrindo a ficha…</div></aside></div>`;
-  const [docs, evs] = await Promise.all([tem('rs', 'admissao') ? tentar(() => api.docs(id)) : [], tentar(() => api.eventos(id))]);
-  desenharFicha(a, docs || [], evs || []);
+  const [docs, evs, arqs] = await Promise.all([
+    tem('rs', 'admissao') ? tentar(() => api.docs(id)) : [],
+    tentar(() => api.eventos(id)),
+    tem('admissao') ? tentar(() => api.arquivos(id)) : [],
+  ]);
+  E.fichaAberta = id; E.docsFicha = docs || [];
+  desenharFicha(a, docs || [], evs || [], arqs || []);
 }
-function desenharFicha(a, docs, evs) {
+const ST_ARQ = {
+  analisando: ['c-info', 'ag', 'IA lendo…'], aceito: ['c-ok', 'ok', 'IA aceitou'], duvida: ['c-info', 'info', 'Conferir'],
+  recusado: ['c-at', 'at', 'IA recusou'], erro: ['c-cr', 'cr', 'Leitura falhou'],
+};
+function listaArquivos(a, tipo, arqs) {
+  const meus = arqs.filter((x) => x.tipo === tipo);
+  const lado = (l) => (l === 'frente' || l === 'verso' ? ' · ' + l : l === 'ambos' ? ' · frente e verso' : '');
+  return `<div class="pilha" style="gap:6px;margin-top:8px">${meus.map((x) => {
+    const s = ST_ARQ[x.status] || ST_ARQ.erro;
+    return `<div class="linha-flex" style="gap:8px;font-size:12.5px;align-items:flex-start"><span>${chip(s[0], s[1], s[2] + lado(x.lado))}</span>
+      <span style="flex:1;min-width:160px"><b>${esc(x.nome || 'arquivo')}</b>${x.motivo ? ' · ' + esc(x.motivo) : ''}<br><span class="apoio">${esc(x.enviado_por || '')} · ${quando(x.criado_em)}</span></span>
+      <button class="bt peq" data-act="verArq" data-c="${esc(x.caminho)}">Ver</button><button class="bt peq fan" data-act="tirarArq" data-id="${x.id}" data-c="${esc(x.caminho)}" data-adm="${a.id}">Remover</button></div>`;
+  }).join('')}
+  ${!a.declinou_em ? `<div><button class="bt peq" data-act="enviarArq" data-adm="${a.id}" data-tipo="${esc(tipo)}">${meus.length ? 'Enviar outro arquivo' : 'Enviar arquivo'}</button></div>` : ''}</div>`;
+}
+function desenharFicha(a, docs, evs, arqs = []) {
   const r = resumo(a); const dp = tem('admissao'); const prox = iso(new Date(deIso(a.data_inicio).getTime() + 7 * DIA));
   const podeAso = tem('admissao', 'saude'); const podeRem = tem('admissao', 'remuneracao');
   const selDoc = (d) => `<select class="sel-doc" data-doc="${esc(d.tipo)}" aria-label="Situação de ${esc(d.nome)}">${Object.entries(ST_DOC).map(([k, n]) => `<option value="${k}" ${k === d.status ? 'selected' : ''}>${n}</option>`).join('')}</select>`;
@@ -458,8 +576,8 @@ function desenharFicha(a, docs, evs) {
     <div class="doc"><div><div class="dn">Para as áreas</div><div class="dm">Camisa ${esc(a.camisa || '—')} · ${a.fretado ? 'Fretado ' + esc(a.fretado) : 'Sem fretado'} · ${(a.ti_itens || []).length ? 'TI: ' + esc(a.ti_itens.join(', ')) : 'Sem equipamento'}${a.usa_frota ? ' · Frota' : ''}</div></div></div>
    </div></div>
    ${docs.length ? `<div class="caixa pilha"><div class="linha-flex"><h3 style="flex:1">Documentos · ${r.ok} de ${r.total} conferidos</h3>${dp && !a.declinou_em && (r.pendentes || []).length ? `<button class="bt peq" data-act="cobrar" data-id="${a.id}">Cobrar ${plural(r.pendentes.length, 'pendência', 'pendências')}</button>` : ''}</div>
-     <div class="docs">${docs.map((d) => `<div class="doc"><div><div class="dn">${esc(d.nome)}</div><div class="dm">${esc(d.dica || '')}</div>${d.motivo ? `<div class="motivo">Pedido porque: ${esc(d.motivo)}</div>` : ''}${d.obs ? `<div class="motivo">${esc(d.obs)}</div>` : ''}${d.atualizado_por && d.status !== 'falta' ? `<div class="motivo">${esc(d.atualizado_por)} · ${quando(d.atualizado_em)}</div>` : ''}</div><div class="acoes">${dp && !a.declinou_em ? selDoc(d) : stDoc[d.status]}</div></div>`).join('')}</div>
-     ${dp ? '<p class="apoio" style="font-size:12px">Ao escolher "Pedir novo envio", o sistema pergunta o motivo, que vai na próxima cobrança.</p>' : ''}</div>` : ''}
+     <div class="docs">${docs.map((d) => `<div class="doc"><div><div class="dn">${esc(d.nome)}</div><div class="dm">${esc(d.dica || '')}</div>${d.motivo ? `<div class="motivo">Pedido porque: ${esc(d.motivo)}</div>` : ''}${d.obs ? `<div class="motivo">${esc(d.obs)}</div>` : ''}${d.atualizado_por && d.status !== 'falta' ? `<div class="motivo">${esc(d.atualizado_por)} · ${quando(d.atualizado_em)}</div>` : ''}${dp ? listaArquivos(a, d.tipo, arqs) : ''}</div><div class="acoes">${dp && !a.declinou_em ? selDoc(d) : stDoc[d.status]}</div></div>`).join('')}</div>
+     ${dp ? '<p class="apoio" style="font-size:12px">Envie o arquivo na caixa do documento: a IA confere se é o documento certo, se está legível, se o nome bate com o cadastro e se falta frente ou verso. O mesmo arquivo não entra duas vezes. A situação continua editável: a analista sempre decide.</p>' : ''}</div>` : ''}
    <div class="caixa pilha"><h3>Linha do tempo</h3><div class="tempo">${evs.map((h) => `<div class="ev"><span class="pt"></span><div>${esc(textoEvento(h.texto))}<small>${quando(h.em)} · ${esc(h.quem)}</small></div></div>`).join('') || '<span class="apoio">Sem registros.</span>'}</div>
     ${tem('rs', 'admissao', 'saude', 'remuneracao') ? `<form id="fObs" class="linha-flex"><input id="obsTx" maxlength="1000" placeholder="Escrever uma observação (fica com seu nome e a hora)" style="flex:1;min-width:200px;border:1px solid var(--linha);border-radius:10px;padding:9px 12px;background:var(--sup)"><button class="bt" type="submit">Anotar</button></form>` : ''}</div>
    <div class="caixa pilha"><h3>Dados da vaga</h3><div class="grade g2" style="gap:6px 16px;font-size:13px">${[['Escala', a.escala], ['Posição', a.posicao], ['Processo seletivo', a.processo], ['Requisitante', a.requisitante], ['Analista R&S', a.analista_rs], ['Analista DP', a.analista_dp], ['Estado civil', a.estado_civil], ['Filhos', a.filhos]].map(([k, v]) => `<div><span class="apoio">${esc(k)}:</span> <b>${esc(v ?? '—')}</b></div>`).join('')}</div>
@@ -503,9 +621,9 @@ function perguntar(tit, dica) {
 VIEWS.documentos = () => {
   const fila = vivas().filter((a) => ['aguardando', 'pendencia', 'conferencia'].includes(a.etapa))
     .sort((x, y) => (resumo(y).analise - resumo(x).analise) || x.data_inicio.localeCompare(y.data_inicio));
-  return `<div class="cab"><div class="t"><span class="olho">ADM de Pessoal</span><h1>Documentos</h1><p class="apoio">Quem ainda não está com a documentação completa, do corte mais próximo para o mais distante. Abra a ficha para marcar cada documento. A cobrança automática sai todo dia útil às 9h, uma vez por pessoa, só com o que falta e até o corte. A leitura por IA e o portal do candidato entram na fase 2.</p></div></div>
-  ${fila.length ? `<div class="tab-wrap"><table><thead><tr><th>Pessoa</th><th>Turma</th><th>Etapa</th><th>Conferidos</th><th>O que falta</th><th>Cobranças</th><th></th></tr></thead><tbody>
-  ${fila.map((a) => { const r = resumo(a); return `<tr class="clic" data-act="ficha" data-id="${a.id}"><td><b>${esc(titulo(a.nome))}</b><br><span class="apoio" style="font-size:12px">${esc(a.local)}</span></td><td class="num">${dmd(a.data_inicio)}${foraCorte(a) ? '<br>' + chip('c-cr', 'cr', 'Fora do corte') : ''}</td><td>${chipEtapa(a)}</td><td class="num">${r.ok}/${r.total}${r.analise ? '<br>' + chip('c-info', 'info', r.analise + ' para conferir') : ''}</td><td style="font-size:12.5px">${esc((r.pendentes || []).join(', ') || '—')}</td><td class="num">${a.cobrancas || 0}${a.ultima_cobranca ? '<br><span class="apoio" style="font-size:11.5px">' + quando(a.ultima_cobranca) + '</span>' : ''}</td><td>${(r.pendentes || []).length && a.email ? `<button class="bt peq" data-act="cobrar" data-id="${a.id}">Cobrar</button>` : ''}</td></tr>`; }).join('')}
+  return `<div class="cab"><div class="t"><span class="olho">ADM de Pessoal</span><h1>Documentos</h1><p class="apoio">Quem ainda não está com a documentação completa, do corte mais próximo para o mais distante. Abra a ficha para enviar os arquivos: a IA confere se cada um é o documento certo e a analista confirma. A cobrança automática sai todo dia útil às 9h, uma vez por pessoa, só com o que falta e até o corte.</p></div></div>
+  ${fila.length ? `<div class="tab-wrap"><table class="t-docs"><thead><tr><th>Pessoa</th><th>Turma</th><th>Etapa</th><th>Conferidos</th><th>O que falta</th><th>Cobranças</th></tr></thead><tbody>
+  ${fila.map((a) => { const r = resumo(a); return `<tr class="clic" data-act="ficha" data-id="${a.id}"><td><b>${esc(titulo(a.nome))}</b><br><span class="apoio" style="font-size:12px">${esc(a.local)}</span></td><td class="num">${dmd(a.data_inicio)}${foraCorte(a) ? '<br>' + chip('c-cr', 'cr', 'Fora do corte') : ''}</td><td>${chipEtapa(a)}</td><td class="num">${r.ok}/${r.total}${r.analise ? '<br>' + chip('c-info', 'info', r.analise + ' para conferir') : ''}</td><td style="font-size:12.5px">${esc((r.pendentes || []).join(', ') || '—')}</td><td><div class="cobr">${(r.pendentes || []).length && a.email ? `<button class="bt peq" data-act="cobrar" data-id="${a.id}">Cobrar</button>` : ''}<span class="apoio">${a.cobrancas ? plural(a.cobrancas, 'enviada', 'enviadas') + (a.ultima_cobranca ? ' · ' + quando(a.ultima_cobranca) : '') : 'nenhuma ainda'}</span></div></td></tr>`; }).join('')}
   </tbody></table></div>` : '<div class="vazio">Ninguém com documentação pendente.</div>'}`;
 };
 
@@ -521,7 +639,35 @@ VIEWS.saude = () => `<div class="cab"><div class="t"><span class="olho">Saúde o
  <div class="vazio" style="padding:48px 20px"><h2>Módulo em mapeamento</h2><p>Quando o fluxo estiver definido, esta tela vai mostrar quem precisa de exame, por turma e por unidade.</p></div>`;
 
 // ----------------------------------------------------------- assinatura
-VIEWS.kit = () => `<div class="cab"><div class="t"><span class="olho">Signatário da Cimed</span><h1>Esteira de assinatura</h1><p class="apoio">A Esteira online entra na fase 3, depois da validação do Jurídico sobre a assinatura no tablet e das procurações. Até lá, o kit continua pela Esteira de Admissão atual.</p></div></div><div class="vazio">Nada para assinar por aqui ainda.</div>`;
+// Esteira de Admissão: a mesma ferramenta de sempre, dentro da plataforma.
+// Os kits ficam guardados no navegador do aparelho em que foram gerados.
+VIEWS.kit = () => {
+  const ts = turmas();
+  const prox = E.turmaKit || ts.find((t) => deIso(t) >= deIso(iso(new Date()))) || ts[ts.length - 1] || '';
+  const prontos = vivas().filter((a) => a.matricula && a.data_inicio === prox).length;
+  return `<div class="cab"><div class="t"><span class="olho">Kit admissional</span><h1>Esteira de assinatura</h1><p class="apoio">A mesma Esteira de Admissão de sempre: junta os PDFs do LG por pessoa, a Cimed assina primeiro e o colaborador assina na tela do colaborador. Os kits ficam guardados no navegador do aparelho em que foram gerados, então gere e colha as assinaturas no mesmo aparelho, por exemplo o tablet da integração.</p></div>
+    <a class="bt" href="${window.ESTEIRA_URL || 'esteira.html'}" target="_blank" rel="noopener">Abrir em tela cheia</a></div>
+  ${tem('admissao') && ts.length ? `<div class="faixa"><p><b>Lista de admitidos para a Esteira.</b> Copie os matriculados de uma turma e cole no passo 1 da Esteira, em "Colar da planilha". Nome, CPF, matrícula, unidade e cargo vão no formato que ela lê.</p>
+    <label class="olho" for="turmaKit">Turma</label><select id="turmaKit" class="sel-doc">${ts.map((t) => `<option value="${t}" ${t === prox ? 'selected' : ''}>${dmd(t)}</option>`).join('')}</select>
+    <button class="bt ama" data-act="copiarEsteira" ${prontos ? '' : 'disabled'}>Copiar ${plural(prontos, 'matriculado', 'matriculados')}</button></div>` : ''}`;
+};
+// O iframe nasce uma vez e fica: trocar de tela só esconde. Recarregar
+// a Esteira perderia os PDFs que já foram jogados nela.
+POS.kit = () => {
+  $('#turmaKit')?.addEventListener('change', (e) => { E.turmaKit = e.target.value; render(); });
+  const host = $('#esteiraHost');
+  if (!host.firstChild) host.innerHTML = `<iframe class="esteira" src="${window.ESTEIRA_URL || 'esteira.html'}" title="Esteira de Admissão"></iframe>`;
+  host.hidden = false;
+};
+
+// Formato do "Colar da planilha" da Esteira: NOME CPF E-MAIL NASCIMENTO MATRICULA UNIDADE CARGO
+function listaParaEsteira(turma) {
+  const unidade = (l) => ({ 'Fernão Dias': 'Pouso Alegre (Fernão Dias)', 'Gráfica SSBV': 'SSBV', 'Angélica': 'Escritório SP', 'Faria Lima': 'Escritório SP' }[l] || l);
+  const fmtN = (d) => (d ? d.slice(8, 10) + '/' + d.slice(5, 7) + '/' + d.slice(0, 4) : '');
+  const linhas = vivas().filter((a) => a.matricula && a.data_inicio === turma)
+    .map((a) => [a.nome, fmtCpf(a.cpf), a.email || '', fmtN(a.nasc), a.matricula, unidade(a.local), a.cargo].map((x) => String(x).replace(/\t/g, ' ')).join('\t'));
+  return ['NOME\tCPF\tE-MAIL\tNASCIMENTO\tMATRICULA\tUNIDADE\tCARGO', ...linhas].join('\n');
+}
 
 // ------------------------------------------------------------- entregas
 VIEWS.entregas = () => {
@@ -633,7 +779,7 @@ async function confirmarImport(bt) {
 document.addEventListener('click', async (e) => {
   const el = e.target.closest('[data-act]'); if (!el) return;
   const a = el.dataset.act, id = el.dataset.id;
-  if (a === 'fechar') { if (el.classList.contains('veu') && e.target.closest('[data-pare]')) return; $('#camada').innerHTML = ''; return; }
+  if (a === 'fechar') { if (el.classList.contains('veu') && e.target.closest('[data-pare]')) return; $('#camada').innerHTML = ''; E.fichaAberta = null; return; }
   if (a === 'fecharModal') { $('#camada').innerHTML = ''; return; }
   switch (a) {
     case 'ir': E.view = el.dataset.v; render(); window.scrollTo(0, 0); break;
@@ -671,9 +817,58 @@ document.addEventListener('click', async (e) => {
       break;
     }
     case 'entregar': if (await tentar(() => api.marcarEntrega(id, el.dataset.area, E.perfil.nome), 'Marcado como pronto')) await recarregar(); break;
+    case 'fichaBusca': $('#busca').value = ''; buscar(); abrirFicha(id); break;
+    case 'copiarEsteira': {
+      const turma = $('#turmaKit')?.value; const texto = listaParaEsteira(turma);
+      try { await navigator.clipboard.writeText(texto); toast('Lista copiada. Na Esteira, cole no passo 1 em "Colar da planilha" e clique em Importar.'); }
+      catch { toast('Não consegui copiar sozinho. Abra a Esteira em tela cheia e tente de novo.', true); }
+      break;
+    }
+    case 'enviarArq': E.alvoArq = { adm: el.dataset.adm, tipo: el.dataset.tipo }; $('#arquivoDoc').click(); break;
+    case 'verArq': {
+      const janela = window.open('', '_blank');   // abre já no clique, senão o navegador bloqueia
+      const link = await tentar(() => api.verArquivo(el.dataset.c));
+      if (link && janela) janela.location = link; else if (link) location.assign(link); else janela?.close();
+      break;
+    }
+    case 'tirarArq':
+      if (!confirm('Remover este arquivo? Ele sai do documento e do armazenamento.')) return;
+      if (await tentar(() => api.removerArquivo(id, el.dataset.c), 'Arquivo removido')) { await recarregar(); abrirFicha(el.dataset.adm); }
+      break;
   }
 });
+
+// Envio de arquivos: prepara, guarda, pede a leitura e mostra o parecer
+async function enviarArquivos(arquivos) {
+  const { adm: aid, tipo } = E.alvoArq || {}; if (!aid || !arquivos.length) return;
+  const nomeDoc = (t) => (E.docsFicha || []).find((d) => d.tipo === t)?.nome || t;
+  const lidos = [];
+  for (const original of arquivos) {
+    let pronto;
+    try { pronto = await prepararArquivo(original); } catch (e) { toast(e.message, true); continue; }
+    toast(`Enviando ${original.name}…`);
+    let idArq;
+    try { idArq = await api.subirArquivo(aid, tipo, original, pronto); }
+    catch (e) {
+      toast(e.repetidoEm ? `${original.name}: este mesmo arquivo já está em "${nomeDoc(e.repetidoEm)}". Não entra duas vezes.` : e.message, true);
+      continue;
+    }
+    await abrirFicha(aid);           // mostra "IA lendo…" na hora
+    toast(`IA lendo ${original.name}…`);
+    let r = null;
+    try { r = await api.lerArquivo(idArq); }
+    catch (e) {
+      await api.leituraFalhou(idArq, e.message).catch(() => {});
+      lidos.push(`${original.name}: a leitura automática falhou (${e.message}). Ficou para a analista conferir.`);
+    }
+    if (r) lidos.push(`${original.name}: ${r.motivo || r.status}`);
+  }
+  await recarregar();
+  if (E.fichaAberta === aid) await abrirFicha(aid);
+  if (lidos.length) toast(lidos.join(' | '), lidos.some((l) => !/^.*: Tudo certo/.test(l)));
+}
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !document.querySelector('.modal-veu form')) $('#camada').innerHTML = ''; });
+$('#arquivoDoc').addEventListener('change', async (e) => { const fs = [...e.target.files]; e.target.value = ''; await enviarArquivos(fs); });
 $('#arquivoXlsx').addEventListener('change', async (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) { try { await lerPlanilha(f); } catch (err) { toast('Não consegui ler esta planilha: ' + err.message, true); } } });
 setInterval(() => { if (E.perfil && !$('#camada').innerHTML && !document.querySelector('.modal-veu') && ['inicio', 'painel', 'documentos', 'entregas', 'emails'].includes(E.view)) recarregar(); }, 120000);
 
