@@ -3266,6 +3266,8 @@ const S = {
   unidadeSel: null
 };
 let baixador = null;          // capacidade "downloads" do visualizador
+/* aberto pelo QR no celular do colaborador: nada se grava neste aparelho */
+let MODO_ONLINE = false;
 let baixadorTestado = false;
 
 const CHAVE = 'cimed.esteira.admissao.v2';
@@ -3282,13 +3284,15 @@ function assinLeve(){
       pendAoFechar: v.pendAoFechar, assinaturasReplicadas: v.assinaturasReplicadas,
       estampadas: v.estampadas, datasPreenchidas: v.datasPreenchidas,
       colab: v.colab ? Object.assign({}, v.colab, {imagem:undefined}) : undefined,
-      empresa: v.empresa ? Object.assign({}, v.empresa, {imagem:undefined}) : undefined
+      empresa: v.empresa ? Object.assign({}, v.empresa, {imagem:undefined}) : undefined,
+      online: v.online
     };
   });
   return out;
 }
 
 function salvar(){
+  if(MODO_ONLINE) return;
   try{
     localStorage.setItem(CHAVE, JSON.stringify({
       pessoas:S.pessoas, base:S.base, assin:assinLeve()
@@ -3345,6 +3349,7 @@ function bd(){
 }
 
 async function guardarKit(pid){
+  if(MODO_ONLINE) return false;
   const d = await bd();
   if(!d) return false;
   const p = S.pessoas.find(x=>x.id === pid), k = S.kits[pid];
@@ -3360,7 +3365,8 @@ async function guardarKit(pid){
       pdfAssinado: st.pdfAssinado || null, pendAoFechar: st.pendAoFechar || null,
       entrega: st.entrega || null,
       assinaturasReplicadas: st.assinaturasReplicadas || 0, estampadas: st.estampadas || 0,
-      datasPreenchidas: st.datasPreenchidas || 0
+      datasPreenchidas: st.datasPreenchidas || 0,
+      online: st.online || null
     },
     salvoEm: new Date().toISOString()
   };
@@ -5684,15 +5690,18 @@ function renderKits(){
   const box = $('#kitsBox');
   const ids = Object.keys(S.kits).filter(id=>S.pessoas.some(p=>p.id===id));
   if(!ids.length){
-    box.innerHTML = '<div class="vazio">Nenhum kit gerado ainda. Depois de carregar os arquivos, clique em <b>Gerar kits unificados</b>.</div>';
+    box.innerHTML = barraOnline() + '<div class="vazio">Nenhum kit gerado ainda. Depois de carregar os arquivos, clique em <b>Gerar kits unificados</b>. Se o kit foi gerado em outro aparelho, use <b>Kits on-line</b>.</div>';
+    ligarBarraOnline(box);
     marcarPasso(); return;
   }
-  let h = '<div class="rolar"><table><thead><tr><th>Pessoa</th><th>Perfil</th><th>Documentos</th><th>Páginas</th><th>Verificação</th><th>Situação</th><th></th></tr></thead><tbody>';
+  let h = barraOnline() + '<div class="rolar"><table><thead><tr><th>Pessoa</th><th>Perfil</th><th>Documentos</th><th>Páginas</th><th>Verificação</th><th>Situação</th><th></th></tr></thead><tbody>';
   ids.forEach(id=>{
     const p = S.pessoas.find(x=>x.id===id), k = S.kits[id], st = S.assin[id]||{};
-    const et = st.empresa ? '<span class="et ok">Concluído</span>'
-             : st.colab ? '<span class="et at">Aguardando a empresa</span>'
-             : '<span class="et n">Aguardando o colaborador</span>';
+    const et = (st.empresa && st.colab ? '<span class="et ok">Concluído</span>'
+             : st.colab ? '<span class="et at">Aguardando a Cimed</span>'
+             : st.empresa ? '<span class="et n">Aguardando o colaborador</span>'
+             : '<span class="et at">Aguardando a Cimed</span>')
+             + (st.online ? ' <span class="et am">on-line</span>' : '');
     h += '<tr><td><b>'+esc(p.nome)+'</b></td><td>'+esc(p.perfil)+'</td>'
       + '<td class="mono">'+k.indice.length+'</td><td class="mono">'+k.pags+'</td>'
       + '<td class="mono" style="font-size:11.5px">'+k.hash.slice(0,8).toUpperCase()+'</td>'
@@ -5708,6 +5717,7 @@ function renderKits(){
   box.querySelectorAll('[data-k2]').forEach(b=>b.addEventListener('click',()=>baixarKit(b.dataset.k2)));
   box.querySelectorAll('[data-c2]').forEach(b=>b.addEventListener('click',()=>abrirColaborador(b.dataset.c2)));
   box.querySelectorAll('[data-q2]').forEach(b=>b.addEventListener('click',()=>abrirQR(b.dataset.q2)));
+  ligarBarraOnline(box);
   marcarPasso();
 }
 
@@ -6536,6 +6546,7 @@ function ligarColaborador(p, k, st){
       docs:bal.semAssinar.map(x=>x.d.nome).slice(0,6)};
     bt.disabled = true; bt.textContent = 'Imprimindo as assinaturas nos documentos...';
     await assinar(p, k, st, {nome:nome, imagem: st.assinatura || st.rubrica || null, papel:'colaborador'});
+    if(MODO_ONLINE){ await concluirOnline(p, k, st); return; }
     renderColab();
   });
 
@@ -6750,6 +6761,7 @@ async function assinar(p, k, st, quem){
   st.pdfAssinado = await doc.save();
   if(quem.papel==='colaborador') st.colab = nova; else st.empresa = nova;
   salvar();
+  if(quem.papel === 'empresa' && st.online && !MODO_ONLINE) atualizarOnline(p.id);
   guardarKit(p.id).then(()=>{
     try{ if(canal) canal.postMessage({tipo:'assinado', pid:p.id, papel:quem.papel, nome:quem.nome}); }catch(e){}
   });
@@ -6774,48 +6786,50 @@ async function assinar(p, k, st, quem){
 function abrirQR(pid){
   const p = S.pessoas.find(x=>x.id===pid);
   if(!p) return;
-  const url = location.href.split('#')[0] + '#kit=' + encodeURIComponent(digitos(p.cpf)||p.id);
-
-  /* O QR so serve quando a ferramenta esta num endereco que outro aparelho
-     alcanca. Aberta com dois cliques, ela mora em file:///C:/... e o QR
-     carregava esse caminho: o celular lia e dizia "nenhum dado usavel",
-     com razao. Pior, mesmo abrindo nao adiantaria, porque os kits ficam
-     guardados no navegador desta maquina. Entao, em vez de mostrar um QR
-     que nao leva a lugar nenhum, a tela explica o que fazer hoje. */
+  const st = S.assin[pid] || {};
+  const o = st.online;
   const noArquivo = location.protocol === 'file:';
   const soNestePc = /^(localhost|127[.]0[.]0[.]1|[[]::1[]])$/i.test(location.hostname);
-  let bloco = '';
-  if(true){ /* fase 3 trará o kit online; até lá, o kit só existe no aparelho que gerou */
-    bloco = '<div class="aviso" style="max-width:300px"><div>'
-      + '<b>Sem QR code nesta versão.</b><br>'
-      + (noArquivo
-          ? 'A ferramenta está aberta direto do arquivo, no seu computador. Um QR com esse endereço não abre em celular nenhum: o endereço só existe nesta máquina.'
-          : soNestePc ? 'A ferramenta está num endereço que só este computador enxerga.'
-          : 'Os kits ficam guardados no navegador do aparelho onde foram gerados. Um QR levaria o colaborador a outro aparelho, onde o kit não existe.')
-      + '<br><br>Hoje o caminho é <b>entregar o tablet na mão</b>: clique em "Ver a tela do colaborador" aqui mesmo, ou cole o link numa aba deste navegador. '
-      + 'Para o colaborador abrir do celular dele, o kit precisa ficar guardado on-line, o que entra na fase 3 da Plataforma de Admissão.'
-      + '</div></div>';
+  const tablet = '<div class="aviso info" style="margin-top:14px"><div><b>Sem celular?</b> Entregue o tablet: '
+    + '<button class="b peq escura" id="btAbrirColab" style="margin-left:6px">Ver a tela do colaborador neste aparelho</button></div></div>';
+  let h;
+  if(noArquivo){
+    h = '<div class="aviso"><div><b>Sem QR code com a Esteira aberta direto do arquivo.</b><br>'
+      + 'Para o colaborador assinar pelo celular, abra a Esteira pela Plataforma de Admissão e publique o kit on-line.</div></div>' + tablet;
+  }else if(o && o.token){
+    const url = urlOnline(o);
+    let qr;
+    try{ const q = qrcode(0,'M'); q.addData(url); q.make(); qr = '<div class="qr">' + q.createSvgTag({cellSize:4, margin:0, scalable:true}) + '</div>'; }
+    catch(e){ qr = '<div class="dica">QR indisponível</div>'; }
+    h = '<div class="flex" style="align-items:flex-start;gap:22px">' + qr
+      + '<div style="flex:1;min-width:250px">'
+      + '<p class="dica forte" style="margin-top:0">O colaborador aponta a câmera do celular, confirma CPF e data de nascimento, lê os documentos e assina com o dedo. O kit assinado volta para a Admissão.</p>'
+      + (st.empresa ? '' : '<div class="aviso" style="margin-bottom:10px"><div><b>Falta a assinatura da Cimed.</b> O link só abre depois que a Cimed assinar este kit.</div></div>')
+      + '<label class="campo" style="margin-bottom:10px"><span>Link do kit</span><input type="text" readonly value="' + esc(url) + '"></label>'
+      + '<div class="flex"><button class="b peq" id="btCopiar">Copiar link</button>'
+      + '<button class="b peq" id="btNovoLink">Gerar link novo</button></div>'
+      + '<p class="dica" style="margin-top:12px">O link vale 7 dias e para de funcionar quando o colaborador assina. Cinco tentativas erradas travam o link por 15 minutos.'
+      + (soNestePc ? ' <b>Teste local:</b> este endereço só abre neste computador.' : '') + '</p>'
+      + '</div></div>' + tablet;
+  }else if(o){
+    h = '<p class="dica forte" style="margin-top:0">Este kit está on-line, mas o link foi gerado em outro aparelho e não fica guardado aqui.</p>'
+      + '<button class="b prim" id="btNovoLink">Gerar link e QR neste aparelho</button>'
+      + '<p class="dica" style="margin-top:10px">O link anterior para de funcionar.</p>' + tablet;
   }else{
-    try{
-      const q = qrcode(0,'M'); q.addData(url); q.make();
-      bloco = '<div class="qr">' + q.createSvgTag({cellSize:4, margin:0, scalable:true}) + '</div>';
-    }catch(e){ bloco = '<div class="dica">QR indisponível</div>'; }
+    h = '<p class="dica forte" style="margin-top:0">Para o colaborador assinar pelo celular, o kit precisa estar on-line. Ele fica no armazenamento privado da Plataforma de Admissão e só abre com o link, o CPF e a data de nascimento.</p>'
+      + '<button class="b prim" id="btPublicarUm">Publicar on-line e gerar QR</button>' + tablet;
   }
-  $('#janelaTit').textContent = (noArquivo || soNestePc ? 'Link do kit · ' : 'Link e QR code · ') + p.nome.split(' ')[0];
-  $('#janelaCorpo').innerHTML =
-    '<div class="flex" style="align-items:flex-start;gap:22px">'
-    + bloco
-    + '<div style="flex:1;min-width:250px">'
-    + '<p class="dica forte" style="margin-top:0">Na integração o colaborador abre este link no tablet, confirma o CPF, lê os documentos e assina com o dedo. É o caminho para o totem e para o tablet.</p>'
-    + '<label class="campo" style="margin-bottom:10px"><span>Link do kit</span><input type="text" readonly value="'+esc(url)+'"></label>'
-    + '<div class="flex"><button class="b peq" id="btCopiar">Copiar link</button>'
-    + '<button class="b peq escura" id="btAbrirColab">Ver a tela do colaborador</button></div>'
-    + '<div class="aviso" style="margin-top:14px"><div><b>O link abre direto o kit desta pessoa</b>, pedindo o CPF dela, sem mostrar o painel nem os kits dos outros. Funciona neste mesmo navegador, que é onde os kits ficam guardados.</div></div>'
-    + '</div></div>';
+  $('#janelaTit').textContent = 'Link e QR code · ' + p.nome.split(' ')[0];
+  $('#janelaCorpo').innerHTML = h;
   $('#tampa').hidden = false;
-  $('#btCopiar').addEventListener('click', ()=>{
-    navigator.clipboard.writeText(url).then(()=>torrada('Link copiado.'), ()=>torrada('Copie manualmente do campo.'));
+  const bc = $('#btCopiar');
+  if(bc) bc.addEventListener('click', ()=>{
+    navigator.clipboard.writeText(urlOnline(o)).then(()=>torrada('Link copiado.'), ()=>torrada('Copie manualmente do campo.'));
   });
+  const bn = $('#btNovoLink');
+  if(bn) bn.addEventListener('click', ()=>{ bn.disabled = true; novoLinkOnline(pid).finally(()=>{ if(bn.isConnected) bn.disabled = false; }); });
+  const bp = $('#btPublicarUm');
+  if(bp) bp.addEventListener('click', async ()=>{ if(await publicarOnline(pid, bp)) abrirQR(pid); });
   $('#btAbrirColab').addEventListener('click', ()=>abrirColaborador(pid));
 }
 
@@ -6882,6 +6896,400 @@ function abrirKitDoLink(reg){
   S.assin[p.id] = Object.assign({}, a, atual.colab ? atual : {});
   C.kiosk = true;
   abrirColaborador(p.id);
+}
+
+/* =========================================================
+   KIT ON-LINE (Plataforma de Admissão, fase 3)
+
+   O kit publicado vai para o armazenamento PRIVADO da plataforma.
+   - A Cimed assina de qualquer aparelho: traz o kit, assina, a versão
+     nova volta sozinha para a nuvem.
+   - O colaborador abre o QR no próprio celular, confirma CPF e data de
+     nascimento, lê, assina, e o PDF assinado volta para a Admissão.
+   - No celular do colaborador nada fica gravado (nem localStorage, nem
+     IndexedDB): fechou a página, sumiu.
+   Aberta direto do arquivo (file://), a Esteira continua 100% offline.
+   ========================================================= */
+const NUVEM = {sb:null, cfg:null};
+let SESSAO_ONLINE = null;
+
+async function nuvem(){
+  if(NUVEM.sb) return NUVEM.sb;
+  if(location.protocol === 'file:') return null;
+  try{
+    NUVEM.cfg = await import('./config.js');
+    const m = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm');
+    NUVEM.sb = m.createClient(NUVEM.cfg.SUPABASE_URL, NUVEM.cfg.SUPABASE_ANON_KEY, MODO_ONLINE
+      ? {auth:{persistSession:false, autoRefreshToken:false, detectSessionInUrl:false}}
+      : {auth:{autoRefreshToken:false, detectSessionInUrl:false}});
+    return NUVEM.sb;
+  }catch(e){
+    console.warn('kit on-line indisponível', e);
+    return null;
+  }
+}
+
+async function nuvemEquipe(silencioso){
+  const sb = await nuvem();
+  if(!sb){
+    if(!silencioso) torrada('O kit on-line funciona com a Esteira aberta pela Plataforma de Admissão.', 6500);
+    return null;
+  }
+  const r = await sb.auth.getSession();
+  if(!r.data || !r.data.session){
+    if(!silencioso) torrada('Entre na Plataforma de Admissão neste navegador e tente de novo.', 6500);
+    return null;
+  }
+  return sb;
+}
+
+function b64url(u8){
+  let s = '';
+  u8.forEach(b=>{ s += String.fromCharCode(b); });
+  return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+async function hashTexto(t){ return hashHex(new TextEncoder().encode(t)); }
+function sufixo(){
+  return Array.from(crypto.getRandomValues(new Uint8Array(8))).map(x=>(x % 36).toString(36)).join('');
+}
+function urlOnline(o){
+  return location.href.split('#')[0].split('?')[0] + '#online=' + o.id + '.' + o.token;
+}
+
+/* tudo do kit menos os binários: vai como .json ao lado do PDF */
+function dadosDoKit(pid){
+  const p = S.pessoas.find(x=>x.id === pid), k = S.kits[pid], st = S.assin[pid] || {};
+  return {
+    formato: 1, pessoa: p, pags: k.pags, hash: k.hash, indice: k.indice, em: k.em,
+    assin: {
+      resp: st.resp || {}, vistos: st.vistos || {}, marcas: st.marcas || {},
+      assinatura: st.assinatura || null, rubrica: st.rubrica || null,
+      marcaNome: st.marcaNome || '', colab: st.colab || null, empresa: st.empresa || null,
+      pendAoFechar: st.pendAoFechar || null, entrega: st.entrega || null,
+      assinaturasReplicadas: st.assinaturasReplicadas || 0, estampadas: st.estampadas || 0,
+      datasPreenchidas: st.datasPreenchidas || 0
+    }
+  };
+}
+
+async function subirNaNuvem(sb, caminho, dados, tipo){
+  const r = await sb.storage.from('kits').upload(caminho, new Blob([dados], {type:tipo}), {contentType:tipo, upsert:false, cacheControl:'0'});
+  if(r.error) throw new Error(r.error.message || 'falha no envio');
+}
+async function baixarDaNuvem(sb, caminho){
+  const r = await sb.storage.from('kits').download(caminho);
+  if(r.error) throw new Error(r.error.message || 'falha ao baixar');
+  return new Uint8Array(await r.data.arrayBuffer());
+}
+function erroLegivel(e){
+  const m = String((e && e.message) || e || '');
+  if(/row-level security|permission|Sem permiss/i.test(m)) return 'o seu acesso não permite esta ação. Peça o papel de Admissão ou de signatário.';
+  return m;
+}
+
+/* ---- equipe: publicar ---- */
+async function publicarOnline(pid, botao){
+  const sb = await nuvemEquipe();
+  if(!sb) return;
+  const p = S.pessoas.find(x=>x.id === pid), k = S.kits[pid];
+  if(!p || !k) return;
+  const st = S.assin[pid] || (S.assin[pid] = {resp:{}, vistos:{}, marcas:{}});
+  if(digitos(p.cpf).length !== 11){ torrada('Esta pessoa está sem CPF válido na lista. Corrija no passo 1 e gere o kit de novo.', 6500); return; }
+  const rot = botao ? botao.textContent : '';
+  if(botao){ botao.disabled = true; botao.textContent = 'Publicando...'; }
+  try{
+    const id = crypto.randomUUID();
+    const token = b64url(crypto.getRandomValues(new Uint8Array(24)));
+    const suf = sufixo();
+    await subirNaNuvem(sb, id + '/original.pdf', k.bytes, 'application/pdf');
+    let pdf = null;
+    if(st.pdfAssinado){
+      pdf = id + '/e-1-' + suf + '.pdf';
+      await subirNaNuvem(sb, pdf, st.pdfAssinado, 'application/pdf');
+    }
+    const js = id + '/e-1-' + suf + '.json';
+    await subirNaNuvem(sb, js, JSON.stringify(dadosDoKit(pid)), 'application/json');
+    const r = await sb.rpc('kit_publicar', {
+      p_id: id, p_pid: p.id, p_nome: p.nome, p_cpf: digitos(p.cpf), p_nasc: p.nasc || null,
+      p_token_hash: await hashTexto(token), p_dias: 7, p_hash_original: k.hash,
+      p_pdf: pdf, p_json: js, p_empresa_nome: st.empresa ? st.empresa.nome : null
+    });
+    if(r.error) throw new Error(r.error.message);
+    st.online = {id: id, token: token, versao: r.data.versao, em: new Date().toISOString()};
+    salvar(); guardarKit(pid); renderKits();
+    torrada('Kit de ' + p.nome.split(' ')[0] + ' publicado on-line.', 4000);
+    return true;
+  }catch(e){
+    torrada('Não foi possível publicar: ' + erroLegivel(e), 9000);
+    return false;
+  }finally{
+    if(botao && botao.isConnected){ botao.disabled = false; botao.textContent = rot; }
+  }
+}
+
+async function publicarTodosOnline(botao){
+  const ids = Object.keys(S.kits).filter(id=>S.pessoas.some(p=>p.id === id) && !(S.assin[id] && S.assin[id].online));
+  if(!ids.length){ torrada('Todos os kits deste aparelho já estão on-line.'); return; }
+  if(!(await nuvemEquipe())) return;
+  const rot = botao.textContent;
+  botao.disabled = true;
+  let n = 0;
+  for(const id of ids){
+    botao.textContent = 'Publicando ' + (n + 1) + ' de ' + ids.length + '...';
+    if(await publicarOnline(id)) n++;
+  }
+  botao.disabled = false; botao.textContent = rot;
+  torrada(n + ' kit(s) publicado(s) on-line. O QR de cada um fica em "Link e QR".', 6000);
+}
+
+/* ---- equipe: devolver versão nova (depois de a Cimed assinar) ---- */
+async function atualizarOnline(pid){
+  const st = S.assin[pid];
+  if(!st || !st.online || !st.pdfAssinado) return;
+  const sb = await nuvemEquipe();
+  if(!sb) return;
+  const o = st.online, suf = sufixo();
+  try{
+    const pdf = o.id + '/e-' + (o.versao + 1) + '-' + suf + '.pdf';
+    const js = o.id + '/e-' + (o.versao + 1) + '-' + suf + '.json';
+    await subirNaNuvem(sb, pdf, st.pdfAssinado, 'application/pdf');
+    await subirNaNuvem(sb, js, JSON.stringify(dadosDoKit(pid)), 'application/json');
+    const r = await sb.rpc('kit_salvar', {
+      p_id: o.id, p_versao: o.versao, p_pdf: pdf, p_json: js,
+      p_empresa_nome: st.empresa ? st.empresa.nome : null
+    });
+    if(r.error) throw new Error(r.error.message);
+    o.versao = r.data.versao;
+    salvar(); guardarKit(pid); renderKits();
+  }catch(e){
+    torrada('A cópia on-line não foi atualizada: ' + erroLegivel(e), 9000);
+  }
+}
+
+async function novoLinkOnline(pid){
+  const st = S.assin[pid];
+  if(!st || !st.online) return;
+  const sb = await nuvemEquipe();
+  if(!sb) return;
+  const token = b64url(crypto.getRandomValues(new Uint8Array(24)));
+  const r = await sb.rpc('kit_novo_link', {p_id: st.online.id, p_token_hash: await hashTexto(token), p_dias: 7});
+  if(r.error){ torrada('Não foi possível gerar o link: ' + erroLegivel(r.error), 8000); return; }
+  st.online.token = token;
+  salvar(); guardarKit(pid);
+  torrada('Link novo gerado. O anterior parou de funcionar.', 4500);
+  abrirQR(pid);
+}
+
+/* ---- equipe: trazer da nuvem ---- */
+async function trazerOnline(sb, row){
+  const dados = JSON.parse(new TextDecoder().decode(await baixarDaNuvem(sb, row.json_atual)));
+  const original = await baixarDaNuvem(sb, row.id + '/original.pdf');
+  const pdf = row.pdf_atual ? await baixarDaNuvem(sb, row.pdf_atual) : null;
+  const pe = dados.pessoa || {};
+  let p = S.pessoas.find(x=>x.id === pe.id)
+       || S.pessoas.find(x=>digitos(x.cpf) && digitos(x.cpf) === digitos(pe.cpf));
+  if(!p){ p = pe; S.pessoas.push(p); }
+  const antigo = S.assin[p.id] || {};
+  const tokenAntigo = antigo.online && antigo.online.id === row.id ? antigo.online.token : null;
+  S.kits[p.id] = {bytes: original, pags: dados.pags, hash: dados.hash, indice: dados.indice, em: dados.em};
+  S.assin[p.id] = Object.assign({}, dados.assin || {}, {
+    pdfAssinado: pdf,
+    online: {id: row.id, versao: row.versao, token: row.token_hash ? tokenAntigo : null}
+  });
+  await guardarKit(p.id);
+  return p;
+}
+
+function situacaoOnline(r){
+  if(r.colab_assinou && r.empresa_assinou) return '<span class="et ok">Concluído</span>';
+  if(r.colab_assinou) return '<span class="et at">Falta a Cimed</span>';
+  if(!r.empresa_assinou) return '<span class="et at">Falta a Cimed</span>';
+  if(!r.token_hash) return '<span class="et n">Sem link ativo</span>';
+  if(new Date(r.expira_em) < new Date()) return '<span class="et cr">Link vencido</span>';
+  return '<span class="et am">Com o colaborador</span>';
+}
+
+async function abrirKitsOnline(){
+  const sb = await nuvemEquipe();
+  if(!sb) return;
+  $('#janelaTit').textContent = 'Kits on-line';
+  $('#janelaCorpo').innerHTML = '<div class="carregando">Buscando os kits publicados...</div>';
+  $('#tampa').hidden = false;
+  const r = await sb.from('kits_online')
+    .select('id,nome,turma,versao,empresa_assinou,empresa_nome,colab_assinou,colab_em,expira_em,token_hash,pdf_atual,json_atual,atualizado_em')
+    .is('cancelado_em', null).order('atualizado_em', {ascending:false}).limit(300);
+  if(r.error){ $('#janelaCorpo').innerHTML = '<div class="aviso"><div>Não foi possível listar: ' + esc(erroLegivel(r.error)) + '</div></div>'; return; }
+  const linhas = r.data || [];
+  const local = {};
+  Object.keys(S.assin).forEach(pid=>{ const o = S.assin[pid] && S.assin[pid].online; if(o && S.kits[pid]) local[o.id] = o.versao; });
+  if(!linhas.length){
+    $('#janelaCorpo').innerHTML = '<div class="vazio">Nenhum kit publicado on-line ainda. Gere os kits e use <b>Publicar on-line</b>.</div>';
+    return;
+  }
+  let h = '<p class="dica forte" style="margin-top:0">Traga o kit para este aparelho para assinar pela Cimed ou para baixar o PDF assinado pelo colaborador. Quem assina pela Cimed pode estar em qualquer lugar.</p>'
+    + '<div class="flex" style="margin-bottom:10px"><button class="b peq prim" id="btTrazerMudados">Trazer todos que mudaram</button></div>'
+    + '<div class="rolar"><table><thead><tr><th>Pessoa</th><th>Integração</th><th>Situação</th><th>Neste aparelho</th><th></th></tr></thead><tbody>';
+  linhas.forEach(x=>{
+    const v = local[x.id];
+    const aqui = v === undefined ? '<span class="et n">Não</span>'
+               : v >= x.versao ? '<span class="et ok">Em dia</span>' : '<span class="et at">Desatualizado</span>';
+    h += '<tr><td><b>' + esc(x.nome) + '</b></td>'
+      + '<td class="mono">' + (x.turma ? esc(x.turma.split('-').reverse().join('/')) : '—') + '</td>'
+      + '<td>' + situacaoOnline(x) + '</td><td>' + aqui + '</td>'
+      + '<td><button class="b peq" data-trazer="' + x.id + '"' + (v !== undefined && v >= x.versao ? ' disabled' : '') + '>Trazer</button></td></tr>';
+  });
+  h += '</tbody></table></div>';
+  $('#janelaCorpo').innerHTML = h;
+  const trazer = async (ids, bt)=>{
+    if(bt){ bt.disabled = true; bt.textContent = 'Trazendo...'; }
+    let n = 0;
+    for(const id of ids){
+      const row = linhas.find(x=>x.id === id);
+      try{ await trazerOnline(sb, row); n++; }
+      catch(e){ torrada('Falhou ao trazer ' + row.nome + ': ' + erroLegivel(e), 8000); }
+    }
+    salvar(); renderPessoas(); renderCartoes(); renderKits(); renderPainel(); atualizarPlacar();
+    torrada(n + ' kit(s) trazido(s) para este aparelho.', 4500);
+    abrirKitsOnline();
+  };
+  $$('#janelaCorpo [data-trazer]').forEach(b=>b.addEventListener('click', ()=>trazer([b.dataset.trazer], b)));
+  $('#btTrazerMudados').addEventListener('click', ev=>{
+    const ids = linhas.filter(x=>local[x.id] === undefined || local[x.id] < x.versao).map(x=>x.id);
+    if(!ids.length){ torrada('Tudo em dia neste aparelho.'); return; }
+    trazer(ids, ev.currentTarget);
+  });
+}
+
+/* os kits deste aparelho que estão on-line: traz o que mudou na nuvem */
+async function sincronizarOnline(silencioso){
+  const pids = Object.keys(S.assin).filter(pid=>S.assin[pid] && S.assin[pid].online && S.kits[pid]);
+  if(!pids.length){ if(!silencioso) torrada('Nenhum kit deste aparelho está on-line.'); return; }
+  const sb = await nuvemEquipe(silencioso);
+  if(!sb) return;
+  const ids = pids.map(pid=>S.assin[pid].online.id);
+  const r = await sb.from('kits_online').select('id,nome,versao,token_hash,pdf_atual,json_atual,colab_assinou').in('id', ids);
+  if(r.error){ if(!silencioso) torrada('Não foi possível consultar: ' + erroLegivel(r.error), 7000); return; }
+  let n = 0, nomes = [];
+  for(const row of (r.data || [])){
+    const pid = pids.find(x=>S.assin[x].online.id === row.id);
+    if(!pid || S.assin[pid].online.versao >= row.versao) continue;
+    try{ await trazerOnline(sb, row); n++; if(row.colab_assinou) nomes.push(row.nome.split(' ')[0]); }catch(e){}
+  }
+  if(n){
+    salvar(); renderPessoas(); renderCartoes(); renderKits(); renderPainel(); atualizarPlacar();
+    torrada(nomes.length ? 'Assinaram pelo celular: ' + nomes.join(', ') + '. Os kits já estão aqui.' : n + ' kit(s) atualizado(s) da nuvem.', 7000);
+  }else if(!silencioso){
+    torrada('Nada novo na nuvem.');
+  }
+}
+
+/* ---- colaborador: abre pelo QR, no próprio celular ---- */
+async function modoOnline(id, token){
+  MODO_ONLINE = true;
+  S.pessoas = []; S.assin = {}; S.kits = {};
+  document.body.classList.add('modo-colab');
+  $('#tampa').hidden = false;
+  $('#janelaTit').textContent = 'Kit de admissão Cimed';
+  $('#janelaCorpo').innerHTML = '<div class="porta">'
+    + '<h3>Seu kit de admissão</h3>'
+    + '<p class="dica">Confirme os seus dados para abrir os documentos. Eles são conferidos com o cadastro do RH, e nada fica salvo neste celular.</p>'
+    + '<label class="campo"><span>Seu CPF</span>'
+    + '<input type="text" id="cpfOnline" inputmode="numeric" placeholder="000.000.000-00" autocomplete="off"></label>'
+    + '<label class="campo"><span>Data de nascimento</span>'
+    + '<input type="text" id="nascOnline" inputmode="numeric" placeholder="dd/mm/aaaa" autocomplete="off" maxlength="10"></label>'
+    + '<button class="b prim" id="btEntrarOnline" style="width:100%;justify-content:center;margin-top:6px">Abrir meus documentos</button>'
+    + '<p class="dica" id="erroOnline" style="color:var(--critico);margin-top:10px" hidden></p>'
+    + '</div>';
+  const nascEl = $('#nascOnline');
+  nascEl.addEventListener('input', ()=>{
+    const d = digitos(nascEl.value).slice(0, 8);
+    nascEl.value = d.length > 4 ? d.slice(0,2) + '/' + d.slice(2,4) + '/' + d.slice(4) : d.length > 2 ? d.slice(0,2) + '/' + d.slice(2) : d;
+  });
+  const bt = $('#btEntrarOnline'), erro = $('#erroOnline');
+  const mostrarErro = m=>{ erro.textContent = m; erro.hidden = false; bt.disabled = false; bt.textContent = 'Abrir meus documentos'; };
+  const entrar = async ()=>{
+    const cpf = digitos($('#cpfOnline').value), nasc = nascEl.value.trim();
+    if(cpf.length !== 11){ mostrarErro('Digite os 11 números do CPF.'); return; }
+    if(digitos(nasc).length !== 8){ mostrarErro('Digite a data de nascimento completa, como 14/03/1996.'); return; }
+    erro.hidden = true; bt.disabled = true; bt.textContent = 'Conferindo...';
+    let r;
+    try{
+      await nuvem();
+      const resp = await fetch(NUVEM.cfg.SUPABASE_URL + '/functions/v1/kit-online', {
+        method: 'POST', headers: {'content-type': 'application/json'},
+        body: JSON.stringify({acao: 'abrir', id: id, token: token, cpf: cpf, nasc: nasc})
+      });
+      r = await resp.json();
+    }catch(e){ r = {erro: 'Sem conexão. Confira a internet e tente de novo.'}; }
+    if(!r || !r.ok){ mostrarErro((r && r.erro) || 'Não foi possível abrir o kit.'); return; }
+    $('#janelaCorpo').innerHTML = '<div class="carregando">Baixando os seus documentos...</div>';
+    try{
+      /* sem cache: o kit não fica guardado no navegador do celular */
+      const baixa = async u=>u ? new Uint8Array(await (await fetch(u, {cache:'no-store'})).arrayBuffer()) : null;
+      const partes = await Promise.all([baixa(r.original), baixa(r.pdf), baixa(r.dados)]);
+      const dados = JSON.parse(new TextDecoder().decode(partes[2]));
+      SESSAO_ONLINE = {id: id, sessao: r.sessao, versao: r.versao, envio: r.envio};
+      const pe = dados.pessoa;
+      abrirKitDoLink({
+        pid: pe.id, cpf: digitos(pe.cpf), nome: pe.nome, pessoa: pe,
+        pags: dados.pags, hash: dados.hash, indice: dados.indice, em: dados.em, bytes: partes[0],
+        assin: Object.assign({}, dados.assin || {}, {pdfAssinado: partes[1]})
+      });
+    }catch(e){
+      $('#janelaCorpo').innerHTML = '<div class="porta"><h3>Não foi possível baixar</h3><p class="dica">Confira a internet e abra o link de novo.</p></div>';
+    }
+  };
+  bt.addEventListener('click', entrar);
+  ['#cpfOnline', '#nascOnline'].forEach(s=>$(s).addEventListener('keydown', ev=>{ if(ev.key === 'Enter') entrar(); }));
+  $('#cpfOnline').focus();
+}
+
+async function concluirOnline(p, k, st){
+  const o = SESSAO_ONLINE;
+  const tela = html=>{ $('#janelaCorpo').innerHTML = '<div class="porta">' + html + '</div>'; aoTopo(); };
+  tela('<h3>Enviando o seu kit assinado...</h3><p class="dica">Não feche esta página.</p>');
+  try{
+    const sb = await nuvem();
+    if(!sb || !o) throw new Error('Sem conexão com a Cimed.');
+    const up = await sb.storage.from('kits').uploadToSignedUrl(o.envio.caminho, o.envio.token,
+      new Blob([st.pdfAssinado], {type:'application/pdf'}), {contentType:'application/pdf', cacheControl:'0'});
+    if(up.error && !/exist|duplicate/i.test(up.error.message || '')) throw new Error(up.error.message);
+    const resp = await fetch(NUVEM.cfg.SUPABASE_URL + '/functions/v1/kit-online', {
+      method: 'POST', headers: {'content-type': 'application/json'},
+      body: JSON.stringify({acao: 'concluir', id: o.id, sessao: o.sessao, versao: o.versao,
+                            caminho: o.envio.caminho, dados: dadosDoKit(p.id)})
+    });
+    const r = await resp.json();
+    if(!r.ok) throw new Error(r.erro || 'Não foi possível registrar a assinatura.');
+    const cod = (st.colab && st.colab.codigo) || '';
+    tela('<h3>Pronto! Seu kit foi assinado.</h3>'
+      + '<p class="dica">O RH da Cimed já recebeu os seus documentos.' + (cod ? ' Código de verificação: <b>' + esc(cod) + '</b>.' : '') + '</p>'
+      + '<button class="b prim" id="btMinhaVia" style="width:100%;justify-content:center">Baixar a minha via (PDF)</button>'
+      + '<p class="dica" style="margin-top:14px">Pode fechar esta página. Nada ficou salvo neste celular.</p>');
+    $('#btMinhaVia').addEventListener('click', ()=>baixarKit(p.id));
+  }catch(e){
+    tela('<h3>Não foi possível enviar agora</h3>'
+      + '<p class="dica">' + esc((e && e.message) || String(e)) + '</p>'
+      + '<p class="dica">A sua assinatura continua nesta página. Confira a internet e toque em tentar de novo.</p>'
+      + '<button class="b prim" id="btReenviar" style="width:100%;justify-content:center">Tentar de novo</button>');
+    $('#btReenviar').addEventListener('click', ()=>concluirOnline(p, k, st));
+  }
+}
+
+/* barra de cima da lista de kits */
+function barraOnline(){
+  if(location.protocol === 'file:') return '';
+  return '<div class="flex" style="margin-bottom:12px;flex-wrap:wrap;align-items:center">'
+    + '<button class="b peq prim" id="btPublicarTodos">Publicar on-line</button>'
+    + '<button class="b peq" id="btKitsOnline">Kits on-line</button>'
+    + '<button class="b peq" id="btSincOnline">Buscar assinaturas on-line</button>'
+    + '<span class="dica" style="margin:0;flex:1;min-width:220px">Publicado, o kit fica no armazenamento privado da Plataforma de Admissão: a Cimed assina de qualquer aparelho e o colaborador assina pelo QR, no celular dele.</span>'
+    + '</div>';
+}
+function ligarBarraOnline(box){
+  const a = box.querySelector('#btPublicarTodos'); if(a) a.addEventListener('click', ()=>publicarTodosOnline(a));
+  const b = box.querySelector('#btKitsOnline'); if(b) b.addEventListener('click', abrirKitsOnline);
+  const c = box.querySelector('#btSincOnline'); if(c) c.addEventListener('click', ()=>sincronizarOnline(false));
 }
 
 /* =========================================================
@@ -7497,7 +7905,11 @@ try{
   if(S.assinanteCimed && $('#assinanteCimed')) $('#assinanteCimed').value = S.assinanteCimed;
 }catch(e){}
 const alvoLink = (location.hash.match(/[#&]kit=([^&]+)/) || [])[1];
-if(alvoLink){
+const alvoOnline = location.hash.match(/[#&]online=([0-9a-f-]{36})\.([A-Za-z0-9_-]{20,})/);
+if(alvoOnline){
+  /* QR do kit on-line: abre só o kit, no celular do colaborador */
+  modoOnline(alvoOnline[1], alvoOnline[2]);
+}else if(alvoLink){
   /* o link do kit não abre a esteira: abre o kit */
   modoColaborador(decodeURIComponent(alvoLink));
 }else{
@@ -7513,7 +7925,7 @@ if(alvoLink){
       /* binário só existe aqui, então sempre vale o guardado */
       ['pdfAssinado','assinatura','rubrica'].forEach(c=>{ if(a[c]) st[c] = a[c]; });
       ['resp','vistos','marcas','marcaNome','colab','empresa',
-       'pendAoFechar','assinaturasReplicadas','estampadas','datasPreenchidas'].forEach(c=>{
+       'pendAoFechar','assinaturasReplicadas','estampadas','datasPreenchidas','online'].forEach(c=>{
         if(st[c] === undefined || st[c] === null || (typeof st[c] === 'object' && !Object.keys(st[c]).length)){
           if(a[c] !== undefined && a[c] !== null) st[c] = a[c];
         }
@@ -7524,6 +7936,8 @@ if(alvoLink){
       renderCartoes(); renderKits(); renderPainel();
       torrada(n + ' kit(s) recuperado(s) deste navegador. Os PDFs originais do LG não são guardados.', 6000);
     }
+    /* quem assinou pelo celular enquanto a página estava fechada */
+    sincronizarOnline(true);
   });
   /* a aba do colaborador avisa quando alguém termina de assinar */
   if(canal) canal.onmessage = ev=>{
