@@ -3268,6 +3268,14 @@ const S = {
 let baixador = null;          // capacidade "downloads" do visualizador
 /* aberto pelo QR no celular do colaborador: nada se grava neste aparelho */
 let MODO_ONLINE = false;
+/* diferença entre o relógio do servidor e o do aparelho: os carimbos de
+   data e hora do kit usam a hora do servidor quando ela é conhecida */
+let DESVIO_MS = 0;
+function agoraCerta(){ return new Date(Date.now() + DESVIO_MS); }
+function acertarRelogio(iso){
+  const t = Date.parse(iso || '');
+  if(Number.isFinite(t)) DESVIO_MS = t - Date.now();
+}
 let baixadorTestado = false;
 
 const CHAVE = 'cimed.esteira.admissao.v2';
@@ -3461,7 +3469,7 @@ function confirmarNoBotao(bt, textoConfirma, acao){
 /* escolha de pessoa na própria página, no lugar do prompt */
 function escolherPessoa(titulo){
   return new Promise(resolve=>{
-    const opc = S.pessoas.map(p=>'<option value="'+p.id+'">'+esc(p.nome)+'</option>').join('');
+    const opc = S.pessoas.map(p=>'<option value="'+esc(p.id)+'">'+esc(p.nome)+'</option>').join('');
     $('#janelaTit').textContent = titulo || 'De quem é este kit?';
     $('#janelaCorpo').innerHTML =
       '<p class="dica forte" style="margin-top:0">Não reconheci de quem é este PDF. Escolha a pessoa na lista.</p>'
@@ -3982,7 +3990,7 @@ function renderPessoas(){
   COLS.forEach(c=>h+='<th>'+c.t+'</th>');
   h += '<th style="width:44px"></th></tr></thead><tbody>';
   S.pessoas.forEach(p=>{
-    h += '<tr data-p="'+p.id+'">';
+    h += '<tr data-p="'+esc(p.id)+'">';
     COLS.forEach(c=>{
       if(c.k==='perfil'){
         h += '<td><select data-c="perfil">'+perfis.map(u=>'<option'+(u===p.perfil?' selected':'')+'>'+esc(u)+'</option>').join('')+'</select></td>';
@@ -3991,7 +3999,7 @@ function renderPessoas(){
         h += '<td><input'+cls+' data-c="'+c.k+'" value="'+esc(p[c.k]||'')+'"></td>';
       }
     });
-    h += '<td><button class="b fant peq perigo" data-del="'+p.id+'" title="Remover">✕</button></td></tr>';
+    h += '<td><button class="b fant peq perigo" data-del="'+esc(p.id)+'" title="Remover">✕</button></td></tr>';
   });
   h += '</tbody></table>';
   box.innerHTML = h;
@@ -4479,7 +4487,7 @@ function renderBandeja(){
   const box = $('#bandejaBox');
   const pendentes = S.arquivos.filter(a=>!a.pessoaId);
   if(!pendentes.length){ box.innerHTML=''; return; }
-  const opc = S.pessoas.map(p=>'<option value="'+p.id+'">'+esc(p.nome)+'</option>').join('');
+  const opc = S.pessoas.map(p=>'<option value="'+esc(p.id)+'">'+esc(p.nome)+'</option>').join('');
   const comSug = pendentes.filter(a=>a.sugestao && S.pessoas.some(p=>p.id===a.sugestao.pid));
   const lotes = pendentes.filter(a=>a.lote);
   let h = '<div style="padding:22px 26px;border-bottom:1px solid var(--linha);background:var(--atencao-bg)">'
@@ -4501,17 +4509,17 @@ function renderBandeja(){
       + (!a.docKey && !a.lote ? ' <span class="et n">fora da base</span>' : '')
       + '</span>';
     if(a.lote){
-      h += '<button class="b peq prim" data-sep="'+a.id+'">Separar por pessoa</button>';
+      h += '<button class="b peq prim" data-sep="'+esc(a.id)+'">Separar por pessoa</button>';
     }
     if(a.igualParaTodos && S.pessoas.length){
-      h += '<button class="b peq prim" data-todos="'+a.id+'">Uma via para cada pessoa</button>';
+      h += '<button class="b peq prim" data-todos="'+esc(a.id)+'">Uma via para cada pessoa</button>';
     }
     if(a.sugestao){
       const ps = S.pessoas.find(x=>x.id===a.sugestao.pid);
-      if(ps) h += '<button class="b peq" data-sug="'+a.id+'" title="Gerado no LG a '+a.sugestao.seg+' segundos de outro arquivo desta pessoa">Talvez: '+esc(ps.nome.split(' ')[0]+' '+(ps.nome.split(' ')[1]||''))+'</button>';
+      if(ps) h += '<button class="b peq" data-sug="'+esc(a.id)+'" title="Gerado no LG a '+a.sugestao.seg+' segundos de outro arquivo desta pessoa">Talvez: '+esc(ps.nome.split(' ')[0]+' '+(ps.nome.split(' ')[1]||''))+'</button>';
     }
-    h += '<select data-atr="'+a.id+'"><option value="">Atribuir a...</option>'+opc+'</select>'
-      + '<button class="b peq fant perigo" data-rm="'+a.id+'">Remover</button>'
+    h += '<select data-atr="'+esc(a.id)+'"><option value="">Atribuir a...</option>'+opc+'</select>'
+      + '<button class="b peq fant perigo" data-rm="'+esc(a.id)+'">Remover</button>'
       + '</div>';
   });
   h += '</div></div>';
@@ -4754,7 +4762,7 @@ function renderCartoes(){
     extras.forEach(a=>{ h += '<li class="opc"><span class="ic o">+</span><span>'+esc(limparNomeLG(a.nome))+' <span class="dica">(fora da base)</span></span></li>'; });
     h += '</ul><div class="cartao-pe">';
     if(S.kits[p.id]){
-      h += '<span class="et ok">Kit pronto · '+S.kits[p.id].pags+' pág</span>';
+      h += '<span class="et ok">Kit pronto · '+esc(S.kits[p.id].pags)+' pág</span>';
       /* "Assinado" so quando os dois assinaram: com a Cimed sozinha o cartao
          dizia assinado e ninguem via que faltava o colaborador. */
       if(st.empresa && st.colab) h += '<span class="et ok">Assinado pelos dois</span>';
@@ -4765,12 +4773,12 @@ function renderCartoes(){
         h += '<span class="et at" title="Campos que o colaborador deixou em branco">'
           + ((pf2.assin || 0) + (pf2.campos || 0)) + ' em branco</span>';
       }
-      h += '<button class="b peq" data-kit="'+p.id+'">Baixar</button>';
-      if(!st.empresa) h += '<button class="b peq prim" data-empresa="'+p.id+'">Assinar pela Cimed</button>';
-      h += '<button class="b peq escura" data-colab="'+p.id+'">Tela do colaborador</button>';
+      h += '<button class="b peq" data-kit="'+esc(p.id)+'">Baixar</button>';
+      if(!st.empresa) h += '<button class="b peq prim" data-empresa="'+esc(p.id)+'">Assinar pela Cimed</button>';
+      h += '<button class="b peq escura" data-colab="'+esc(p.id)+'">Tela do colaborador</button>';
     }else{
       h += '<span class="et n">Sem kit gerado</span>'
-        +  '<button class="b peq" data-gerar="'+p.id+'"'+(s.meus.length?'':' disabled')+'>Gerar kit</button>';
+        +  '<button class="b peq" data-gerar="'+esc(p.id)+'"'+(s.meus.length?'':' disabled')+'>Gerar kit</button>';
     }
     h += '</div></div>';
   });
@@ -5086,7 +5094,7 @@ async function estamparRespostas(bytes, p, st, kit){
     const doc = await PDFDocument.load(bytes);
     const reg = await doc.embedFont(StandardFonts.Helvetica);
     const neg = await doc.embedFont(StandardFonts.HelveticaBold);
-    const agora = new Date();
+    const agora = agoraCerta();
     const tinta = rgb(0.05, 0.11, 0.42);   /* azul escuro, como caneta */
 
     for(const alvo of alvos){
@@ -5357,7 +5365,7 @@ async function estamparAssinaturas(bytes, p, st, quem, kit){
 
     /* a data em branco dos termos vale o dia em que a pessoa assina */
     if(quem.papel === 'colaborador'){
-      const agora2 = new Date();
+      const agora2 = agoraCerta();
       /* "CD Contagem" na linha da data fica estranho: o que vai ali e
          a cidade, entao o prefixo da unidade sai */
       let cidade = String(p.unidade || '').replace(/^(CDS?|F.BRICA|ESCRIT.RIO|UNIDADE|FILIAL|LOJA)\s+/i, '').trim();
@@ -5452,7 +5460,7 @@ async function estamparAssinaturas(bytes, p, st, quem, kit){
        viajar sozinha para o fornecedor e ainda assim ser conferível */
     const marca = quem.papel === 'colaborador' ? st.colab : st.empresa;
     const codigo = (marca && marca.codigo) || (quem.codigo || '');
-    const quando = hojeTxt(new Date());
+    const quando = hojeTxt(agoraCerta());
     const linha = limpoPDF('Assinado eletronicamente por ' + quem.nome
       + (quem.papel === 'colaborador' && p.cpf ? '  |  CPF ' + cpfTxt(p.cpf) : '')
       + '  |  ' + quando + (codigo ? '  |  codigo ' + codigo : ''));
@@ -5703,13 +5711,13 @@ function renderKits(){
              : '<span class="et at">Aguardando a Cimed</span>')
              + (st.online ? ' <span class="et am">on-line</span>' : '');
     h += '<tr><td><b>'+esc(p.nome)+'</b></td><td>'+esc(p.perfil)+'</td>'
-      + '<td class="mono">'+k.indice.length+'</td><td class="mono">'+k.pags+'</td>'
+      + '<td class="mono">'+k.indice.length+'</td><td class="mono">'+esc(k.pags)+'</td>'
       + '<td class="mono" style="font-size:11.5px">'+k.hash.slice(0,8).toUpperCase()+'</td>'
       + '<td>'+et+'</td>'
       + '<td><div class="flex" style="justify-content:flex-end">'
-      + '<button class="b peq" data-k2="'+id+'">Baixar</button>'
-      + '<button class="b peq escura" data-c2="'+id+'">Abrir tela do colaborador</button>'
-      + '<button class="b peq" data-q2="'+id+'">Link e QR</button>'
+      + '<button class="b peq" data-k2="'+esc(id)+'">Baixar</button>'
+      + '<button class="b peq escura" data-c2="'+esc(id)+'">Abrir tela do colaborador</button>'
+      + '<button class="b peq" data-q2="'+esc(id)+'">Link e QR</button>'
       + '</div></td></tr>';
   });
   h += '</tbody></table></div>';
@@ -5954,7 +5962,7 @@ function renderColab(){
 
     h += '<div class="doc-card"><h4>Conferência antes de fechar</h4>'
       + '<p class="dica" style="margin:0 0 11px">' + lidos + ' de ' + total + ' documentos lidos · '
-      + feitos + ' de ' + campos + ' campos assinados · ' + k.pags + ' páginas no kit.</p>';
+      + feitos + ' de ' + campos + ' campos assinados · ' + esc(k.pags) + ' páginas no kit.</p>';
 
     if(!pd.total && !pd.semLer.length && !pd.nAvi){
       h += '<div class="pend ok"><b>Nada pendente.</b> Você leu todos os documentos, '
@@ -6054,7 +6062,7 @@ function renderColab(){
     h += '</div>';
 
   }else{
-    st.vistos[doc.chave] = st.vistos[doc.chave] || new Date().toISOString();
+    st.vistos[doc.chave] = st.vistos[doc.chave] || agoraCerta().toISOString();
     const feitosDoc = doc.pontos.filter(x=>st.marcas[x.id]).length;
     h += '<div class="doc-topo">'
       + '<span class="rotulo">Documento ' + (C.passo + 1) + ' de ' + total + '</span>'
@@ -6406,7 +6414,7 @@ function ligarCanvas(cv, btLimpar){
 
 /* aplica a marca num ponto e guarda o registro */
 function aplicarMarca(pontoId, tipo, st){
-  st.marcas[pontoId] = {tipo: tipo, em: new Date().toISOString()};
+  st.marcas[pontoId] = {tipo: tipo, em: agoraCerta().toISOString()};
   salvar();
 }
 
@@ -6580,7 +6588,7 @@ async function assinar(p, k, st, quem){
 
   const hash = await hashHex(k.bytes);
   const codigo = hash.slice(0,4).toUpperCase()+'-'+hash.slice(4,8).toUpperCase()+'-'+hash.slice(8,12).toUpperCase();
-  const agora = new Date();
+  const agora = agoraCerta();
 
   /* A assinatura é feita uma vez na tela, mas o kit se desmancha
      depois: cada termo de benefício vai para um fornecedor diferente.
@@ -6762,6 +6770,7 @@ async function assinar(p, k, st, quem){
   if(quem.papel==='colaborador') st.colab = nova; else st.empresa = nova;
   salvar();
   if(quem.papel === 'empresa' && st.online && !MODO_ONLINE) atualizarOnline(p.id);
+  marcarKitNoBanco(p, st);
   guardarKit(p.id).then(()=>{
     try{ if(canal) canal.postMessage({tipo:'assinado', pid:p.id, papel:quem.papel, nome:quem.nome}); }catch(e){}
   });
@@ -6940,7 +6949,21 @@ async function nuvemEquipe(silencioso){
     if(!silencioso) torrada('Entre na Plataforma de Admissão neste navegador e tente de novo.', 6500);
     return null;
   }
+  if(!NUVEM.relogio){
+    NUVEM.relogio = true;
+    sb.rpc('agora_servidor').then(x=>{ if(x && x.data) acertarRelogio(x.data); }).catch(()=>{});
+  }
   return sb;
+}
+
+/* Esteira no tablet (sem kit online): leva a situação do kit para a admissão */
+async function marcarKitNoBanco(p, st){
+  if(MODO_ONLINE || location.protocol === 'file:' || !p || !st) return;
+  const status = st.empresa && st.colab ? 'concluido' : st.empresa ? 'empresa' : null;
+  if(!status || digitos(p.cpf).length !== 11) return;
+  const sb = await nuvemEquipe(true);
+  if(!sb) return;
+  try{ await sb.rpc('kit_marcar', {p_cpf: digitos(p.cpf), p_status: status}); }catch(e){}
 }
 
 function b64url(u8){
@@ -7081,18 +7104,40 @@ async function novoLinkOnline(pid){
 }
 
 /* ---- equipe: trazer da nuvem ---- */
+/* o JSON da nuvem é tratado como dado de fora: tipos e tamanhos conferidos */
+function idSeguro(v){ const s = String(v == null ? '' : v); return /^[A-Za-z0-9_-]{1,40}$/.test(s) ? s : null; }
+function pessoaSegura(pe){
+  const p = {};
+  Object.keys(pe || {}).forEach(c=>{
+    if(!/^[A-Za-z_]{1,30}$/.test(c)) return;
+    const v = pe[c];
+    if(typeof v === 'string') p[c] = v.slice(0, 300);
+    else if(typeof v === 'number' || typeof v === 'boolean') p[c] = v;
+  });
+  p.id = idSeguro(pe && pe.id) || novoId();
+  return p;
+}
+function indiceSeguro(ix){
+  return (Array.isArray(ix) ? ix : []).slice(0, 300).map(it=>{
+    it = it || {};
+    return {nome: String(it.nome || '').slice(0, 300), ini: Math.max(0, Math.trunc(+it.ini) || 0), qtd: Math.max(0, Math.trunc(+it.qtd) || 0)};
+  });
+}
 async function trazerOnline(sb, row){
   const dados = JSON.parse(new TextDecoder().decode(await baixarDaNuvem(sb, row.json_atual)));
   const original = await baixarDaNuvem(sb, row.id + '/original.pdf');
   const pdf = row.pdf_atual ? await baixarDaNuvem(sb, row.pdf_atual) : null;
-  const pe = dados.pessoa || {};
+  const pe = pessoaSegura(dados.pessoa);
   let p = S.pessoas.find(x=>x.id === pe.id)
        || S.pessoas.find(x=>digitos(x.cpf) && digitos(x.cpf) === digitos(pe.cpf));
   if(!p){ p = pe; S.pessoas.push(p); }
   const antigo = S.assin[p.id] || {};
   const tokenAntigo = antigo.online && antigo.online.id === row.id ? antigo.online.token : null;
-  S.kits[p.id] = {bytes: original, pags: dados.pags, hash: dados.hash, indice: dados.indice, em: dados.em};
-  S.assin[p.id] = Object.assign({}, dados.assin || {}, {
+  const hashOk = typeof dados.hash === 'string' && /^[0-9a-f]{64}$/.test(dados.hash) ? dados.hash : await hashHex(original);
+  S.kits[p.id] = {bytes: original, pags: Math.max(1, Math.trunc(+dados.pags) || 1), hash: hashOk,
+                  indice: indiceSeguro(dados.indice), em: String(dados.em || '').slice(0, 40)};
+  const assinNuvem = dados.assin && typeof dados.assin === 'object' && !Array.isArray(dados.assin) ? dados.assin : {};
+  S.assin[p.id] = Object.assign({}, assinNuvem, {
     pdfAssinado: pdf,
     online: {id: row.id, versao: row.versao, token: row.token_hash ? tokenAntigo : null}
   });
@@ -7228,7 +7273,8 @@ async function modoOnline(id, token){
       const baixa = async u=>u ? new Uint8Array(await (await fetch(u, {cache:'no-store'})).arrayBuffer()) : null;
       const partes = await Promise.all([baixa(r.original), baixa(r.pdf), baixa(r.dados)]);
       const dados = JSON.parse(new TextDecoder().decode(partes[2]));
-      SESSAO_ONLINE = {id: id, sessao: r.sessao, versao: r.versao, envio: r.envio};
+      SESSAO_ONLINE = {id: id, token: token, sessao: r.sessao, versao: r.versao, envioPronto: null};
+      acertarRelogio(r.agora);
       const pe = dados.pessoa;
       abrirKitDoLink({
         pid: pe.id, cpf: digitos(pe.cpf), nome: pe.nome, pessoa: pe,
@@ -7244,31 +7290,86 @@ async function modoOnline(id, token){
   $('#cpfOnline').focus();
 }
 
+async function chamarKitOnline(corpo){
+  const resp = await fetch(NUVEM.cfg.SUPABASE_URL + '/functions/v1/kit-online', {
+    method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify(corpo)
+  });
+  const r = await resp.json();
+  if(r && r.agora) acertarRelogio(r.agora);
+  return r || {};
+}
+
+function telaOnline(html){ $('#janelaCorpo').innerHTML = '<div class="porta">' + html + '</div>'; aoTopo(); }
+
+function telaPronta(p, st){
+  const cod = (st.colab && st.colab.codigo) || '';
+  telaOnline('<h3>Pronto! Seu kit foi assinado.</h3>'
+    + '<p class="dica">O RH da Cimed já recebeu os seus documentos.' + (cod ? ' Código de verificação: <b>' + esc(cod) + '</b>.' : '') + '</p>'
+    + '<button class="b prim" id="btMinhaVia" style="width:100%;justify-content:center">Baixar a minha via (PDF)</button>'
+    + '<p class="dica" style="margin-top:14px">Guarde a sua via. Depois de fechar esta página, nada fica salvo neste celular.</p>');
+  $('#btMinhaVia').addEventListener('click', ()=>baixarKit(p.id));
+}
+
+/* a sessão venceu ou o link foi aberto em outra aba: confirma de novo sem perder a assinatura */
+function pedirDadosDeNovo(p, k, st, aviso){
+  telaOnline('<h3>Confirme os seus dados para enviar</h3>'
+    + '<p class="dica">' + esc(aviso || 'Por segurança, confirme de novo o CPF e a data de nascimento. A sua assinatura continua aqui.') + '</p>'
+    + '<label class="campo"><span>Seu CPF</span><input type="text" id="cpfRenova" inputmode="numeric" placeholder="000.000.000-00" autocomplete="off"></label>'
+    + '<label class="campo"><span>Data de nascimento</span><input type="text" id="nascRenova" inputmode="numeric" placeholder="dd/mm/aaaa" autocomplete="off" maxlength="10"></label>'
+    + '<button class="b prim" id="btRenova" style="width:100%;justify-content:center;margin-top:6px">Confirmar e enviar</button>'
+    + '<p class="dica" id="erroRenova" style="color:var(--critico);margin-top:10px" hidden></p>');
+  const nascEl = $('#nascRenova');
+  nascEl.addEventListener('input', ()=>{
+    const d = digitos(nascEl.value).slice(0, 8);
+    nascEl.value = d.length > 4 ? d.slice(0,2) + '/' + d.slice(2,4) + '/' + d.slice(4) : d.length > 2 ? d.slice(0,2) + '/' + d.slice(2) : d;
+  });
+  const bt = $('#btRenova'), erro = $('#erroRenova');
+  bt.addEventListener('click', async ()=>{
+    const o = SESSAO_ONLINE;
+    bt.disabled = true; erro.hidden = true;
+    let r;
+    try{ r = await chamarKitOnline({acao: 'abrir', id: o.id, token: o.token, cpf: digitos($('#cpfRenova').value), nasc: nascEl.value.trim()}); }
+    catch(e){ r = {erro: 'Sem conexão. Confira a internet e tente de novo.'}; }
+    if(!r.ok){ erro.textContent = r.erro || 'Não foi possível confirmar.'; erro.hidden = false; bt.disabled = false; return; }
+    if(r.versao !== o.versao){
+      telaOnline('<h3>O kit mudou</h3><p class="dica">O RH atualizou o seu kit enquanto você assinava. Abra o link de novo para assinar a versão nova.</p>');
+      return;
+    }
+    o.sessao = r.sessao; o.envioPronto = null;
+    concluirOnline(p, k, st);
+  });
+}
+
 async function concluirOnline(p, k, st){
   const o = SESSAO_ONLINE;
-  const tela = html=>{ $('#janelaCorpo').innerHTML = '<div class="porta">' + html + '</div>'; aoTopo(); };
-  tela('<h3>Enviando o seu kit assinado...</h3><p class="dica">Não feche esta página.</p>');
+  telaOnline('<h3>Enviando o seu kit assinado...</h3><p class="dica">Não feche esta página.</p>');
   try{
     const sb = await nuvem();
     if(!sb || !o) throw new Error('Sem conexão com a Cimed.');
-    const up = await sb.storage.from('kits').uploadToSignedUrl(o.envio.caminho, o.envio.token,
-      new Blob([st.pdfAssinado], {type:'application/pdf'}), {contentType:'application/pdf', cacheControl:'0'});
-    if(up.error && !/exist|duplicate/i.test(up.error.message || '')) throw new Error(up.error.message);
-    const resp = await fetch(NUVEM.cfg.SUPABASE_URL + '/functions/v1/kit-online', {
-      method: 'POST', headers: {'content-type': 'application/json'},
-      body: JSON.stringify({acao: 'concluir', id: o.id, sessao: o.sessao, versao: o.versao,
-                            caminho: o.envio.caminho, dados: dadosDoKit(p.id)})
-    });
-    const r = await resp.json();
-    if(!r.ok) throw new Error(r.erro || 'Não foi possível registrar a assinatura.');
-    const cod = (st.colab && st.colab.codigo) || '';
-    tela('<h3>Pronto! Seu kit foi assinado.</h3>'
-      + '<p class="dica">O RH da Cimed já recebeu os seus documentos.' + (cod ? ' Código de verificação: <b>' + esc(cod) + '</b>.' : '') + '</p>'
-      + '<button class="b prim" id="btMinhaVia" style="width:100%;justify-content:center">Baixar a minha via (PDF)</button>'
-      + '<p class="dica" style="margin-top:14px">Pode fechar esta página. Nada ficou salvo neste celular.</p>');
-    $('#btMinhaVia').addEventListener('click', ()=>baixarKit(p.id));
+    /* o link de envio é pedido agora, não quando o kit abriu: não vence durante a leitura */
+    if(!o.envioPronto){
+      const e = await chamarKitOnline({acao: 'envio', id: o.id, sessao: o.sessao});
+      if(!e.ok){
+        if(e.renovar) return pedirDadosDeNovo(p, k, st);
+        if(e.assinado) return telaPronta(p, st);
+        throw new Error(e.erro || 'Não foi possível preparar o envio.');
+      }
+      const up = await sb.storage.from('kits').uploadToSignedUrl(e.caminho, e.token,
+        new Blob([st.pdfAssinado], {type:'application/pdf'}), {contentType:'application/pdf', cacheControl:'0'});
+      if(up.error) throw new Error(up.error.message);
+      o.envioPronto = {caminho: e.caminho, versao: e.versao};
+    }
+    /* repetir este passo é seguro: o servidor reconhece o mesmo envio */
+    const r = await chamarKitOnline({acao: 'concluir', id: o.id, sessao: o.sessao, versao: o.envioPronto.versao,
+                                     caminho: o.envioPronto.caminho, dados: {assin: dadosDoKit(p.id).assin}});
+    if(!r.ok){
+      if(r.renovar) return pedirDadosDeNovo(p, k, st);
+      o.envioPronto = null;
+      throw new Error(r.erro || 'Não foi possível registrar a assinatura.');
+    }
+    telaPronta(p, st);
   }catch(e){
-    tela('<h3>Não foi possível enviar agora</h3>'
+    telaOnline('<h3>Não foi possível enviar agora</h3>'
       + '<p class="dica">' + esc((e && e.message) || String(e)) + '</p>'
       + '<p class="dica">A sua assinatura continua nesta página. Confira a internet e toque em tentar de novo.</p>'
       + '<button class="b prim" id="btReenviar" style="width:100%;justify-content:center">Tentar de novo</button>');
@@ -7494,7 +7595,7 @@ function renderPainel(){
              : '<span class="et cr">sem arquivo</span>';
     h += '<tr><td><b>'+esc(p.nome)+'</b></td><td>'+esc(p.perfil)+'</td>'
       + '<td>'+et+' <span class="mono dica">'+s.achados+'/'+s.total+'</span></td>'
-      + '<td>'+(S.kits[p.id]?'<span class="et ok">'+S.kits[p.id].pags+' pág</span>':'<span class="et n">não gerado</span>')+'</td>'
+      + '<td>'+(S.kits[p.id]?'<span class="et ok">'+esc(S.kits[p.id].pags)+' pág</span>':'<span class="et n">não gerado</span>')+'</td>'
       + '<td>'+(st.empresa&&st.colab ? '<span class="et ok">concluída</span>'
               : st.empresa ? '<span class="et at">falta o colaborador</span>'
               : st.colab ? '<span class="et at">falta a empresa</span>'

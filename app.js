@@ -32,10 +32,18 @@ async function criarApi() {
     },
     async sair() { await sb.auth.signOut(); },
     async perfil(id) { return ok(await sb.from('perfis').select('*').eq('user_id', id).eq('ativo', true).maybeSingle()); },
-    async admissoes() { return ok(await sb.from('admissoes').select('*').order('data_inicio')); },
+    // a visão mascara CPF e tipo de PCD para quem não é Saúde, Admissão ou Remuneração
+    async admissoes() { return ok(await sb.from('admissoes_visao').select('*').order('data_inicio')); },
+    async umaAdmissao(id) { return ok(await sb.from('admissoes_visao').select('*').eq('id', id).single()); },
     async resumoDocs() { return ok(await sb.rpc('resumo_documentos')); },
-    async criar(o) { return ok(await sb.from('admissoes').insert(o).select().single()); },
-    async atualizar(id, p) { return ok(await sb.from('admissoes').update(p).eq('id', id).select().single()); },
+    async criar(o) {
+      const r = ok(await sb.from('admissoes').insert(o).select('id').single());
+      return this.umaAdmissao(r.id);
+    },
+    async atualizar(id, p) {
+      ok(await sb.from('admissoes').update(p).eq('id', id).select('id').single());
+      return this.umaAdmissao(id);
+    },
     async docs(id) { return ok(await sb.rpc('docs_da_admissao', { adm: id })); },
     async marcarDoc(id, tipo, status, obs) {
       return ok(await sb.from('documentos').update({ status, obs: obs || null }).eq('admissao_id', id).eq('tipo', tipo).select());
@@ -338,7 +346,7 @@ function casca() {
 function buscar() {
   const q = semAcento($('#busca').value).replace(/[.\-]/g, ''); const box = $('#buscaRes');
   if (q.length < 2) { box.hidden = true; box.innerHTML = ''; return; }
-  const achados = E.admissoes.filter((a) => semAcento(a.nome).includes(q) || (/^\d{3,}$/.test(q) && a.cpf.includes(q))).slice(0, 8);
+  const achados = E.admissoes.filter((a) => semAcento(a.nome).includes(q) || (/^\d{3,}$/.test(q) && (a.cpf || '').includes(q))).slice(0, 8);
   box.hidden = false;
   box.innerHTML = achados.length
     ? achados.map((a) => `<button data-act="fichaBusca" data-id="${a.id}"><b>${esc(titulo(a.nome))}</b><span>${esc(a.cargo)} · ${esc(a.local)} · ${dmd(a.data_inicio)}</span>${chipEtapa(a)}</button>`).join('')
@@ -570,7 +578,7 @@ function desenharFicha(a, docs, evs, arqs = []) {
    <div class="grade g2">
     <div class="caixa pilha" style="gap:8px"><h3>Integração</h3><span class="num">${dmd(a.data_inicio)} às ${esc(a.hora_integ || '')}</span><span class="apoio">${esc(a.integ || '')} · ${plural(a.dias_integ || 1, 'dia', 'dias')}</span><span class="apoio">Corte: ${dmd(corteDe(a.data_inicio))}, 12h</span>
      ${tem('rs', 'admissao') && !a.declinou_em && !a.matricula ? `<button class="bt peq" data-act="turma" data-id="${a.id}" data-t="${prox}">Mover para a turma de ${dm(prox)}</button>` : ''}</div>
-    <div class="caixa pilha" style="gap:8px"><h3>Contato</h3><span>${esc(a.telefone || '—')}</span><span>${esc(a.email || 'sem e-mail')}</span>${tem('rs', 'admissao', 'saude') ? `<span class="apoio num">CPF ${fmtCpf(a.cpf)}${a.nasc ? ' · ' + idade(a.nasc) + ' anos' : ''}</span>` : ''}</div>
+    <div class="caixa pilha" style="gap:8px"><h3>Contato</h3><span>${esc(a.telefone || '—')}</span><span>${esc(a.email || 'sem e-mail')}</span>${tem('saude', 'admissao', 'remuneracao') && a.cpf ? `<span class="apoio num">CPF ${fmtCpf(a.cpf)}${a.nasc ? ' · ' + idade(a.nasc) + ' anos' : ''}</span>` : ''}</div>
    </div>
    <div class="caixa pilha"><h3>Checklist da admissão</h3><div class="docs">
     <div class="doc"><div><div class="dn">Exame admissional (ASO)</div><div class="dm">${chipAso(a)}</div></div><div class="acoes">${podeAso && !a.declinou_em ? `<select class="sel-doc" id="asoSel"><option value="aguardando" ${a.aso_status === 'aguardando' ? 'selected' : ''}>A agendar</option><option value="agendado" ${a.aso_status === 'agendado' ? 'selected' : ''}>Agendado</option><option value="apto" ${a.aso_status === 'apto' ? 'selected' : ''}>Apto</option><option value="inapto" ${a.aso_status === 'inapto' ? 'selected' : ''}>Inapto</option></select><input type="date" id="asoData" class="sel-doc" value="${a.aso_data || ''}" aria-label="Data do ASO"><button class="bt peq" data-act="salvarAso" data-id="${a.id}">Salvar</button>` : ''}</div></div>
@@ -584,7 +592,8 @@ function desenharFicha(a, docs, evs, arqs = []) {
    <div class="caixa pilha"><h3>Linha do tempo</h3><div class="tempo">${evs.map((h) => `<div class="ev"><span class="pt"></span><div>${esc(textoEvento(h.texto))}<small>${quando(h.em)} · ${esc(h.quem)}</small></div></div>`).join('') || '<span class="apoio">Sem registros.</span>'}</div>
     ${tem('rs', 'admissao', 'saude', 'remuneracao') ? `<form id="fObs" class="linha-flex"><input id="obsTx" maxlength="1000" placeholder="Escrever uma observação (fica com seu nome e a hora)" style="flex:1;min-width:200px;border:1px solid var(--linha);border-radius:10px;padding:9px 12px;background:var(--sup)"><button class="bt" type="submit">Anotar</button></form>` : ''}</div>
    <div class="caixa pilha"><h3>Dados da vaga</h3><div class="grade g2" style="gap:6px 16px;font-size:13px">${[['Escala', a.escala], ['Posição', a.posicao], ['Processo seletivo', a.processo], ['Requisitante', a.requisitante], ['Analista R&S', a.analista_rs], ['Analista DP', a.analista_dp], ['Estado civil', a.estado_civil], ['Filhos', a.filhos]].map(([k, v]) => `<div><span class="apoio">${esc(k)}:</span> <b>${esc(v ?? '—')}</b></div>`).join('')}</div>
-    ${tem('rs', 'admissao') && !a.declinou_em && !a.matricula ? `<form id="fDecl" class="linha-flex"><input id="declTx" placeholder="Motivo do declínio" style="flex:1;min-width:200px;border:1px solid var(--linha);border-radius:10px;padding:9px 12px;background:var(--sup)"><button class="bt" type="submit">Registrar declínio</button></form>` : ''}</div>
+    ${tem('rs', 'admissao') && !a.declinou_em && !a.matricula ? `<form id="fDecl" class="linha-flex"><input id="declTx" placeholder="Motivo do declínio" style="flex:1;min-width:200px;border:1px solid var(--linha);border-radius:10px;padding:9px 12px;background:var(--sup)"><button class="bt" type="submit">Registrar declínio</button></form>` : ''}
+    ${tem('admissao') && !a.declinou_em && a.matricula ? `<form id="fNaoVeio" class="linha-flex"><input id="naoVeioTx" placeholder="Não compareceu ou desistiu depois da matrícula: o que aconteceu?" style="flex:1;min-width:200px;border:1px solid var(--linha);border-radius:10px;padding:9px 12px;background:var(--sup)"><button class="bt" type="submit">Registrar não comparecimento</button></form>` : ''}</div>
   </aside></div>`;
 
   document.querySelectorAll('.gaveta .sel-doc[data-doc]').forEach((s) => s.addEventListener('change', async (e) => {
@@ -595,6 +604,13 @@ function desenharFicha(a, docs, evs, arqs = []) {
     await recarregar(); abrirFicha(a.id);
   }));
   $('#fObs')?.addEventListener('submit', async (e) => { e.preventDefault(); const t = $('#obsTx').value.trim(); if (!t) return; await tentar(() => api.anotar(a.id, t), 'Anotado'); abrirFicha(a.id); });
+  $('#fNaoVeio')?.addEventListener('submit', async (e) => {
+    e.preventDefault(); const t = $('#naoVeioTx').value.trim(); if (!t) { toast('Escreva o que aconteceu.', true); return; }
+    if (await tentar(() => api.atualizar(a.id, { declinou_motivo: 'Não compareceu depois da matrícula: ' + t, declinou_em: new Date().toISOString() }), 'Não comparecimento registrado')) {
+      await tentar(() => api.anotar(a.id, 'Pendência no LG: matrícula ' + a.matricula + ' já foi gerada. Verificar a exclusão ou retificação do S-2200 no eSocial.'));
+      await recarregar(); abrirFicha(a.id);
+    }
+  });
   $('#fDecl')?.addEventListener('submit', async (e) => {
     e.preventDefault(); const t = $('#declTx').value.trim(); if (!t) { toast('Escreva o motivo do declínio.', true); return; }
     if (await tentar(() => api.atualizar(a.id, { declinou_motivo: t, declinou_em: new Date().toISOString() }), 'Declínio registrado')) { await recarregar(); abrirFicha(a.id); }
@@ -649,7 +665,7 @@ VIEWS.kit = () => {
   const prox = E.turmaKit || ts.find((t) => deIso(t) >= deIso(iso(new Date()))) || ts[ts.length - 1] || '';
   const prontos = vivas().filter((a) => a.matricula && a.data_inicio === prox).length;
   return `<div class="cab"><div class="t"><span class="olho">Kit admissional</span><h1>Esteira de assinatura</h1><p class="apoio">A mesma Esteira de Admissão de sempre: junta os PDFs do LG por pessoa, a Cimed assina primeiro e o colaborador assina na tela. Com <b>Publicar on-line</b>, o kit vai para o armazenamento privado da plataforma: a Cimed assina de qualquer aparelho e o colaborador assina pelo QR, no celular dele, depois de confirmar CPF e data de nascimento. Sem publicar, o kit fica só neste aparelho, como antes.</p></div>
-    <a class="bt" href="${(window.ESTEIRA_URL || 'esteira.html') + '?v=3'}" target="_blank" rel="noopener">Abrir em tela cheia</a></div>
+    <a class="bt" href="${(window.ESTEIRA_URL || 'esteira.html') + '?v=4'}" target="_blank" rel="noopener">Abrir em tela cheia</a></div>
   ${tem('admissao') && ts.length ? `<div class="faixa"><p><b>Lista de admitidos para a Esteira.</b> Copie os matriculados de uma turma e cole no passo 1 da Esteira, em "Colar da planilha". Nome, CPF, matrícula, unidade e cargo vão no formato que ela lê.</p>
     <label class="olho" for="turmaKit">Turma</label><select id="turmaKit" class="sel-doc">${ts.map((t) => `<option value="${t}" ${t === prox ? 'selected' : ''}>${dmd(t)}</option>`).join('')}</select>
     <button class="bt ama" data-act="copiarEsteira" ${prontos ? '' : 'disabled'}>Copiar ${plural(prontos, 'matriculado', 'matriculados')}</button></div>` : ''}`;
@@ -659,7 +675,7 @@ VIEWS.kit = () => {
 POS.kit = () => {
   $('#turmaKit')?.addEventListener('change', (e) => { E.turmaKit = e.target.value; render(); });
   const host = $('#esteiraHost');
-  if (!host.firstChild) host.innerHTML = `<iframe class="esteira" src="${(window.ESTEIRA_URL || 'esteira.html') + '?v=3'}" title="Esteira de Admissão"></iframe>`;
+  if (!host.firstChild) host.innerHTML = `<iframe class="esteira" src="${(window.ESTEIRA_URL || 'esteira.html') + '?v=4'}" title="Esteira de Admissão"></iframe>`;
   host.hidden = false;
 };
 
