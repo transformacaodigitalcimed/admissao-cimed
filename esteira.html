@@ -549,7 +549,8 @@ MARIA APARECIDA SOUZA	123.456.789-00	maria.souza@exemplo.com.br	14/03/1996	48219
       <div class="flex" style="margin-bottom:14px">
         <button class="b prim" id="btGerarKits">Gerar kits unificados</button>
         <button class="b escura" id="btEmpresaTodos">Assinar todos pela Cimed</button>
-        <input type="text" id="assinanteCimed" placeholder="Quem assina pela Cimed" style="max-width:230px">
+        <input type="text" id="assinanteCimed" list="listaSignatarios" placeholder="Quem assina pela Cimed" style="max-width:230px">
+        <datalist id="listaSignatarios"></datalist>
         <button class="b" id="btBaixarTodos">Baixar todos (.zip)</button>
         <button class="b" id="btCsvAssin">Exportar cadastro para assinatura (.csv)</button>
         <button class="b" id="btRetomar">Retomar kit assinado</button>
@@ -3268,6 +3269,10 @@ const S = {
 let baixador = null;          // capacidade "downloads" do visualizador
 /* aberto pelo QR no celular do colaborador: nada se grava neste aparelho */
 let MODO_ONLINE = false;
+/* mesmo texto do parâmetro aviso_privacidade (e-mail de boas-vindas) */
+const AVISO_PRIVACIDADE = 'A Cimed usa os seus dados pessoais e os documentos que você envia para fazer a sua admissão: cadastro, exame admissional, registro no eSocial, benefícios, crachá e assinatura do kit admissional. Fazemos isso para cumprir obrigações legais e para executar o seu contrato de trabalho (Lei Geral de Proteção de Dados, art. 7º, incisos II e V). Só as equipes que participam da sua admissão têm acesso, em ambiente protegido, e os dados ficam guardados pelos prazos que a lei exige. Para pedir acesso, correção ou mais informações sobre os seus dados, fale com o Time de Admissão.';
+/* quem tem procuração para assinar pela Cimed (parâmetro signatarios_cimed) */
+let SIGNATARIOS = [];
 /* diferença entre o relógio do servidor e o do aparelho: os carimbos de
    data e hora do kit usam a hora do servidor quando ela é conhecida */
 let DESVIO_MS = 0;
@@ -5872,7 +5877,7 @@ async function assinarPelaCimed(ids, botao){
       if(!p || !k) continue;
       const st = S.assin[id] || (S.assin[id] = {resp:{}, vistos:{}, marcas:{}});
       $('#dicaGerar').textContent = 'Assinando pela Cimed: ' + p.nome.split(' ')[0] + '...';
-      await assinar(p, k, st, {nome: nome, imagem: null, papel: 'empresa'});
+      if(await assinar(p, k, st, {nome: nome, imagem: null, papel: 'empresa'}) === false) break;
       n++;
       await new Promise(r=>setTimeout(r, 0));
     }
@@ -6029,24 +6034,28 @@ function renderColab(){
         + (st.assinaturasReplicadas ? '. Foram impressas ' + st.assinaturasReplicadas + ' assinaturas nos documentos.' : '') + '</p>'
         + '<button class="b prim" id="cbBaixarAss" style="width:100%;justify-content:center">Baixar meu kit assinado</button>';
     }else{
-      const ent = st.entrega || {};
+      /* a via vai por e-mail; WhatsApp só para quem não tem e-mail */
+      if(!st.entrega || !st.entrega.canal || st.entrega.canal === 'impressa'){
+        st.entrega = p.email ? {canal:'email', contato:p.email} : {canal:'whatsapp', contato:''};
+      }
+      const ent = st.entrega;
       h += '<p class="dica" style="margin:0 0 9px">Ao fechar, as ' + feitos + ' assinaturas que você fez são impressas nos documentos, cada uma no campo onde você tocou.</p>'
-        + '<div class="entrega"><span class="rot">Como você quer receber a sua via?</span>'
+        + '<div class="entrega"><span class="rot">Sua via assinada vai por e-mail</span>'
         + '<div class="flex" style="gap:8px">'
-        + ['whatsapp:WhatsApp', 'email:E-mail', 'impressa:Impressa'].map(o=>{
+        + ['email:E-mail', 'whatsapp:Não tenho e-mail'].map(o=>{
             const v = o.split(':')[0], t = o.split(':')[1];
             return '<button class="b peq' + (ent.canal === v ? ' prim' : '') + '" data-canal="' + v + '">' + t + '</button>';
           }).join('')
         + '</div>'
         + (ent.canal === 'whatsapp'
-            ? '<label class="campo" style="margin:9px 0 0"><span>Seu WhatsApp com DDD</span>'
+            ? '<label class="campo" style="margin:9px 0 0"><span>Sem e-mail, a via vai pelo WhatsApp. Seu número com DDD</span>'
               + '<input type="text" id="cbContato" inputmode="numeric" placeholder="(31) 90000-0000" value="' + esc(ent.contato || '') + '"></label>'
             : ent.canal === 'email'
             ? '<label class="campo" style="margin:9px 0 0"><span>Seu e-mail</span>'
               + '<input type="text" id="cbContato" placeholder="nome@exemplo.com" value="' + esc(ent.contato || p.email || '') + '"></label>'
             : ent.canal === 'impressa'
             ? '<p class="dica" style="margin:8px 0 0">A via sai impressa e é entregue na integração.</p>'
-            : '<p class="dica" style="margin:8px 0 0">Escolha uma das três para o RH saber como te mandar.</p>')
+            : '<p class="dica" style="margin:8px 0 0">Informe o seu e-mail para receber a via.</p>')
         + '</div>'
         + '<label class="campo" style="margin:0 0 10px"><span>Confirme seu nome completo</span>'
         + '<input type="text" id="cbNomeDig" value="' + esc(st.marcaNome || '') + '" placeholder="' + esc(p.nome) + '"></label>'
@@ -6110,7 +6119,7 @@ function renderColab(){
           : '<b>A empresa pode assinar antes.</b> Útil para integração em fábrica: quem assina pela Cimed assina no escritório e o tablet desce só para o colaborador.')
       + '</div></div>'
       + '<div class="flex" style="margin-top:12px">'
-      + '<input type="text" id="cbEmpNome" placeholder="Quem assina pela Cimed" style="max-width:280px">'
+      + '<input type="text" id="cbEmpNome" list="listaSignatarios" placeholder="Quem assina pela Cimed" style="max-width:280px">'
       + '<button class="b escura" id="cbEmpAssinar">Assinar como empresa</button></div>';
   }else{
     h += '<div class="sep"></div><div class="aviso info"><div><b>Assinatura da empresa registrada</b>, por '
@@ -6573,7 +6582,22 @@ function ligarColaborador(p, k, st){
   });
 }
 
+function signatarioDaLista(nome){
+  const n = String(nome || '').trim().toLowerCase();
+  const hoje = agoraCerta().toISOString().slice(0, 10);
+  return SIGNATARIOS.find(s=>String(s.nome || '').trim().toLowerCase() === n && (!s.validade || String(s.validade) >= hoje)) || null;
+}
+
 async function assinar(p, k, st, quem){
+  if(quem.papel === 'empresa' && SIGNATARIOS.length){
+    const s = signatarioDaLista(quem.nome);
+    if(!s){
+      torrada('Só quem tem procuração cadastrada assina pela Cimed: ' + SIGNATARIOS.map(x=>x.nome).join(', ') + '.', 8000);
+      return false;
+    }
+    quem = Object.assign({}, quem, {nome: s.nome,
+      procuracao: s.procuracao ? 'Procuracao ' + s.procuracao + (s.validade ? ', valida ate ' + String(s.validade).split('-').reverse().join('/') : '') : ''});
+  }
   let base = st.pdfAssinado || k.bytes;
 
   /* antes de fechar a assinatura do colaborador, escreve as respostas
@@ -6690,6 +6714,7 @@ async function assinar(p, k, st, quem){
   const nova = {
     papel: quem.papel, nome: quem.nome, imagem: quem.imagem || null,
     cpf: quem.papel==='colaborador' ? cpfTxt(p.cpf) : '',
+    procuracao: quem.procuracao || '',
     em: agora.toISOString(), codigo: codigo, hash: hash,
     disp: (navigator.userAgent||'').slice(0,90)
   };
@@ -6720,6 +6745,7 @@ async function assinar(p, k, st, quem){
     y -= 17;
     const info = [
       s.cpf ? 'CPF '+s.cpf : null,
+      s.procuracao ? s.procuracao : null,
       'Assinado em '+hojeTxt(new Date(s.em)),
       'Codigo de verificacao '+s.codigo
     ].filter(Boolean);
@@ -6952,6 +6978,19 @@ async function nuvemEquipe(silencioso){
   if(!NUVEM.relogio){
     NUVEM.relogio = true;
     sb.rpc('agora_servidor').then(x=>{ if(x && x.data) acertarRelogio(x.data); }).catch(()=>{});
+    sb.from('parametros').select('valor').eq('chave', 'signatarios_cimed').maybeSingle().then(x=>{
+      try{
+        const l = JSON.parse((x && x.data && x.data.valor) || '[]');
+        SIGNATARIOS = Array.isArray(l) ? l.filter(s=>s && s.nome).map(s=>({nome: String(s.nome).slice(0, 120),
+          procuracao: String(s.procuracao || '').slice(0, 60), validade: String(s.validade || '').slice(0, 10)})) : [];
+      }catch(e){ SIGNATARIOS = []; }
+      const dl = document.getElementById('listaSignatarios');
+      if(dl) dl.innerHTML = SIGNATARIOS.map(s=>'<option value="' + esc(s.nome) + '">').join('');
+      if(SIGNATARIOS.length === 1){
+        const c = document.getElementById('assinanteCimed');
+        if(c && !c.value) c.value = SIGNATARIOS[0].nome;
+      }
+    }).catch(()=>{});
   }
   return sb;
 }
@@ -7244,6 +7283,8 @@ async function modoOnline(id, token){
     + '<input type="text" id="nascOnline" inputmode="numeric" placeholder="dd/mm/aaaa" autocomplete="off" maxlength="10"></label>'
     + '<button class="b prim" id="btEntrarOnline" style="width:100%;justify-content:center;margin-top:6px">Abrir meus documentos</button>'
     + '<p class="dica" id="erroOnline" style="color:var(--critico);margin-top:10px" hidden></p>'
+    + '<details style="text-align:left;margin-top:16px;font-size:13px"><summary style="cursor:pointer;font-weight:600">Aviso de privacidade</summary>'
+    + '<p class="dica" style="margin:8px 0 0">' + esc(AVISO_PRIVACIDADE) + '</p></details>'
     + '</div>';
   const nascEl = $('#nascOnline');
   nascEl.addEventListener('input', ()=>{
@@ -8039,6 +8080,7 @@ if(alvoOnline){
     }
     /* quem assinou pelo celular enquanto a página estava fechada */
     sincronizarOnline(true);
+    nuvemEquipe(true);
   });
   /* a aba do colaborador avisa quando alguém termina de assinar */
   if(canal) canal.onmessage = ev=>{
