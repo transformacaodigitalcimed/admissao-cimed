@@ -463,3 +463,9 @@ td{padding:8px 10px}
 .t-lista th,.t-lista td{white-space:nowrap;font-size:12px;padding:6px 8px}
 .t-lista td:nth-child(8){white-space:normal;min-width:200px}
 @media (max-width:1100px){.dep-linha{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.dep-linha .marcas,.dep-linha button{grid-column:1 / -1}.dep-linha.so-leitura{grid-template-columns:minmax(0,1fr)}}
+
+/* olhinho da senha no login: o botão fica dentro do campo, à direita */
+.senha-olho{position:relative;display:flex;align-items:center;min-width:0}
+.senha-olho input{padding-right:44px}
+.senha-olho button{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:34px;height:34px;display:flex;align-items:center;justify-content:center;border-radius:8px;color:var(--mudo);background:transparent;border:0;cursor:pointer}
+.senha-olho button:hover,.senha-olho button:focus-visible{color:var(--tx);background:var(--sup2);outline:none}

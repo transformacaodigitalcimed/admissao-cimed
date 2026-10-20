@@ -3270,6 +3270,10 @@ let TERMO_ATIVO = true;
 const DOC_OS = d('Ordem de Servico de Seguranca do Trabalho', {area:'seguranca', gerado:true, assina:true, obs:'Gerada pela Esteira com os dados validados pela Segurança (tela Segurança do Trabalho).'});
 const CHAVE_OS = 'ordem de servico de seguranca do trabalho';
 let OS_ATIVA = true;
+/* WhatsApp automático (SQL 22, parâmetro whatsapp_ativo): quando ligado, a Esteira
+   enfileira o link do kit on-line para a plataforma mandar pela API oficial da Meta.
+   Desligado (padrão), fica só o caminho manual: abrir a conversa no wa.me. */
+let WHATSAPP_ATIVO = false;
 function temOS(p){ return OS_ATIVA && p && String(p.os_status || '').toLowerCase() === 'validada' && !!(p.os_atividades || p.os_riscos || p.os_epi); }
 function osPendente(p){ return OS_ATIVA && p && /pendente/i.test(String(p.os_status || '')); }
 let TERMO_URL = 'https://www.canalconfidencial.com.br/atitudecimed/';
@@ -4056,6 +4060,7 @@ const COLS = [
   {k:'cc', t:'Centro de custo', alv:['centro de custo','cc','c custo','ccusto']},
   {k:'admissao', t:'Data de admissão', alv:['data de admissao','admissao','data de inicio','data inicio','inicio']},
   {k:'cbo', t:'CBO', alv:['cbo']},
+  {k:'whatsapp', t:'WhatsApp', alv:['whatsapp','telefone','celular']},
   {k:'os_status', t:'OS (status)', alv:['os status','os_status']},
   {k:'os_atividades', t:'OS · atividades', alv:['os atividades','os_atividades']},
   {k:'os_riscos', t:'OS · riscos', alv:['os riscos','os_riscos']},
@@ -7516,6 +7521,7 @@ function abrirQR(pid){
       + '<button class="b peq" id="btNovoLink">Gerar link novo</button></div>'
       + '<p class="dica" style="margin-top:12px">O link vale 7 dias e para de funcionar quando o colaborador assina. Cinco tentativas erradas travam o link por 15 minutos.'
       + (soNestePc ? ' <b>Teste local:</b> este endereço só abre neste computador.' : '') + '</p>'
+      + blocoZapLink(p, st)
       + '</div></div>' + tablet;
   }else if(o){
     h = '<p class="dica forte" style="margin-top:0">Este kit está on-line, mas o link foi gerado em outro aparelho e não fica guardado aqui.</p>'
@@ -7536,7 +7542,35 @@ function abrirQR(pid){
   if(bn) bn.addEventListener('click', ()=>{ bn.disabled = true; novoLinkOnline(pid).finally(()=>{ if(bn.isConnected) bn.disabled = false; }); });
   const bp = $('#btPublicarUm');
   if(bp) bp.addEventListener('click', async ()=>{ if(await publicarOnline(pid, bp)) abrirQR(pid); });
+  const bzm = $('#btZapManual');
+  if(bzm) bzm.addEventListener('click', ()=>abrirZapLink(pid, ($('#zapNumero') || {}).value));
+  const bza = $('#btZapAuto');
+  if(bza) bza.addEventListener('click', async ()=>{
+    bza.disabled = true;
+    if(await enfileirarLinkZap(pid, ($('#zapNumero') || {}).value, false)) abrirQR(pid);
+    else if(bza.isConnected) bza.disabled = false;
+  });
   $('#btAbrirColab').addEventListener('click', ()=>abrirColaborador(pid));
+}
+
+/* Link do kit pelo WhatsApp, na janela "Link e QR". O número vem da lista
+   (coluna WhatsApp/Telefone), do último envio ou é digitado na hora. */
+function blocoZapLink(p, st){
+  const num = st.zapNumero || p.whatsapp || '';
+  const z = st.zapLink;
+  return '<div class="aviso info" style="margin-top:12px"><div style="flex:1">'
+    + '<b>Mandar o link pelo WhatsApp</b>'
+    + '<label class="campo" style="margin:8px 0"><span>WhatsApp do colaborador (DDD + número)'
+    + (WHATSAPP_ATIVO ? '; vazio = telefone do cadastro' : '') + '</span>'
+    + '<input type="text" id="zapNumero" inputmode="tel" placeholder="(35) 99999-0000" value="' + esc(num) + '"></label>'
+    + '<div class="flex">'
+    + (WHATSAPP_ATIVO ? '<button class="b peq prim" id="btZapAuto">Enviar pela plataforma</button>' : '')
+    + '<button class="b peq" id="btZapManual">Abrir conversa no WhatsApp</button></div>'
+    + (z ? '<p class="dica" style="margin:8px 0 0">Na fila da plataforma desde ' + esc(hojeTxt(new Date(z.em))) + (z.numero ? ' para ' + esc(z.numero) : ' (telefone do cadastro)') + '. A situação do envio aparece na aba Fila de e-mails.</p>' : '')
+    + (WHATSAPP_ATIVO
+        ? '<p class="dica" style="margin:8px 0 0">"Enviar pela plataforma" usa a API oficial do WhatsApp Business; ao publicar o kit o link já vai sozinho para o telefone do cadastro.</p>'
+        : '<p class="dica" style="margin:8px 0 0">O envio automático está desligado (parâmetro whatsapp_ativo): a conversa abre com o texto pronto e você aperta enviar.</p>')
+    + '</div></div>';
 }
 
 /* =========================================================
@@ -7649,9 +7683,10 @@ async function nuvemEquipe(silencioso){
   if(!NUVEM.relogio){
     NUVEM.relogio = true;
     sb.rpc('agora_servidor').then(x=>{ if(x && x.data) acertarRelogio(x.data); }).catch(()=>{});
-    sb.from('parametros').select('chave, valor').in('chave', ['termo_transparencia_ativo', 'codigo_conduta_url', 'os_ativa']).then(x=>{
+    sb.from('parametros').select('chave, valor').in('chave', ['termo_transparencia_ativo', 'codigo_conduta_url', 'os_ativa', 'whatsapp_ativo']).then(x=>{
       (x && x.data || []).forEach(r=>{
         if(r.chave === 'os_ativa'){ OS_ATIVA = String(r.valor || 'sim').trim() !== 'nao'; renderCartoes(); }
+        if(r.chave === 'whatsapp_ativo'){ WHATSAPP_ATIVO = String(r.valor || 'nao').trim() === 'sim'; }
         if(r.chave === 'termo_transparencia_ativo'){ TERMO_ATIVO = String(r.valor || 'sim').trim() !== 'nao'; renderCartoes(); }
         if(r.chave === 'codigo_conduta_url' && /^https?:\/\//.test(String(r.valor || ''))) TERMO_URL = String(r.valor).trim();
       });
@@ -7783,6 +7818,8 @@ async function publicarOnline(pid, botao){
     st.online = {id: id, token: token, versao: r.data.versao, em: new Date().toISOString()};
     salvar(); guardarKit(pid); renderKits();
     torrada('Kit de ' + p.nome.split(' ')[0] + ' publicado on-line.', 4000);
+    /* WhatsApp automático ligado: o link vai para a fila da plataforma (número da lista ou do cadastro) */
+    if(WHATSAPP_ATIVO) enfileirarLinkZap(pid, '', true);
     return true;
   }catch(e){
     torrada('Não foi possível publicar: ' + erroLegivel(e), 9000);
@@ -7790,6 +7827,49 @@ async function publicarOnline(pid, botao){
   }finally{
     if(botao && botao.isConnected){ botao.disabled = false; botao.textContent = rot; }
   }
+}
+
+/* ---- equipe: link do kit pelo WhatsApp ----
+   Caminho automático (SQL 22 + função enviar-whatsapp, parâmetro whatsapp_ativo = sim):
+   a Esteira só enfileira; quem manda é a plataforma, pela API oficial da Meta.
+   Sem número informado, o banco usa o telefone do cadastro. */
+async function enfileirarLinkZap(pid, numero, silencioso){
+  const p = S.pessoas.find(x=>x.id === pid);
+  const st = S.assin[pid] || {};
+  if(!p || !st.online || !st.online.token || digitos(p.cpf).length !== 11) return false;
+  if(MODO_ONLINE || location.protocol === 'file:') return false;
+  const sb = await nuvemEquipe(!!silencioso);
+  if(!sb) return false;
+  const link = urlOnline(st.online);
+  const num = String(numero || '').trim();
+  try{
+    const r = await sb.rpc('enfileirar_whatsapp_kit', {p_cpf: digitos(p.cpf), p_numero: num, p_link: link});
+    if(r.error) throw new Error(r.error.message);
+    st.zapLink = {em: agoraCerta().toISOString(), numero: num, id: r.data, link: link};
+    if(num) st.zapNumero = num;
+    salvar();
+    if(!silencioso) torrada('Link do kit na fila do WhatsApp da plataforma' + (num ? ' para ' + num : ' (número do cadastro)') + '.', 5000);
+    return true;
+  }catch(e){
+    if(!silencioso) torrada('O link não entrou na fila do WhatsApp: ' + erroLegivel(e), 8000);
+    else console.warn('WhatsApp automático', e);
+    return false;
+  }
+}
+/* Caminho manual, sempre disponível: abre a conversa com o link já escrito. */
+function abrirZapLink(pid, numero){
+  const p = S.pessoas.find(x=>x.id === pid);
+  const st = S.assin[pid] || {};
+  if(!p || !st.online || !st.online.token) return;
+  let num = digitos(numero || '');
+  if(num.length <= 11 && num.length >= 10) num = '55' + num;
+  if(num.length < 12){ torrada('Número de WhatsApp incompleto: confira o DDD.', 5000); return; }
+  st.zapNumero = String(numero || '').trim(); salvar();
+  const texto = 'Oi, ' + p.nome.split(' ')[0] + '! Aqui é a equipe de Admissão da Cimed. '
+    + 'Este é o link do seu kit de admissão para ler e assinar pelo celular: ' + urlOnline(st.online)
+    + ' . Ele abre com o seu CPF e a sua data de nascimento e vale 7 dias. Qualquer dúvida, é só responder por aqui.';
+  window.open('https://wa.me/' + num + '?text=' + encodeURIComponent(texto), '_blank', 'noopener');
+  torrada('Conversa aberta com o link pronto: é só enviar.', 6000);
 }
 
 async function publicarTodosOnline(botao){
@@ -8689,6 +8769,7 @@ window.addEventListener('message', ev=>{
   if(d.signatarios_cimed !== undefined || d.signatarios_por_area !== undefined) aplicarSignatarios(d.signatarios_cimed, d.signatarios_por_area);
   if(d.termo_transparencia_ativo !== undefined){ TERMO_ATIVO = String(d.termo_transparencia_ativo || 'sim').trim() !== 'nao'; if(S.pessoas.length) renderCartoes(); }
   if(d.os_ativa !== undefined){ OS_ATIVA = String(d.os_ativa || 'sim').trim() !== 'nao'; if(S.pessoas.length) renderCartoes(); }
+  if(d.whatsapp_ativo !== undefined){ WHATSAPP_ATIVO = String(d.whatsapp_ativo || 'nao').trim() === 'sim'; }
 });
 $('#btBaixarTodos').addEventListener('click', baixarZip);
 $('#btCsvAssin').addEventListener('click', csvAssinatura);

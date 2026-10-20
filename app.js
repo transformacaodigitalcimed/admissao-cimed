@@ -53,6 +53,9 @@ async function criarApi() {
     async cobrar(id) { return ok(await sb.rpc('cobrar', { adm: id })); },
     async emails() { return ok(await sb.from('emails').select('*').order('criado_em', { ascending: false }).limit(300)); },
     async reenviar(id) { return ok(await sb.rpc('reenviar_email', { eid: id })); },
+    // fila do WhatsApp (SQL 22): só existe depois do 22; quem chama trata a falha
+    async whatsapp() { return ok(await sb.from('whatsapp_fila').select('*').order('criado_em', { ascending: false }).limit(200)); },
+    async reenviarWhatsapp(id) { return ok(await sb.rpc('reenviar_whatsapp', { wid: id })); },
     async areas() { return ok(await sb.from('areas_aviso').select('*').order('ordem')); },
     async salvarArea(id, p) { return ok(await sb.from('areas_aviso').update(p).eq('id', id).select()); },
     async locais() { return ok(await sb.from('locais').select('*').eq('ativo', true).order('nome')); },
@@ -326,7 +329,7 @@ const ST_DOC = { falta: 'Não enviado', analise: 'Recebido, conferir', reenviar:
 // ============================================================= ESTADO
 const E = {
   sessao: null, perfil: null, view: null, carregado: false,
-  admissoes: [], resumo: {}, locais: [], areas: [], params: {}, emails: [], entregas: [],
+  admissoes: [], resumo: {}, locais: [], areas: [], params: {}, emails: [], whatsapp: [], entregas: [],
   turma: null, localF: '', modo: 'quadro', selDoc: null, selMail: null, previa: null,
   turmasCal: [], bps: [], dest: [], termos: [], depsNovo: [], turmaLista: null, locaisLista: null, soMatriculados: true, selTermo: null, matrizOs: [],
 };
@@ -427,6 +430,7 @@ async function carregar() {
   tarefas.push(api.areas().then((r) => (E.areas = r || [])));
   tarefas.push(api.parametros().then((r) => (E.params = Object.fromEntries((r || []).map((x) => [x.chave, x.valor])))));
   if (tem('admissao')) tarefas.push(api.emails().then((r) => (E.emails = r || [])));
+  if (tem('admissao') && api.whatsapp) tarefas.push(api.whatsapp().then((r) => (E.whatsapp = r || [])).catch(() => (E.whatsapp = [])));
   if (tem('especialista', 'admissao')) tarefas.push(api.entregas().then((r) => (E.entregas = r || [])));
   if (tem('rs', 'admissao')) {
     tarefas.push(api.turmas().then((r) => (E.turmasCal = r || [])));
@@ -476,16 +480,30 @@ function faixaBlocos() {
 }
 
 // ============================================================ TELAS FIXAS
+// ícones do olhinho da senha (aberto = senha escondida, clique para mostrar; fechado = senha à vista)
+const OLHO = {
+  aberto: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+  fechado: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.9 17.9A10.5 10.5 0 0 1 12 19c-6.5 0-10-7-10-7a18 18 0 0 1 5.1-5.9"/><path d="M9.9 4.2A10.6 10.6 0 0 1 12 4c6.5 0 10 7 10 7a18 18 0 0 1-2.2 3.2"/><path d="M14.1 14.1a3 3 0 0 1-4.2-4.2"/><line x1="2" y1="2" x2="22" y2="22"/></svg>',
+};
 function telaLogin(msg) {
   $('#raiz').innerHTML = `<div class="entrada"><form class="caixa" id="fLogin">
     <span class="marca-g">CIMED</span><h1>Plataforma de Admissão</h1>
     <p class="apoio">Entre com o seu e-mail da Cimed. O acesso é liberado pela Transformação Digital do RH.</p>
     ${LOGIN_MICROSOFT ? `<button type="button" class="bt pri grande" data-act="microsoft">Entrar com a conta Microsoft da Cimed</button><div class="sep"></div>` : ''}
     <div class="campo"><label for="lEmail">E-mail</label><input id="lEmail" type="email" autocomplete="username" required></div>
-    <div class="campo"><label for="lSenha">Senha</label><input id="lSenha" type="password" autocomplete="current-password" required></div>
+    <div class="campo"><label for="lSenha">Senha</label><div class="senha-olho"><input id="lSenha" type="password" autocomplete="current-password" required><button type="button" id="lOlho" aria-label="Mostrar senha" aria-pressed="false" title="Mostrar senha">${OLHO.aberto}</button></div></div>
     ${msg ? `<span class="erro" style="color:var(--cr);font-weight:600">${esc(msg)}</span>` : ''}
     <button class="bt ${LOGIN_MICROSOFT ? '' : 'pri'} grande" type="submit">Entrar</button>
   </form></div>`;
+  // olhinho: mostra ou esconde a senha digitada
+  $('#lOlho').addEventListener('click', () => {
+    const s = $('#lSenha'), b = $('#lOlho'), ver = s.type === 'password';
+    s.type = ver ? 'text' : 'password';
+    b.innerHTML = ver ? OLHO.fechado : OLHO.aberto;
+    b.setAttribute('aria-pressed', String(ver));
+    b.title = b.ariaLabel = ver ? 'Esconder senha' : 'Mostrar senha';
+    s.focus();
+  });
   $('#fLogin').addEventListener('submit', async (e) => {
     e.preventDefault();
     try { await api.entrar($('#lEmail').value.trim(), $('#lSenha').value); E.sessao = await api.sessao(); await aposLogin(); }
@@ -1046,7 +1064,7 @@ VIEWS.kit = () => {
   const prox = E.turmaKit || ts.find((t) => deIso(t) >= deIso(iso(new Date()))) || ts[ts.length - 1] || '';
   const prontos = vivas().filter((a) => a.matricula && a.data_inicio === prox).length;
   return `<div class="cab"><div class="t"><span class="olho">Kit admissional</span><h1>Esteira de assinatura</h1><p class="apoio">A mesma Esteira de Admissão de sempre: junta os PDFs do LG por pessoa, a Cimed assina primeiro e o colaborador assina na tela. Com <b>Publicar on-line</b>, o kit vai para o armazenamento privado da plataforma: a Cimed assina de qualquer aparelho e o colaborador assina pelo QR, no celular dele, depois de confirmar CPF e data de nascimento. Sem publicar, o kit fica só neste aparelho, como antes.</p></div>
-    <a class="bt" href="${(window.ESTEIRA_URL || 'esteira.html') + '?v=13'}" target="_blank" rel="noopener">Abrir em tela cheia</a></div>
+    <a class="bt" href="${(window.ESTEIRA_URL || 'esteira.html') + '?v=14'}" target="_blank" rel="noopener">Abrir em tela cheia</a></div>
   ${faixaBlocos()}
   ${tem('admissao') && ts.length ? `<div class="faixa"><p><b>Lista de admitidos para a Esteira.</b> Copie os matriculados de uma turma e cole no passo 1 da Esteira, em "Colar da planilha". Nome, CPF, matrícula, unidade e cargo vão no formato que ela lê.</p>
     <label class="olho" for="turmaKit">Turma</label><select id="turmaKit" class="sel-doc">${ts.map((t) => `<option value="${t}" ${t === prox ? 'selected' : ''}>${dmd(t)}</option>`).join('')}</select>
@@ -1058,11 +1076,11 @@ POS.kit = () => {
   $('#turmaKit')?.addEventListener('change', (e) => { E.turmaKit = e.target.value; render(); });
   const host = $('#esteiraHost');
   if (!host.firstChild) {
-    host.innerHTML = `<iframe class="esteira" src="${(window.ESTEIRA_URL || 'esteira.html') + '?v=13'}" title="Esteira de Admissão"></iframe>`;
+    host.innerHTML = `<iframe class="esteira" src="${(window.ESTEIRA_URL || 'esteira.html') + '?v=14'}" title="Esteira de Admissão"></iframe>`;
     // a Esteira lê os mesmos parâmetros do Supabase; mandar daqui cobre o teste sem banco e evita esperar
     const fr = host.firstChild;
     fr.addEventListener('load', () => {
-      try { const alvo = new URL(fr.src, location.href).origin; fr.contentWindow.postMessage({ tipo: 'cimed-parametros', signatarios_cimed: E.params.signatarios_cimed, signatarios_por_area: E.params.signatarios_por_area, termo_transparencia_ativo: E.params.termo_transparencia_ativo, os_ativa: E.params.os_ativa }, alvo === 'null' ? '*' : alvo); } catch (e) { /* iframe sem acesso */ }
+      try { const alvo = new URL(fr.src, location.href).origin; fr.contentWindow.postMessage({ tipo: 'cimed-parametros', signatarios_cimed: E.params.signatarios_cimed, signatarios_por_area: E.params.signatarios_por_area, termo_transparencia_ativo: E.params.termo_transparencia_ativo, os_ativa: E.params.os_ativa, whatsapp_ativo: E.params.whatsapp_ativo }, alvo === 'null' ? '*' : alvo); } catch (e) { /* iframe sem acesso */ }
     });
   }
   host.hidden = false;
@@ -1075,8 +1093,8 @@ function listaParaEsteira(turma) {
   const fmtN = (d) => (d ? d.slice(8, 10) + '/' + d.slice(5, 7) + '/' + d.slice(0, 4) : '');
   const linhas = vivas().filter((a) => a.matricula && a.data_inicio === turma)
     .map((a) => [a.nome, fmtCpf(a.cpf), a.email || '', fmtN(a.nasc), a.matricula, unidade(a.local), a.cargo, a.setor || '', [a.cc_codigo, a.cc_nome].filter(Boolean).join(' - '), fmtN(a.data_inicio),
-      a.cbo || '', temOs(a) ? a.os_status : 'nao_aplica', a.os_atividades || '', a.os_riscos || '', a.os_epi || '', a.os_epc || '', a.os_nrs || '', a.os_validada_por || '', a.os_matriz_versao || ''].map((x) => String(x).replace(/[\t\r\n]+/g, ' ')).join('\t'));
-  return ['NOME\tCPF\tE-MAIL\tNASCIMENTO\tMATRICULA\tUNIDADE\tCARGO\tSETOR\tCC\tADMISSAO\tCBO\tOS_STATUS\tOS_ATIVIDADES\tOS_RISCOS\tOS_EPI\tOS_EPC\tOS_NRS\tOS_VALIDADA_POR\tOS_MATRIZ_VERSAO', ...linhas].join('\n');
+      a.cbo || '', temOs(a) ? a.os_status : 'nao_aplica', a.os_atividades || '', a.os_riscos || '', a.os_epi || '', a.os_epc || '', a.os_nrs || '', a.os_validada_por || '', a.os_matriz_versao || '', a.telefone || ''].map((x) => String(x).replace(/[\t\r\n]+/g, ' ')).join('\t'));
+  return ['NOME\tCPF\tE-MAIL\tNASCIMENTO\tMATRICULA\tUNIDADE\tCARGO\tSETOR\tCC\tADMISSAO\tCBO\tOS_STATUS\tOS_ATIVIDADES\tOS_RISCOS\tOS_EPI\tOS_EPC\tOS_NRS\tOS_VALIDADA_POR\tOS_MATRIZ_VERSAO\tWHATSAPP', ...linhas].join('\n');
 }
 
 // ------------------------------------------------------------- entregas
@@ -1241,13 +1259,28 @@ VIEWS.emails = () => {
    <div class="docs">${EMAILS_EVENTO.map(([t, q, d]) => `<div class="doc"><div><div class="dn">${esc(TIPO_EMAIL[t] || t)} <span class="apoio" style="font-weight:400">· ${esc(q)}</span></div><div class="dm">${esc(d)}</div></div></div>`).join('')}</div>
    <p class="apoio" style="font-size:12.5px;margin:10px 0 4px">Para a equipe e as áreas (não vão ao colaborador):</p>
    <div class="docs">${EMAILS_EQUIPE.map(([t, q, d]) => `<div class="doc"><div><div class="dn">${esc(TIPO_EMAIL[t] || t)} <span class="apoio" style="font-weight:400">· ${esc(q)}</span></div><div class="dm">${esc(d)}</div></div></div>`).join('')}</div>
-   <p class="apoio" style="font-size:12.5px;margin-top:8px">WhatsApp: a plataforma não envia mensagens pelo WhatsApp; isso exige a API oficial do WhatsApp Business. O número do time (${esc(E.params.whatsapp_admissao || '')}) aparece nos e-mails, e a Esteira abre a conversa com o texto pronto para anexar o PDF.</p>
+   ${E.params.whatsapp_ativo === 'sim' ? '' : `<p class="apoio" style="font-size:12.5px;margin-top:8px">WhatsApp: o envio automático está desligado (parâmetro whatsapp_ativo). O número do time (${esc(E.params.whatsapp_admissao || '')}) aparece nos e-mails, e a Esteira abre a conversa com o texto pronto (link do kit ou PDF). Para ligar é preciso a API oficial do WhatsApp Business: README, seção 15.</p>`}
   </details>
+  ${E.params.whatsapp_ativo === 'sim' ? secaoWhatsapp() : ''}
   <div class="grade" style="grid-template-columns:minmax(0,360px) minmax(0,1fr)">
    <div class="mail-lista">${l.map((x) => `<button class="mail" data-act="selMail" data-id="${x.id}" aria-current="${x.id === E.selMail}"><span class="linha-flex" style="gap:6px">${stc[x.status] || ''}${chip('c-info', '', tipo[x.tipo] || x.tipo)}<small class="num">${quando(x.criado_em)}</small></span><span class="as">${esc(x.assunto)}</span><small>Para: ${esc(x.para_nome || (x.para || []).join(', '))}</small></button>`).join('') || '<div class="vazio">Nenhum e-mail ainda.</div>'}</div>
    ${m ? `<article class="carta"><div class="faixa-mail"></div><div class="hdr"><b>Para</b><span>${esc((m.para || []).join(', '))}</span><b>Assunto</b><span><b style="color:var(--tx)">${esc(m.assunto)}</b></span><b>Situação</b><span>${stc[m.status] || ''} ${m.enviado_em ? 'em ' + quando(m.enviado_em) : ''}${m.erro ? '<br><span style="color:var(--cr)">' + esc(m.erro) + '</span>' : ''}</span>${Array.isArray(m.anexos) && m.anexos.length ? `<b>Anexo</b><span>${esc(m.anexos.map((x) => x.nome).join(', '))}</span>` : ''}</div><div class="corpo">${esc(m.corpo)}</div>${['erro', 'descartado'].includes(m.status) ? `<div style="padding:0 18px 18px"><button class="bt" data-act="reenviar" data-id="${m.id}">Tentar de novo</button></div>` : ''}</article>` : ''}
   </div>`;
 };
+
+// WhatsApp (SQL 22): o link do kit on-line vai pela API oficial da Meta. A seção só aparece
+// com whatsapp_ativo = sim; cada linha mostra a situação do envio, como a fila de e-mails.
+function secaoWhatsapp() {
+  const l = E.whatsapp || [];
+  const stc = { pendente: chip('c-ag', 'ag', 'Na fila'), enviando: chip('c-info', 'ag', 'Enviando'), enviado: chip('c-ok', 'ok', 'Enviado'), erro: chip('c-cr', 'cr', 'Erro'), descartado: chip('c-ag', 'cr', 'Descartado') };
+  const nomeDe = (w) => { const a = E.admissoes.find((x) => x.id === w.admissao_id); return a ? a.nome : (w.parametros && w.parametros.nome) || ''; };
+  const fone = (n) => { const d = String(n || '').replace(/\D/g, '').replace(/^55/, ''); return d.length >= 10 ? `(${d.slice(0, 2)}) ${d.slice(2, -4)}-${d.slice(-4)}` : n || ''; };
+  const desvio = String(E.params.whatsapp_redirecionar_para || '').trim();
+  return `<div class="caixa" style="margin-bottom:12px"><div class="linha-flex" style="justify-content:space-between;align-items:baseline"><b>WhatsApp · link do kit on-line</b><span class="apoio">${plural(l.filter((w) => w.status === 'pendente').length, 'na fila', 'na fila')} · ${plural(l.filter((w) => w.status === 'erro').length, 'com erro', 'com erro')}</span></div>
+   <p class="apoio" style="font-size:12.5px;margin:4px 0 8px">Quando a Esteira publica o kit on-line, o link vai para o WhatsApp do colaborador pelo modelo "${esc(E.params.whatsapp_modelo_kit || 'kit_admissao_link')}" da API oficial. A mensagem sai em até 5 minutos.${desvio ? ` <b>Modo teste:</b> todas as mensagens vão só para ${esc(fone(desvio))}.` : ''}</p>
+   ${l.length ? `<div class="tab-wrap"><table><thead><tr><th>Quando</th><th>Pessoa</th><th>Número</th><th>Situação</th><th></th></tr></thead><tbody>${l.map((w) => `<tr><td class="num">${quando(w.criado_em)}</td><td>${esc(nomeDe(w))}</td><td class="num">${esc(fone(w.numero))}</td><td>${stc[w.status] || esc(w.status)}${w.enviado_em ? ` <small class="apoio">em ${quando(w.enviado_em)}</small>` : ''}${w.erro ? `<br><small style="color:var(--cr)">${esc(w.erro)}</small>` : ''}${w.tentativas > 1 ? ` <small class="apoio">(${w.tentativas} tentativas)</small>` : ''}</td><td>${['erro', 'descartado'].includes(w.status) ? `<button class="bt peq" data-act="reenviarZap" data-id="${w.id}">Tentar de novo</button>` : ''}</td></tr>`).join('')}</tbody></table></div>` : '<div class="vazio">Nenhuma mensagem de WhatsApp ainda.</div>'}
+  </div>`;
+}
 
 // ============================================== IMPORTAR A PLANILHA
 async function lerPlanilha(file) {
@@ -1393,6 +1426,7 @@ document.addEventListener('click', async (e) => {
     }
     case 'selMail': E.selMail = +id || id; render(); break;
     case 'reenviar': await tentar(() => api.reenviar(+id), 'Volta para a fila'); await recarregar(); break;
+    case 'reenviarZap': await tentar(() => api.reenviarWhatsapp(+id), 'Volta para a fila do WhatsApp'); await recarregar(); break;
     case 'togArea': { const ar = E.areas.find((x) => x.id === id); if (await tentar(() => api.salvarArea(id, { ativo: !ar.ativo }))) { ar.ativo = !ar.ativo; render(); } break; }
     case 'salvarArea': {
       const emails = $('#em_' + CSS.escape(id)).value.split(/[,;\s]+/).map((x) => x.trim().toLowerCase()).filter(Boolean);
