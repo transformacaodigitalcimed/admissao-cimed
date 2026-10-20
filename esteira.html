@@ -5999,6 +5999,42 @@ async function enviarViaPorEmail(p, st){
     torrada('A via assinada não entrou na fila de e-mails: ' + erroLegivel(e) + '. Mande pelo Painel.', 8000);
   }
 }
+/* Painel: mandar a via assinada por e-mail à mão, para qualquer pessoa (Josianny, 20/10/2026).
+   Vale para quem escolheu WhatsApp ou impressa, ou quando o e-mail automático não saiu. */
+function enviarViaPorEmailManual(pid){
+  const p = S.pessoas.find(x=>x.id === pid), st = S.assin[pid] || {};
+  if(!p || !st.colab || !st.pdfAssinado){ torrada('Esta pessoa ainda não assinou o kit neste aparelho.', 5000); return; }
+  if(MODO_ONLINE || location.protocol === 'file:'){ torrada('O e-mail sai pela Plataforma de Admissão: abra a Esteira por ela, logada.', 6500); return; }
+  const ent = st.entrega || {};
+  const sugerido = (ent.canal === 'email' && ent.contato) ? ent.contato : (p.email || '');
+  const pend = textoPendentes(S.kits[pid], st);
+  $('#janelaTit').textContent = 'Enviar a via assinada por e-mail · ' + p.nome.split(' ')[0];
+  $('#janelaCorpo').innerHTML = '<p class="dica forte" style="margin-top:0">O PDF assinado vai pela fila de e-mails da plataforma, com o código de verificação' + ((st.colab && st.colab.codigo) ? ' ' + esc(st.colab.codigo) : '') + '.</p>'
+    + (pend ? '<div class="aviso" style="margin-bottom:12px"><div><b>Falta a Cimed assinar: ' + esc(pend) + '.</b> A via vai sem essa assinatura; se preferir, assine primeiro.</div></div>' : '')
+    + (st.viaEnviadaEm ? '<p class="dica">Já foi enviada em ' + esc(hojeTxt(new Date(st.viaEnviadaEm))) + '. Enviar de novo manda outra cópia.</p>' : '')
+    + '<label class="campo" style="max-width:460px"><span>E-mail da pessoa</span><input type="email" id="viaEmail" value="' + esc(sugerido) + '" placeholder="nome@exemplo.com"></label>'
+    + '<div class="flex" style="margin-top:14px"><button class="b prim" id="btViaEnviar">Enviar por e-mail</button><button class="b" id="btViaCancelar">Cancelar</button></div>';
+  $('#tampa').classList.remove('cheia'); $('#tampa').hidden = false;
+  $('#btViaCancelar').addEventListener('click', fecharJanela);
+  $('#btViaEnviar').addEventListener('click', async ()=>{
+    const email = String($('#viaEmail').value || '').trim();
+    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ torrada('Escreva um e-mail válido.'); return; }
+    const bt = $('#btViaEnviar'); bt.disabled = true; bt.textContent = 'Enviando...';
+    const sb = await nuvemEquipe(false);
+    if(!sb){ bt.disabled = false; bt.textContent = 'Enviar por e-mail'; return; }
+    try{
+      const r = await sb.rpc('enfileirar_via_assinada', {p_cpf: digitos(p.cpf), p_email: email,
+        p_nome_arquivo: nomeArquivoKit(p, st), p_base64: b64(st.pdfAssinado), p_codigo: (st.colab && st.colab.codigo) || ''});
+      if(r.error) throw new Error(r.error.message);
+      st.viaEnviadaEm = agoraCerta().toISOString(); st.viaEnviadaPara = email; salvar(); renderPainel();
+      fecharJanela();
+      torrada('A via assinada foi para a fila de e-mails da plataforma: ' + email + '. Sai em até 5 minutos.', 6000);
+    }catch(e){
+      torrada('Não entrou na fila de e-mails: ' + erroLegivel(e), 8000);
+      if(bt.isConnected){ bt.disabled = false; bt.textContent = 'Enviar por e-mail'; }
+    }
+  });
+}
 function b64(u8){
   let s = '';
   const CH = 0x8000;
@@ -8795,6 +8831,8 @@ function renderPainel(){
         + '<td><button class="b peq" data-kit="' + x.p.id + '">Baixar</button>'
         + (e.canal === 'whatsapp' && (e.contato || '').trim()
             ? ' <button class="b peq prim" data-zap="' + x.p.id + '">Enviar no WhatsApp</button>' : '')
+        + (x.st.pdfAssinado ? ' <button class="b peq' + (e.canal === 'email' ? ' prim' : '') + '" data-mail="' + x.p.id + '">Enviar por e-mail</button>' : '')
+        + (x.st.viaEnviadaEm ? ' <span class="et ok" title="' + esc(x.st.viaEnviadaPara || '') + '">e-mail ' + esc(hojeTxt(new Date(x.st.viaEnviadaEm)).split(' ')[0]) + '</span>' : '')
         + '</td></tr>';
     });
     h += '</tbody></table></div>';
@@ -8864,6 +8902,7 @@ function renderPainel(){
   /* a lista de entrega vira arquivo para o RH mandar as vias */
   box.querySelectorAll('[data-kit]').forEach(b=>b.addEventListener('click', ()=>baixarKit(b.dataset.kit)));
   box.querySelectorAll('[data-zap]').forEach(b=>b.addEventListener('click', ()=>enviarNoZap(b.dataset.zap)));
+  box.querySelectorAll('[data-mail]').forEach(b=>b.addEventListener('click', ()=>enviarViaPorEmailManual(b.dataset.mail)));
   const bc = box.querySelector('#btCsvEntrega');
   if(bc) bc.addEventListener('click', ()=>{
     const linhas = [['NOME','CPF','COMO RECEBER','CONTATO','KIT ASSINADO EM','CODIGO']];
