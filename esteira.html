@@ -331,6 +331,13 @@ body.modo-colab .marca-nome small{display:none}
 }
 .janela-cab .x:hover{background:var(--superficie)}
 .janela-corpo{padding:24px}
+/* "Assinar neste computador": a tela do colaborador ocupa a tela inteira, sem moldura de celular */
+.tampa.cheia{padding:0;place-items:stretch}
+.tampa.cheia .janela{max-width:none;width:100%;height:100%;max-height:none;border-radius:0;border:0}
+.tampa.cheia .celular{max-width:none;border:0;border-radius:0;background:none}
+.tampa.cheia .celular-topo{border-radius:0}
+.tampa.cheia .janela-corpo{padding:0 clamp(16px,5vw,80px) 40px}
+.tampa.cheia .doc-card,.tampa.cheia .campo-assin{font-size:15px}
 
 .celular{
   max-width:440px;margin:0 auto;border:11px solid var(--tinta);border-radius:32px;overflow:hidden;background:var(--fundo);
@@ -404,7 +411,8 @@ body.modo-colab .celular{border:0}
   background:var(--tinta);color:#FFFDF4;padding:14px 22px;border-radius:999px;font-size:14px;font-weight:500;
   box-shadow:0 14px 34px -12px rgba(0,0,0,.55);transition:transform .28s cubic-bezier(.2,.9,.3,1);max-width:90vw;
 }
-.torrada.ver{transform:translate(-50%,0)}
+.torrada{visibility:hidden;transition:transform .28s cubic-bezier(.2,.9,.3,1),visibility 0s .3s}
+.torrada.ver{transform:translate(-50%,0);visibility:visible;transition:transform .28s cubic-bezier(.2,.9,.3,1),visibility 0s}
 /* sem recado nenhum a pilula vazia ficava espiando no pe da tela */
 .torrada:empty{display:none}
 .vazio{padding:44px 24px;text-align:center;color:var(--suave);font-size:14px}
@@ -3692,8 +3700,12 @@ function chaveDoc(nome){ return sem(nome).toLowerCase(); }
 function torrada(msg, ms){
   const t = $('#torrada');
   t.textContent = msg; t.classList.add('ver');
-  clearTimeout(torrada._t);
-  torrada._t = setTimeout(()=>t.classList.remove('ver'), ms||3200);
+  clearTimeout(torrada._t); clearTimeout(torrada._v);
+  torrada._t = setTimeout(()=>{
+    t.classList.remove('ver');
+    /* depois de descer, esvazia: a pílula preta não fica espiando no pé da tela (nem dentro do iframe) */
+    torrada._v = setTimeout(()=>{ if(!t.classList.contains('ver')) t.textContent = ''; }, 400);
+  }, ms||3200);
 }
 
 /* O visualizador roda a página num quadro protegido, e nele o
@@ -5051,7 +5063,7 @@ function renderCartoes(){
       }
       h += '<button class="b peq" data-kit="'+esc(p.id)+'">Baixar</button>';
       if(!st.empresa) h += botoesBlocos(p.id, S.kits[p.id], st);
-      h += '<button class="b peq escura" data-colab="'+esc(p.id)+'">Tela do colaborador</button>';
+      h += '<button class="b peq escura" data-colab="'+esc(p.id)+'">Assinar neste computador</button>';
     }else{
       h += '<span class="et n">Sem kit gerado</span>'
         +  '<button class="b peq" data-gerar="'+esc(p.id)+'"'+(s.meus.length?'':' disabled')+'>Gerar kit</button>';
@@ -6273,7 +6285,7 @@ function renderKits(){
       + '<td style="min-width:300px">'+trilhaKit(k, st)+'</td>'
       + '<td><div class="flex" style="justify-content:flex-end">'
       + '<button class="b peq" data-k2="'+esc(id)+'">Baixar</button>'
-      + '<button class="b peq escura" data-c2="'+esc(id)+'">Abrir tela do colaborador</button>'
+      + '<button class="b peq escura" data-c2="'+esc(id)+'">Assinar neste computador</button>'
       + '<button class="b peq" data-q2="'+esc(id)+'">Link e QR</button>'
       + '</div></td></tr>';
   });
@@ -6493,8 +6505,10 @@ function abrirColaborador(pid){
   if(!st.marcas) st.marcas = {};
   C.pid = pid; C.passo = 0; C.captura = null; C.doFecho = false;
   C.docs = docsDoKit(p, k);
-  $('#janelaTit').textContent = (C.kiosk ? 'Meu kit de admissão · ' : 'Tela do colaborador · ') + p.nome.split(' ')[0];
+  $('#janelaTit').textContent = (C.kiosk ? 'Meu kit de admissão · ' : 'Assinar neste computador · ') + p.nome.split(' ')[0];
   $('#janelaCorpo').innerHTML = '<div class="carregando">Procurando os campos de assinatura nos documentos...</div>';
+  /* no computador a tela do colaborador ocupa a tela inteira (Josianny, 20/10/2026) */
+  $('#tampa').classList.toggle('cheia', !C.kiosk && !MODO_ONLINE);
   $('#tampa').hidden = false;
   acharPontos(p, k, C.docs).then(()=>renderColab());
 }
@@ -6948,7 +6962,7 @@ async function desenharPaginas(k, doc, st, p, bytesAlt){
   const box = $('#paginas');
   if(!box) return;
   const molduras = Array.from(box.querySelectorAll('canvas.folha'));
-  const larg = Math.max(280, Math.min(box.clientWidth || 380, 760));
+  const larg = Math.max(280, Math.min(box.clientWidth || 380, $('#tampa').classList.contains('cheia') ? 980 : 760));
 
   /* reserva o espaço da folha antes de desenhar, para a tela não pular */
   molduras.forEach(cv=>{
@@ -7577,8 +7591,8 @@ function abrirQR(pid){
   const o = st.online;
   const noArquivo = location.protocol === 'file:';
   const soNestePc = /^(localhost|127[.]0[.]0[.]1|[[]::1[]])$/i.test(location.hostname);
-  const tablet = '<div class="aviso info" style="margin-top:14px"><div><b>Sem celular?</b> Entregue o tablet: '
-    + '<button class="b peq escura" id="btAbrirColab" style="margin-left:6px">Ver a tela do colaborador neste aparelho</button></div></div>';
+  const tablet = '<div class="aviso info" style="margin-top:14px"><div><b>Sem celular?</b> '
+    + '<button class="b peq escura" id="btAbrirColab" style="margin:0 6px">Assinar neste computador</button> abre o kit em tela inteira para a pessoa ler e assinar aqui.</div></div>';
   let h;
   if(noArquivo){
     h = '<div class="aviso"><div><b>Sem QR code com a Esteira aberta direto do arquivo.</b><br>'
@@ -7611,7 +7625,7 @@ function abrirQR(pid){
   }
   $('#janelaTit').textContent = 'Link e QR code · ' + p.nome.split(' ')[0];
   $('#janelaCorpo').innerHTML = h;
-  $('#tampa').hidden = false;
+  $('#tampa').classList.remove('cheia'); $('#tampa').hidden = false;
   const bc = $('#btCopiar');
   if(bc) bc.addEventListener('click', ()=>{
     navigator.clipboard.writeText(urlOnline(o)).then(()=>torrada('Link copiado.'), ()=>torrada('Copie manualmente do campo.'));
@@ -8078,7 +8092,7 @@ async function abrirKitsOnline(){
   if(!sb) return;
   $('#janelaTit').textContent = 'Kits on-line';
   $('#janelaCorpo').innerHTML = '<div class="carregando">Buscando os kits publicados...</div>';
-  $('#tampa').hidden = false;
+  $('#tampa').classList.remove('cheia'); $('#tampa').hidden = false;
   const campos = 'id,nome,turma,versao,empresa_assinou,empresa_nome,colab_assinou,colab_em,expira_em,token_hash,pdf_atual,json_atual,atualizado_em';
   let r = await sb.from('kits_online').select(campos + ',blocos')
     .is('cancelado_em', null).order('atualizado_em', {ascending:false}).limit(300);
@@ -8385,7 +8399,7 @@ function abrirAssinaturaCimed(depois){
     + '<label class="b peq fant" style="cursor:pointer">Anexar imagem<input type="file" id="inAssImg" accept="image/png,image/jpeg" hidden></label>'
     + '<span class="dica">mouse, dedo ou imagem</span></div></div>'
     + '<div class="flex" style="margin-top:12px"><button class="b prim" id="btAssSalvar">Salvar assinatura</button><button class="b" id="btAssCancelar">Cancelar</button></div>';
-  $('#tampa').hidden = false;
+  $('#tampa').classList.remove('cheia'); $('#tampa').hidden = false;
   const cv = $('#cvAssCimed');
   ligarCanvas(cv, $('#btAssLimpar'));
   let anexada = false;
@@ -9188,9 +9202,10 @@ $('#inBase').addEventListener('change', async e=>{
   e.target.value='';
 });
 
-$('#btFechar').addEventListener('click', ()=>{ $('#tampa').hidden = true; });
-$('#tampa').addEventListener('click', e=>{ if(e.target.id==='tampa') $('#tampa').hidden = true; });
-document.addEventListener('keydown', e=>{ if(e.key==='Escape') $('#tampa').hidden = true; });
+function fecharJanela(){ const tp = $('#tampa'); tp.hidden = true; tp.classList.remove('cheia'); }
+$('#btFechar').addEventListener('click', fecharJanela);
+$('#tampa').addEventListener('click', e=>{ if(e.target.id==='tampa') fecharJanela(); });
+document.addEventListener('keydown', e=>{ if(e.key==='Escape') fecharJanela(); });
 
 /* ---- salvar e abrir setup em arquivo ---- */
 function limparAssin(){
