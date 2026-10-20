@@ -441,7 +441,7 @@ function faixaBlocos() {
   const pend = vivas().filter((a) => a.matricula && a.kit_status !== 'concluido' && faltaAssinar(a).length);
   if (!pend.length) return '';
   const por = {}; pend.forEach((a) => faltaAssinar(a).forEach((t) => { (por[t] = por[t] || []).push(titulo(a.nome)); }));
-  return `<div class="faixa"><p><b>Falta a Cimed assinar:</b> ${Object.entries(por).map(([t, ns]) => `${esc(t)} em ${plural(ns.length, 'kit', 'kits')} (${ns.map(esc).join(', ')})`).join(' · ')}. Bloco sem signatário cadastrado fica pendente, sem travar os outros, até o nome entrar no parâmetro <code>signatarios_por_area</code>.</p></div>`;
+  return `<div class="faixa"><p><b>Falta a Cimed assinar:</b> ${Object.entries(por).map(([t, ns]) => `${esc(t)} em ${plural(ns.length, 'kit', 'kits')} (${ns.map(esc).join(', ')})`).join(' · ')}. Hoje só o DP leva a assinatura da Cimed; em Benefícios e Compliance só o colaborador assina.</p></div>`;
 }
 
 // ============================================================ TELAS FIXAS
@@ -951,7 +951,7 @@ VIEWS.kit = () => {
   const prox = E.turmaKit || ts.find((t) => deIso(t) >= deIso(iso(new Date()))) || ts[ts.length - 1] || '';
   const prontos = vivas().filter((a) => a.matricula && a.data_inicio === prox).length;
   return `<div class="cab"><div class="t"><span class="olho">Kit admissional</span><h1>Esteira de assinatura</h1><p class="apoio">A mesma Esteira de Admissão de sempre: junta os PDFs do LG por pessoa, a Cimed assina primeiro e o colaborador assina na tela. Com <b>Publicar on-line</b>, o kit vai para o armazenamento privado da plataforma: a Cimed assina de qualquer aparelho e o colaborador assina pelo QR, no celular dele, depois de confirmar CPF e data de nascimento. Sem publicar, o kit fica só neste aparelho, como antes.</p></div>
-    <a class="bt" href="${(window.ESTEIRA_URL || 'esteira.html') + '?v=9'}" target="_blank" rel="noopener">Abrir em tela cheia</a></div>
+    <a class="bt" href="${(window.ESTEIRA_URL || 'esteira.html') + '?v=10'}" target="_blank" rel="noopener">Abrir em tela cheia</a></div>
   ${faixaBlocos()}
   ${tem('admissao') && ts.length ? `<div class="faixa"><p><b>Lista de admitidos para a Esteira.</b> Copie os matriculados de uma turma e cole no passo 1 da Esteira, em "Colar da planilha". Nome, CPF, matrícula, unidade e cargo vão no formato que ela lê.</p>
     <label class="olho" for="turmaKit">Turma</label><select id="turmaKit" class="sel-doc">${ts.map((t) => `<option value="${t}" ${t === prox ? 'selected' : ''}>${dmd(t)}</option>`).join('')}</select>
@@ -963,7 +963,7 @@ POS.kit = () => {
   $('#turmaKit')?.addEventListener('change', (e) => { E.turmaKit = e.target.value; render(); });
   const host = $('#esteiraHost');
   if (!host.firstChild) {
-    host.innerHTML = `<iframe class="esteira" src="${(window.ESTEIRA_URL || 'esteira.html') + '?v=9'}" title="Esteira de Admissão"></iframe>`;
+    host.innerHTML = `<iframe class="esteira" src="${(window.ESTEIRA_URL || 'esteira.html') + '?v=10'}" title="Esteira de Admissão"></iframe>`;
     // a Esteira lê os mesmos parâmetros do Supabase; mandar daqui cobre o teste sem banco e evita esperar
     const fr = host.firstChild;
     fr.addEventListener('load', () => {

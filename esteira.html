@@ -558,7 +558,7 @@ MARIA APARECIDA SOUZA	123.456.789-00	maria.souza@exemplo.com.br	14/03/1996	48219
         <input type="file" id="inRetomar" accept="application/pdf" hidden>
         <span class="dica" id="dicaGerar"></span>
       </div>
-      <div class="aviso info" style="margin-bottom:16px"><div><b>A Cimed assina primeiro, bloco por bloco.</b> O kit é um PDF só, dividido em blocos por área: DP, Benefícios, Compliance e Segurança. Cada bloco tem o seu signatário com procuração e o seu status, e o nome de uma área não assina o bloco de outra. Escolha o bloco, confira o nome e assine de uma vez em todos os kits. Bloco sem signatário cadastrado fica pendente, sem travar os outros, e o colaborador assina tudo no mesmo fluxo.<span id="dicaArea" style="display:block;margin-top:4px;font-weight:600"></span></div></div>
+      <div class="aviso info" style="margin-bottom:16px"><div><b>A Cimed assina primeiro, bloco por bloco.</b> O kit é um PDF só, dividido em blocos por área: DP, Benefícios, Compliance e Segurança. Cada bloco tem o seu signatário com procuração e o seu status, e o nome de uma área não assina o bloco de outra. Escolha o bloco, confira o nome e assine de uma vez em todos os kits. Hoje só o DP leva a assinatura da Cimed: em Benefícios e Compliance só o colaborador assina. Bloco com signatário ainda não cadastrado fica pendente, sem travar os outros, e o colaborador assina tudo no mesmo fluxo.<span id="dicaArea" style="display:block;margin-top:4px;font-weight:600"></span></div></div>
       <div class="aviso" style="margin-bottom:16px"><div><b>Os kits ficam guardados neste navegador.</b> Fechar a aba não perde mais nada. O que não fica guardado são os PDFs originais do LG, só o kit montado.</div></div>
       <div id="kitsBox"></div>
     </div>
@@ -3160,10 +3160,12 @@ const BASE_PADRAO = montarBase();
    ========================================================= */
 const AREAS = [['dp','DP'], ['beneficios','Benefícios'], ['compliance','Compliance'], ['seguranca','Segurança']];
 const AREA_NOME = Object.fromEntries(AREAS);
-/* Compliance (20/10/2026): ninguém assina pela Cimed; o Termo é só do
-   colaborador. Se um dia a área cadastrar um nome em signatarios_por_area,
-   o bloco volta a pedir a assinatura da Cimed. */
-const AREAS_SO_COLABORADOR = ['compliance'];
+/* Benefícios e Compliance (Josianny, 20/10/2026): ninguém assina pela
+   Cimed; os formulários de benefícios e o Termo são só do colaborador. Hoje
+   só o bloco DP leva a assinatura da Cimed (Keila). Se um dia uma dessas
+   áreas cadastrar um nome em signatarios_por_area, o bloco dela volta a
+   pedir a assinatura da Cimed. */
+const AREAS_SO_COLABORADOR = ['beneficios', 'compliance'];
 function cimedAssinaArea(area){
   if(AREAS_SO_COLABORADOR.indexOf(area) < 0) return true;
   return !!(SIG_AREAS && (SIG_AREAS[area] || []).length);
