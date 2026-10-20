@@ -8042,10 +8042,15 @@ async function atualizarOnline(pid){
       r = await sb.rpc('kit_salvar', corpo);
     }
     if(r.error) throw new Error(r.error.message);
-    o.versao = r.data.versao;
+    o.versao = r.data.versao; delete o.pendenteEnvio; delete o.erroEnvio;
     salvar(); guardarKit(pid); renderKits();
+    return true;
   }catch(e){
-    torrada('A cópia on-line não foi atualizada: ' + erroLegivel(e), 9000);
+    /* a assinatura ficou só neste aparelho: marca para reenviar sozinho e avisa na tela (Josianny, 20/10/2026) */
+    o.pendenteEnvio = true; o.erroEnvio = erroLegivel(e); salvar();
+    torrada('A assinatura ficou guardada aqui, mas ainda não chegou à Admissão: ' + erroLegivel(e) + '. Vou tentar de novo sozinho.', 10000);
+    if(MODO_SIGNATARIO) renderSignatario();
+    return false;
   }
 }
 
@@ -8283,6 +8288,11 @@ async function sincronizarAutomatico(){
   try{
     const sb = await nuvemEquipe(true);
     if(!sb) return;
+    /* assinatura que não chegou à nuvem (rede, erro): tenta de novo a cada rodada */
+    for(const pid of Object.keys(S.assin)){
+      const o = S.assin[pid] && S.assin[pid].online;
+      if(o && o.pendenteEnvio && S.kits[pid] && S.assin[pid].pdfAssinado){ try{ await atualizarOnline(pid); }catch(e){} }
+    }
     if(SIG_AREAS === null){
       const x = await sb.from('parametros').select('chave, valor').in('chave', ['signatarios_cimed', 'signatarios_por_area']);
       const m = {}; (x && x.data || []).forEach(r=>{ m[r.chave] = r.valor; });
@@ -8308,6 +8318,10 @@ async function sincronizarAutomatico(){
         const antes = local[row.id] ? S.assin[local[row.id].pid] : null;
         const kAntes = local[row.id] ? S.kits[local[row.id].pid] : null;
         const p = await trazerOnline(sb, row); n++;
+        /* assinatura da Cimed feita aqui que a nuvem ainda não tem: manda já */
+        const stN = S.assin[p.id] || {};
+        const faltaNaNuvem = Object.keys(stN.blocos || {}).some(a=>stN.blocos[a] && stN.blocos[a].em && !stN.blocos[a].doBanco && !(row.blocos && row.blocos[a] && row.blocos[a].assinado_empresa_em));
+        if(faltaNaNuvem && stN.pdfAssinado && stN.online){ stN.online.pendenteEnvio = true; salvar(); try{ await atualizarOnline(p.id); }catch(e){} }
         if(antes && kAntes){
           if(row.colab_assinou && !antes.colab) assinouColab.push(row.nome.split(' ')[0]);
           else if(blocosAssinados(S.kits[p.id], S.assin[p.id]).length > blocosAssinados(kAntes, antes).length) assinouCimed.push(row.nome.split(' ')[0]);
@@ -8390,8 +8404,11 @@ function renderSignatario(){
       h += '<h3 style="margin:18px 0 4px">Já assinados por você · ' + assinados.length + '</h3>';
       assinados.forEach(x=>{
         const p = S.pessoas.find(q=>q.id === x.id), k = S.kits[x.id], st = S.assin[x.id] || {};
-        h += '<div class="sig-kit"><div class="quem"><b>' + esc(p.nome) + '</b><small>' + esc(x.meus.map(b=>b.titulo + ' assinado em ' + hojeTxt(new Date(assinaturaBloco(st, b.area).em))).join(' · ')) + '</small>' + trilhaKit(k, st) + '</div>'
-          + '<div class="flex"><button class="b" data-sig-ler="' + esc(x.id) + '">Ler o kit</button></div></div>';
+        const pendEnvio = st.online && st.online.pendenteEnvio;
+        h += '<div class="sig-kit"><div class="quem"><b>' + esc(p.nome) + '</b><small>' + esc(x.meus.map(b=>b.titulo + ' assinado em ' + hojeTxt(new Date(assinaturaBloco(st, b.area).em))).join(' · ')) + '</small>' + trilhaKit(k, st)
+          + (pendEnvio ? '<div class="aviso" style="margin-top:8px"><div><b>Ainda não chegou à Admissão.</b> ' + esc(st.online.erroEnvio || '') + ' Reenviando sozinho; ou clique em Reenviar.</div></div>' : '') + '</div>'
+          + '<div class="flex"><button class="b" data-sig-ler="' + esc(x.id) + '">Ler o kit</button>'
+          + (st.online ? '<button class="b' + (pendEnvio ? ' prim' : '') + '" data-sig-reenviar="' + esc(x.id) + '">Reenviar à Admissão</button>' : '') + '</div></div>';
       });
     }
     h += '<p class="dica" style="margin-top:14px">Atualiza sozinho a cada 30 segundos. Fechou sem querer? Abra de novo pela plataforma: os kits voltam.</p>';
@@ -8400,6 +8417,12 @@ function renderSignatario(){
   const bt = box.querySelector('#btTrocarAss');
   if(bt) bt.addEventListener('click', ()=>abrirAssinaturaCimed(()=>renderSignatario()));
   box.querySelectorAll('[data-sig-ler]').forEach(b=>b.addEventListener('click', ()=>abrirLeituraKit(b.dataset.sigLer)));
+  box.querySelectorAll('[data-sig-reenviar]').forEach(b=>b.addEventListener('click', async ()=>{
+    b.disabled = true; b.textContent = 'Reenviando...';
+    const ok = await atualizarOnline(b.dataset.sigReenviar);
+    if(ok) torrada('Assinatura enviada à Admissão.', 5000);
+    renderSignatario();
+  }));
   box.querySelectorAll('[data-sig-um]').forEach(b=>b.addEventListener('click', ()=>{
     const sel = $('#areaCimed'); if(sel) sel.value = b.dataset.area;
     atualizarCampoSignatario();
