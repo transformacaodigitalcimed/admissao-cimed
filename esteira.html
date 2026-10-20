@@ -4417,9 +4417,13 @@ function quemNoTexto(txt){
     else if(Math.abs(n-nota) < 1e-9 && n > 0 && melhor && p !== melhor){ empate = true; }
   }
   if(melhor && nota >= 0.7 && !empate) return melhor;
+  /* Matrícula só vale como número inteiro na folha, com fronteira dos dois lados.
+     Procurar dentro da emenda de todos os dígitos da página (CPF, datas, CEP, CNPJ,
+     ID do LG) achava a matrícula de uma pessoa dentro dos números de outra, e o
+     documento da Thais entrou no kit da Amanda (20/10/2026). */
   for(const p of S.pessoas){
     const m = digitos(p.matricula);
-    if(m.length>=5 && dig.includes(m)) return p;
+    if(m.length>=5 && new RegExp('(^|[^0-9])' + m + '([^0-9]|$)').test(txt)) return p;
   }
   return null;
 }
@@ -4558,7 +4562,7 @@ function reconhecerTodos(){
       let alvo = null;
       S.pessoas.forEach(p=>{
         const m = digitos(p.matricula);
-        if(m && m.length>=4 && dig.includes(m)) alvo = p;
+        if(m && m.length>=4 && new RegExp('(^|[^0-9])' + m + '([^0-9]|$)').test(a.nome)) alvo = p;
         const c = digitos(p.cpf);
         if(!alvo && c && c.length===11 && dig.includes(c)) alvo = p;
       });
@@ -8270,6 +8274,7 @@ function comQuem(k, st){
   return {quem: 'Admissão', acao: ''};
 }
 function trilhaKit(k, st){
+  if(st && st.online && st.online.cancelado) return '<span class="et cr">Cancelado na nuvem</span> <span class="dica">publique de novo se ainda precisar</span>';
   const e = etapasKit(k, st);
   /* etapa feita: "Cimed assinou"; etapa atual (amarela): "Pendente: colaborador assinar" (Josianny, 20/10/2026) */
   const passos = [['Gerado', true, false, 'gerar'], ['Publicado', e.publicado, false, 'publicar'], ['Cimed assinou', e.cimedOk, e.cimedParte, 'Cimed assinar'], ['Colaborador assinou', e.colab, false, 'colaborador assinar'], ['Concluído', e.concluido, false, 'concluir']];
@@ -8330,6 +8335,15 @@ async function sincronizarAutomatico(){
     /* kit guardado aqui que não está mais ativo na nuvem (foi publicado de novo em outro aparelho):
        troca pelo kit ativo da mesma pessoa, para o link e a assinatura saírem do kit certo */
     const ativos = {}; (r.data || []).forEach(row=>{ ativos[row.id] = row; });
+    /* kit guardado aqui que foi cancelado na nuvem (a Admissão zerou ou publicou de novo): marca, para sair da tela de quem assina */
+    const naoAtivos = Object.keys(local).filter(id=>!ativos[id]);
+    if(naoAtivos.length){
+      try{
+        const c = await sb.from('kits_online').select('id,cancelado_em').in('id', naoAtivos);
+        (c.data || []).forEach(row=>{ const pid = local[row.id] && local[row.id].pid; const st = pid && S.assin[pid]; if(row.cancelado_em && st && st.online){ st.online.cancelado = true; } });
+        salvar();
+      }catch(e){}
+    }
     const norm = s=>sem(String(s || '')).toLowerCase().replace(/\s+/g, ' ').trim();
     /* CPF de quem é o kit na nuvem: lido do JSON da versão, uma vez por kit */
     SINC_AUTO.cpfDe = SINC_AUTO.cpfDe || {};
@@ -8417,6 +8431,7 @@ function kitsDoSignatario(){
   const esperando = [], assinados = [];
   ids.forEach(id=>{
     const k = S.kits[id], st = S.assin[id] || {};
+    if(st.online && st.online.cancelado) return;   /* cancelado pela Admissão: não é mais para assinar */
     const pend = blocosPendentes(k, st).filter(b=>areas.indexOf(b.area) >= 0);
     const meus = blocosAssinados(k, st).filter(b=>areas.indexOf(b.area) >= 0);
     if(pend.length) esperando.push({id, pend});
