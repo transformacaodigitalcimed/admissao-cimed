@@ -173,6 +173,14 @@ main{max-width:1400px;margin:0 auto;padding:28px 26px 96px}
 .et.am{background:var(--amarelo);color:#17160E}
 /* trilha do kit: em que etapa está (gerado → publicado → Cimed → colaborador → concluído) */
 /* confirmação final do kit: caixa grande, o cartão inteiro é clicável (feedback do colaborador, 20/10/2026) */
+/* assinatura por estilo: abas Desenhar | Escolher estilo, e um cartão por fonte */
+.cap-abas{display:flex;gap:6px;margin:0 0 10px}
+.cap-abas button{flex:1;justify-content:center}
+.estilos{display:grid;gap:8px;margin:0 0 4px;min-width:0}
+.estilo-op{display:flex;flex-direction:column-reverse;align-items:flex-start;gap:4px;width:100%;min-width:0;box-sizing:border-box;padding:10px 16px 12px;border:2px solid var(--linha-forte);border-radius:14px;background:#fff;color:#0D1B6B;cursor:pointer;text-align:left;min-height:74px}
+.estilo-op:hover,.estilo-op:focus-visible{border-color:var(--tinta);outline:none}
+.estilo-op .amostra{font-size:clamp(22px,7vw,32px);line-height:1.2;max-width:100%;overflow-wrap:anywhere}
+.estilo-op .rot{flex:0 0 auto;font:600 11px/1.2 Figtree,Arial,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:var(--suave)}
 .aceite-final{box-sizing:border-box;width:100%;max-width:100%;display:flex;gap:14px;align-items:flex-start;margin:0 0 14px;padding:14px 16px;border:2px solid var(--linha-forte);border-radius:14px;background:var(--papel);cursor:pointer;font-size:15px;line-height:1.45;color:var(--texto)}
 .aceite-final input{appearance:none;-webkit-appearance:none;flex:0 0 auto;width:30px;height:30px;margin:0;border:2.5px solid var(--tinta);border-radius:8px;background:#fff;cursor:pointer;display:grid;place-items:center}
 .aceite-final input:checked{background:var(--amarelo);border-color:var(--tinta)}
@@ -7134,10 +7142,20 @@ function blocoDoPonto(ponto, st, p){
       + '<button class="b peq fant" data-tirar="' + ponto.id + '">Tirar</button></div>';
     if(img && /^data:image\/png;base64,[A-Za-z0-9+\/=]+$/.test(img)) h += '<div class="rubrica-previa"><img src="' + esc(img) + '" alt=""></div>';
     else h += '<div class="dica" style="text-align:center">' + esc(st.marcaNome || p.nome) + '</div>';
+  }else if(capturando && C.captura.modo === 'estilo'){
+    const tipo = C.captura.tipo;
+    const texto = textoDoEstilo(tipo, st.marcaNome || p.nome);
+    h += '<div class="campo-assin-cab"><b>' + (tipo === 'rubrica' ? 'Escolha o estilo da sua rubrica' : 'Escolha o estilo da sua assinatura') + '</b>'
+      + '<span class="dica">toque no que mais combina com você</span></div>'
+      + '<div class="cap-abas"><button class="b peq" id="cbModoDesenho">Desenhar com o dedo</button><button class="b peq prim" disabled>Escolher estilo</button></div>'
+      + '<div class="estilos">' + ESTILOS_ASSINATURA.map((e, i)=>'<button class="estilo-op" data-estilo="' + i + '"><span class="amostra" style="font-family:\'' + e.fonte + '\',cursive">' + esc(texto) + '</span><span class="rot">' + e.rotulo + '</span></button>').join('') + '</div>'
+      + '<p class="dica" id="cbEstiloAviso" style="margin:6px 0 0">' + (FONTES_ASSINATURA.ok ? '' : 'Carregando os estilos...') + '</p>'
+      + '<button class="b peq fant" id="cbCancelaCap" style="margin-top:6px">Cancelar</button>';
   }else if(capturando){
     const tipo = C.captura.tipo;
     h += '<div class="campo-assin-cab"><b>' + (tipo === 'rubrica' ? 'Desenhe sua rubrica' : 'Assine seu nome') + '</b>'
       + '<span class="dica">' + (tipo === 'rubrica' ? 'as iniciais bastam' : 'nome completo') + '</span></div>'
+      + '<div class="cap-abas"><button class="b peq prim" disabled>Desenhar com o dedo</button><button class="b peq" id="cbModoEstilo">Escolher estilo</button></div>'
       + '<div class="assina-caixa"><canvas id="cvCap" width="820" height="260"></canvas>'
       + '<div class="assina-pe"><button class="b peq fant" id="cbLimpaCap">Apagar</button>'
       + '<button class="b peq fant" id="cbCancelaCap">Cancelar</button>'
@@ -7255,6 +7273,54 @@ function ligarLinhas(corpo, st){
   });
 }
 
+/* Estilos prontos de assinatura: cursivas ("extenso") e letra de mão. Fontes livres (OFL) do
+   Google Fonts, carregadas só quando a pessoa abre "Escolher estilo". Sem internet, fica o desenho. */
+const ESTILOS_ASSINATURA = [
+  {fonte: 'Great Vibes', rotulo: 'Cursiva'},
+  {fonte: 'Allura', rotulo: 'Cursiva fina'},
+  {fonte: 'Dancing Script', rotulo: 'Cursiva leve'},
+  {fonte: 'Caveat', rotulo: 'Letra de mão'},
+  {fonte: 'Kalam', rotulo: 'Letra de forma'}
+];
+const FONTES_ASSINATURA = {ok: false, prom: null};
+function carregarFontesAssinatura(){
+  if(FONTES_ASSINATURA.prom) return FONTES_ASSINATURA.prom;
+  FONTES_ASSINATURA.prom = (async ()=>{
+    try{
+      if(!document.getElementById('fontesAssinatura')){
+        const l = document.createElement('link');
+        l.id = 'fontesAssinatura'; l.rel = 'stylesheet';
+        l.href = 'https://fonts.googleapis.com/css2?family=Allura&family=Caveat:wght@500&family=Dancing+Script:wght@500&family=Great+Vibes&family=Kalam&display=swap';
+        document.head.appendChild(l);
+        await new Promise((res, rej)=>{ l.onload = res; l.onerror = rej; setTimeout(rej, 6000); });
+      }
+      await Promise.all(ESTILOS_ASSINATURA.map(e=>document.fonts.load('48px "' + e.fonte + '"')));
+      FONTES_ASSINATURA.ok = ESTILOS_ASSINATURA.every(e=>document.fonts.check('48px "' + e.fonte + '"'));
+    }catch(e){ FONTES_ASSINATURA.ok = false; FONTES_ASSINATURA.prom = null; }
+    return FONTES_ASSINATURA.ok;
+  })();
+  return FONTES_ASSINATURA.prom;
+}
+/* nome como se escreve à mão: "Amanda Paula Silva"; rubrica com as iniciais "A. P. S." */
+function textoDoEstilo(tipo, nome){
+  const miudas = new Set(['da','de','do','das','dos','e']);
+  const partes = String(nome || '').toLowerCase().split(/\s+/).filter(Boolean);
+  if(tipo === 'rubrica') return partes.filter(w=>!miudas.has(w)).map(w=>w[0].toUpperCase() + '.').join(' ');
+  return partes.map((w, i)=>i && miudas.has(w) ? w : w[0].toUpperCase() + w.slice(1)).join(' ');
+}
+/* desenha o texto com a fonte num quadro do mesmo tamanho do de desenho e devolve o PNG transparente */
+function imagemDoEstilo(texto, fonte){
+  const cv = document.createElement('canvas');
+  cv.width = 820; cv.height = 260;
+  const ctx = cv.getContext('2d');
+  let tam = 130;
+  do{ ctx.font = tam + 'px "' + fonte + '"'; tam -= 4; }while(ctx.measureText(texto).width > 780 && tam > 30);
+  ctx.fillStyle = '#0D1B6B';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(texto, 410, 140);
+  return cv.toDataURL('image/png');
+}
+
 /* desenho a dedo, usado pela rubrica e pela assinatura */
 function ligarCanvas(cv, btLimpar){
   const ctx = cv.getContext('2d');
@@ -7333,6 +7399,31 @@ function ligarCamposAssinatura(box, st, p){
       salvar(); trocarBloco(id, st, p);
     });
   });
+
+  /* assinatura por estilo (Josianny, 20/10/2026): o nome completo escrito com uma fonte pronta */
+  const bME = box.querySelector('#cbModoEstilo');
+  if(bME) bME.addEventListener('click', ()=>{ if(!C.captura) return; C.captura.modo = 'estilo'; carregarFontesAssinatura().then(()=>{ if(C.captura && C.captura.modo === 'estilo') trocarBloco(C.captura.id, st, p); }); trocarBloco(C.captura.id, st, p); });
+  const bMD = box.querySelector('#cbModoDesenho');
+  if(bMD) bMD.addEventListener('click', ()=>{ if(!C.captura) return; C.captura.modo = 'desenho'; trocarBloco(C.captura.id, st, p); });
+  box.querySelectorAll('[data-estilo]').forEach(b=>b.addEventListener('click', async ()=>{
+    const alvo = C.captura;
+    if(!alvo) return;
+    const e = ESTILOS_ASSINATURA[+b.dataset.estilo];
+    const ok = await carregarFontesAssinatura();
+    if(!ok){ const av = box.querySelector('#cbEstiloAviso'); if(av) av.textContent = 'Os estilos precisam de internet. Desenhe com o dedo.'; return; }
+    const img = imagemDoEstilo(textoDoEstilo(alvo.tipo, st.marcaNome || p.nome), e.fonte);
+    if(alvo.tipo === 'rubrica') st.rubrica = img; else st.assinatura = img;
+    if(!st.marcaNome) st.marcaNome = p.nome;
+    st.estiloAssinatura = e.fonte;
+    aplicarMarca(alvo.id, alvo.tipo, st);
+    C.captura = null;
+    torrada('Pronto. A partir de agora é um toque por campo.', 4000);
+    trocarBloco(alvo.id, st, p);
+  }));
+  if(!box.querySelector('#cvCap')){
+    const canc = box.querySelector('#cbCancelaCap');
+    if(canc) canc.addEventListener('click', ()=>{ const id = C.captura && C.captura.id; C.captura = null; if(id) trocarBloco(id, st, p); else renderColab(); });
+  }
 
   /* captura do traço, na primeira vez de cada tipo */
   const cvc = box.querySelector('#cvCap');
