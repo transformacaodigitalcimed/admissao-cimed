@@ -171,6 +171,16 @@ main{max-width:1400px;margin:0 auto;padding:28px 26px 96px}
 .et.cr{background:var(--critico-bg);color:var(--critico)}
 .et.n{background:var(--superficie);color:var(--suave);border:1px solid var(--linha)}
 .et.am{background:var(--amarelo);color:#17160E}
+/* trilha do kit: em que etapa está (gerado → publicado → Cimed → colaborador → concluído) */
+.trilha-kit{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+.trilha-kit .tp{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:3px 8px 3px 4px;border-radius:999px;background:var(--superficie);color:var(--suave);border:1px solid var(--linha);white-space:nowrap}
+.trilha-kit .tp i{font-style:normal;width:16px;height:16px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;background:var(--linha);color:var(--texto)}
+.trilha-kit .tp.ok{background:var(--ok-bg);color:var(--ok);border-color:transparent}
+.trilha-kit .tp.ok i{background:var(--ok);color:#fff}
+.trilha-kit .tp.atual{background:var(--amarelo);color:#17160E;border-color:transparent}
+.trilha-kit .tp.atual i{background:#17160E;color:var(--amarelo)}
+.trilha-kit .tp.parte{background:var(--atencao-bg);color:var(--atencao);border-color:transparent}
+.trilha-kit .tp.parte i{background:var(--atencao);color:#fff}
 .rotulo{font-size:11.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--suave)}
 
 /* ---------- formulários ---------- */
@@ -6220,24 +6230,17 @@ function renderKits(){
   const box = $('#kitsBox');
   const ids = Object.keys(S.kits).filter(id=>S.pessoas.some(p=>p.id===id));
   if(!ids.length){
-    box.innerHTML = barraOnline() + '<div class="vazio">Nenhum kit gerado ainda. Depois de carregar os arquivos, clique em <b>Gerar kits unificados</b>. Se o kit foi gerado em outro aparelho, use <b>Kits on-line</b>.</div>';
+    box.innerHTML = barraOnline() + caixaSignatario([]) + '<div class="vazio">Nenhum kit gerado ainda. Depois de carregar os arquivos, clique em <b>Gerar kits unificados</b>. Se o kit foi gerado em outro aparelho, use <b>Kits on-line</b>' + (souSignatario() ? ' (os que esperam a sua assinatura chegam sozinhos)' : '') + '.</div>';
     ligarBarraOnline(box);
     marcarPasso(); return;
   }
-  let h = barraOnline() + '<div class="rolar"><table><thead><tr><th>Pessoa</th><th>Perfil</th><th>Documentos</th><th>Páginas</th><th>Verificação</th><th>Situação</th><th></th></tr></thead><tbody>';
+  let h = barraOnline() + caixaSignatario(ids) + '<div class="rolar"><table><thead><tr><th>Pessoa</th><th>Perfil</th><th>Documentos</th><th>Páginas</th><th>Verificação</th><th>Onde está o kit</th><th></th></tr></thead><tbody>';
   ids.forEach(id=>{
     const p = S.pessoas.find(x=>x.id===id), k = S.kits[id], st = S.assin[id]||{};
-    const pend = textoPendentes(k, st), ass = blocosAssinados(k, st);
-    const et = (st.empresa && st.colab ? '<span class="et ok">Concluído</span>'
-             : st.colab ? '<span class="et at">Falta a Cimed: ' + esc(pend) + '</span>'
-             : st.empresa ? '<span class="et n">Aguardando o colaborador</span>'
-             : ass.length ? '<span class="et at">Cimed assinou ' + esc(ass.map(b=>b.titulo).join(', ')) + ' · falta ' + esc(pend) + '</span>'
-             : '<span class="et at">Aguardando a Cimed</span>')
-             + (st.online ? ' <span class="et am">on-line</span>' : '');
     h += '<tr><td><b>'+esc(p.nome)+'</b></td><td>'+esc(p.perfil)+'</td>'
       + '<td class="mono">'+k.indice.length+'</td><td class="mono">'+esc(k.pags)+'</td>'
       + '<td class="mono" style="font-size:11.5px">'+k.hash.slice(0,8).toUpperCase()+'</td>'
-      + '<td>'+et+'</td>'
+      + '<td style="min-width:300px">'+trilhaKit(k, st)+'</td>'
       + '<td><div class="flex" style="justify-content:flex-end">'
       + '<button class="b peq" data-k2="'+esc(id)+'">Baixar</button>'
       + '<button class="b peq escura" data-c2="'+esc(id)+'">Abrir tela do colaborador</button>'
@@ -6249,6 +6252,12 @@ function renderKits(){
   box.querySelectorAll('[data-k2]').forEach(b=>b.addEventListener('click',()=>baixarKit(b.dataset.k2)));
   box.querySelectorAll('[data-c2]').forEach(b=>b.addEventListener('click',()=>abrirColaborador(b.dataset.c2)));
   box.querySelectorAll('[data-q2]').forEach(b=>b.addEventListener('click',()=>abrirQR(b.dataset.q2)));
+  box.querySelectorAll('[data-assinar-meus]').forEach(b=>b.addEventListener('click', ()=>{
+    const area = b.dataset.assinarMeus;
+    const sel = $('#areaCimed'); if(sel) sel.value = area;
+    atualizarCampoSignatario();
+    assinarPelaCimed(ids, b, area);
+  }));
   ligarBarraOnline(box);
   marcarPasso();
 }
@@ -8104,6 +8113,116 @@ async function sincronizarOnline(silencioso){
   }
 }
 
+/* ---- trilha do kit e sincronização automática (Josianny, 20/10/2026) ----
+   A trilha mostra em que etapa cada kit está e com quem. A sincronização
+   roda ao abrir, ao voltar para a aba e de minuto em minuto: o que mudou na
+   nuvem vem para cá (a Keila assinou, o colaborador assinou) e, para quem
+   assina pela Cimed, os kits publicados que esperam a assinatura dela
+   chegam sozinhos. Ninguém precisa clicar em "Trazer" nem em "Buscar". */
+function etapasKit(k, st){
+  st = st || {};
+  const ass = blocosAssinados(k, st), pend = blocosPendentes(k, st);
+  const cimedOk = !!st.empresa || (ass.length > 0 && !pend.length);
+  return {publicado: !!st.online, cimedOk: cimedOk, cimedParte: !cimedOk && ass.length > 0, colab: !!st.colab,
+          concluido: cimedOk && !!st.colab, pend: pend, ass: ass, linkAtivo: !!(st.online && st.online.token)};
+}
+function comQuem(k, st){
+  const e = etapasKit(k, st);
+  if(e.concluido) return {quem: 'Admissão', acao: 'kit concluído: entregar a via ao colaborador'};
+  if(!e.cimedOk){
+    const nomes = Array.from(new Set(e.pend.flatMap(b=>signatariosDaArea(b.area).map(s=>s.nome.split(' ')[0]))));
+    return {quem: nomes.length ? nomes.join(', ') : 'Cimed', acao: 'assinar ' + e.pend.map(b=>b.titulo).join(', ') + (e.colab ? ' (o colaborador já assinou)' : '')};
+  }
+  if(!e.colab) return e.linkAtivo ? {quem: 'colaborador', acao: 'assinar pelo celular (link ativo)'}
+                                   : {quem: 'Admissão', acao: e.publicado ? 'mandar o link ou entregar o tablet' : 'publicar on-line ou entregar o tablet'};
+  return {quem: 'Admissão', acao: ''};
+}
+function trilhaKit(k, st){
+  const e = etapasKit(k, st);
+  const passos = [['Gerado', true], ['Publicado', e.publicado], ['Cimed assinou', e.cimedOk, e.cimedParte], ['Colaborador assinou', e.colab], ['Concluído', e.concluido]];
+  let ultimo = -1; passos.forEach((x, i)=>{ if(x[1]) ultimo = i; });
+  const c = comQuem(k, st);
+  return '<div class="trilha-kit">' + passos.map((x, i)=>'<span class="tp' + (x[1] ? ' ok' : x[2] ? ' parte' : i === ultimo + 1 ? ' atual' : '') + '"><i>' + (x[1] ? '✓' : (i + 1)) + '</i>' + x[0] + '</span>').join('') + '</div>'
+    + '<div class="dica" style="margin:5px 0 0">Está com: <b>' + esc(c.quem) + '</b>' + (c.acao ? ' · ' + esc(c.acao) : '') + '</div>';
+}
+/* áreas em que quem está logado assina pela Cimed (e-mail em signatarios_por_area, SQL 23) */
+function minhasAreas(){
+  if(!NUVEM.email || !SIG_AREAS) return [];
+  return AREAS.map(([a])=>a).filter(a=>(SIG_AREAS[a] || []).some(s=>s.email && s.email === NUVEM.email));
+}
+function souSignatario(){ return minhasAreas().length > 0; }
+function caixaSignatario(ids){
+  const areas = minhasAreas();
+  if(!areas.length) return '';
+  let h = '';
+  areas.forEach(area=>{
+    const esperando = ids.filter(id=>S.kits[id] && blocosPendentes(S.kits[id], S.assin[id]).some(b=>b.area === area));
+    h += '<div class="aviso' + (esperando.length ? '' : ' info') + '" style="margin-bottom:12px"><div style="flex:1">'
+      + '<b>' + (esperando.length ? esperando.length + ' kit(s) esperando a sua assinatura no bloco ' + esc(AREA_NOME[area]) : 'Nenhum kit esperando a sua assinatura no bloco ' + esc(AREA_NOME[area])) + '</b>'
+      + '<p class="dica" style="margin:4px 0 0">Os kits publicados pela Admissão chegam aqui sozinhos (a cada minuto). Depois que você assina, voltam para a Admissão na hora e o colaborador já consegue abrir.</p>'
+      + (esperando.length ? '<div class="flex" style="margin-top:8px"><button class="b prim" data-assinar-meus="' + area + '">Assinar o bloco ' + esc(AREA_NOME[area]) + ' em ' + esperando.length + ' kit(s)</button></div>' : '')
+      + '</div></div>';
+  });
+  return h;
+}
+const SINC_AUTO = {rodando: false, timer: null};
+async function sincronizarAutomatico(){
+  if(SINC_AUTO.rodando || MODO_ONLINE || location.protocol === 'file:') return;
+  const tampa = $('#tampa');
+  if(tampa && !tampa.hidden) return;             /* alguém está numa janela (assinando): não mexe */
+  SINC_AUTO.rodando = true;
+  try{
+    const sb = await nuvemEquipe(true);
+    if(!sb) return;
+    if(SIG_AREAS === null){
+      const x = await sb.from('parametros').select('chave, valor').in('chave', ['signatarios_cimed', 'signatarios_por_area']);
+      const m = {}; (x && x.data || []).forEach(r=>{ m[r.chave] = r.valor; });
+      aplicarSignatarios(m.signatarios_cimed || '[]', m.signatarios_por_area || '{}');
+    }
+    const campos = 'id,nome,turma,versao,empresa_assinou,empresa_nome,colab_assinou,colab_em,expira_em,token_hash,pdf_atual,json_atual,atualizado_em,blocos';
+    const r = await sb.from('kits_online').select(campos).is('cancelado_em', null).order('atualizado_em', {ascending: false}).limit(300);
+    if(r.error){ console.warn('sincronização automática', r.error.message); return; }
+    const local = {};
+    Object.keys(S.assin).forEach(pid=>{ const o = S.assin[pid] && S.assin[pid].online; if(o && S.kits[pid]) local[o.id] = {versao: o.versao, pid: pid}; });
+    const minhas = minhasAreas();
+    const mudados = [], novos = [];
+    (r.data || []).forEach(row=>{
+      const l = local[row.id];
+      if(l){ if(l.versao < row.versao) mudados.push(row); return; }
+      const esperaPorMim = minhas.some(a=>{ const b = row.blocos && row.blocos[a]; return b && b.assinavel !== false && !b.assinado_empresa_em; });
+      if(esperaPorMim && !row.colab_assinou) novos.push(row);
+    });
+    let n = 0; const assinouCimed = [], assinouColab = [];
+    for(const row of mudados.concat(novos)){
+      try{
+        const antes = local[row.id] ? S.assin[local[row.id].pid] : null;
+        const kAntes = local[row.id] ? S.kits[local[row.id].pid] : null;
+        const p = await trazerOnline(sb, row); n++;
+        if(antes && kAntes){
+          if(row.colab_assinou && !antes.colab) assinouColab.push(row.nome.split(' ')[0]);
+          else if(blocosAssinados(S.kits[p.id], S.assin[p.id]).length > blocosAssinados(kAntes, antes).length) assinouCimed.push(row.nome.split(' ')[0]);
+        }
+      }catch(e){ console.warn('sincronização automática', e); }
+    }
+    if(n){
+      salvar(); renderPessoas(); renderCartoes(); renderKits(); renderPainel(); atualizarPlacar();
+      if(novos.length) torrada(novos.length + ' kit(s) chegaram para você assinar pela Cimed. Veja o passo 4.', 8000);
+      if(assinouCimed.length) torrada('A Cimed assinou: ' + assinouCimed.join(', ') + '. Os kits já voltaram para cá.', 8000);
+      if(assinouColab.length) torrada('Assinaram pelo celular: ' + assinouColab.join(', ') + '. Os kits já estão aqui.', 8000);
+    }
+  }catch(e){
+    console.warn('sincronização automática', e);
+  }finally{
+    SINC_AUTO.rodando = false;
+  }
+}
+function iniciarSincronizacaoAutomatica(){
+  if(MODO_ONLINE || location.protocol === 'file:' || SINC_AUTO.timer) return;
+  sincronizarAutomatico();
+  SINC_AUTO.timer = setInterval(sincronizarAutomatico, 60000);
+  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) sincronizarAutomatico(); });
+}
+
 /* ---- colaborador: abre pelo QR, no próprio celular ---- */
 async function modoOnline(id, token){
   MODO_ONLINE = true;
@@ -8982,8 +9101,9 @@ if(alvoOnline){
       renderCartoes(); renderKits(); renderPainel();
       torrada(n + ' kit(s) recuperado(s) deste navegador. Os PDFs originais do LG não são guardados.', 6000);
     }
-    /* quem assinou pelo celular enquanto a página estava fechada */
-    sincronizarOnline(true);
+    /* quem assinou enquanto a página estava fechada, e os kits que esperam a assinatura de quem está logado:
+       ao abrir, ao voltar para a aba e de minuto em minuto */
+    iniciarSincronizacaoAutomatica();
     nuvemEquipe(true).then(()=>reenviarRespostasPendentes());
   });
   /* a aba do colaborador avisa quando alguém termina de assinar */

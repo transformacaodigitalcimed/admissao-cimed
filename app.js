@@ -56,6 +56,8 @@ async function criarApi() {
     // fila do WhatsApp (SQL 22): só existe depois do 22; quem chama trata a falha
     async whatsapp() { return ok(await sb.from('whatsapp_fila').select('*').order('criado_em', { ascending: false }).limit(200)); },
     async reenviarWhatsapp(id) { return ok(await sb.rpc('reenviar_whatsapp', { wid: id })); },
+    // kits publicados on-line (Admissão e signatário leem): para a trilha "onde está cada kit"
+    async kitsOnline() { return ok(await sb.from('kits_online').select('id,admissao_id,versao,empresa_assinou,colab_assinou,token_hash,expira_em,cancelado_em,atualizado_em').is('cancelado_em', null).order('atualizado_em', { ascending: false }).limit(300)); },
     async areas() { return ok(await sb.from('areas_aviso').select('*').order('ordem')); },
     async salvarArea(id, p) { return ok(await sb.from('areas_aviso').update(p).eq('id', id).select()); },
     async locais() { return ok(await sb.from('locais').select('*').eq('ativo', true).order('nome')); },
@@ -329,7 +331,7 @@ const ST_DOC = { falta: 'Não enviado', analise: 'Recebido, conferir', reenviar:
 // ============================================================= ESTADO
 const E = {
   sessao: null, perfil: null, view: null, carregado: false,
-  admissoes: [], resumo: {}, locais: [], areas: [], params: {}, emails: [], whatsapp: [], entregas: [],
+  admissoes: [], resumo: {}, locais: [], areas: [], params: {}, emails: [], whatsapp: [], kitsOnline: [], entregas: [],
   turma: null, localF: '', modo: 'quadro', selDoc: null, selMail: null, previa: null,
   turmasCal: [], bps: [], dest: [], termos: [], depsNovo: [], turmaLista: null, locaisLista: null, soMatriculados: true, selTermo: null, matrizOs: [],
 };
@@ -431,6 +433,7 @@ async function carregar() {
   tarefas.push(api.parametros().then((r) => (E.params = Object.fromEntries((r || []).map((x) => [x.chave, x.valor])))));
   if (tem('admissao')) tarefas.push(api.emails().then((r) => (E.emails = r || [])));
   if (tem('admissao') && api.whatsapp) tarefas.push(api.whatsapp().then((r) => (E.whatsapp = r || [])).catch(() => (E.whatsapp = [])));
+  if (tem('admissao', 'signatario') && api.kitsOnline) tarefas.push(api.kitsOnline().then((r) => (E.kitsOnline = r || [])).catch(() => (E.kitsOnline = [])));
   if (tem('especialista', 'admissao')) tarefas.push(api.entregas().then((r) => (E.entregas = r || [])));
   if (tem('rs', 'admissao')) {
     tarefas.push(api.turmas().then((r) => (E.turmasCal = r || [])));
@@ -1059,13 +1062,46 @@ VIEWS.seguranca = () => {
 // ----------------------------------------------------------- assinatura
 // Esteira de Admissão: a mesma ferramenta de sempre, dentro da plataforma.
 // Sem publicar on-line, os kits ficam no navegador do aparelho em que foram gerados.
+// Onde está cada kit da turma (Josianny, 20/10/2026): trilha gerado → publicado → Cimed assinou →
+// colaborador assinou → concluído, e com quem está. Lê admissoes.kit_status/kit_blocos e kits_online.
+function ondeEstaCadaKit(turma) {
+  const lista = vivas().filter((a) => a.matricula && (turma === 'todas' || a.data_inicio === turma));
+  if (!lista.length) return '';
+  const online = Object.fromEntries((E.kitsOnline || []).filter((k) => k.admissao_id && !k.cancelado_em).map((k) => [k.admissao_id, k]));
+  const sig = (area) => { try { const m = JSON.parse(E.params.signatarios_por_area || '{}'); return (m[area] || []).map((s) => String(s.nome || '').split(' ')[0]).filter(Boolean); } catch (e) { return []; } };
+  const linha = (a) => {
+    const ko = online[a.id]; const bl = blocosKit(a); const falta = faltaAssinar(a);
+    const gerado = a.kit_status !== 'nao' || !!ko || bl.length > 0;
+    const publicado = !!ko;
+    const cimedOk = ['empresa', 'concluido'].includes(a.kit_status) || (bl.length > 0 && !falta.length && bl.some((b) => b.assinado_empresa_em)) || !!(ko && ko.empresa_assinou);
+    const cimedParte = !cimedOk && bl.some((b) => b.assinado_empresa_em);
+    const colab = a.kit_status === 'concluido' || !!(ko && ko.colab_assinou) || bl.some((b) => b.colab_em);
+    const concluido = a.kit_status === 'concluido';
+    const passos = [['Gerado', gerado], ['Publicado', publicado], ['Cimed assinou', cimedOk, cimedParte], ['Colaborador assinou', colab], ['Concluído', concluido]];
+    let ultimo = -1; passos.forEach((x, i) => { if (x[1]) ultimo = i; });
+    const trilha = `<div class="trilha-kit">${passos.map((x, i) => `<span class="tp${x[1] ? ' ok' : x[2] ? ' parte' : i === ultimo + 1 ? ' atual' : ''}"><i>${x[1] ? '✓' : i + 1}</i>${x[0]}</span>`).join('')}</div>`;
+    let com;
+    if (concluido) com = 'Admissão · entregar a via';
+    else if (!gerado) com = 'Admissão · gerar o kit na Esteira';
+    else if (!cimedOk) {
+      const areasPend = bl.filter((b) => b.assinavel !== false && !b.assinado_empresa_em).map((b) => b.area);
+      const nomes = Array.from(new Set((areasPend.length ? areasPend : ['dp']).flatMap(sig)));
+      com = (nomes.length ? nomes.join(', ') : 'Cimed') + ' · assinar ' + (falta.length ? falta.join(', ') : 'o kit');
+    } else if (!colab) com = ko && ko.token_hash && new Date(ko.expira_em) > new Date() ? 'colaborador · assinar pelo celular (link ativo)' : 'Admissão · mandar o link ou entregar o tablet';
+    else com = 'Admissão';
+    return `<tr class="clic" data-act="ficha" data-id="${a.id}"><td><b>${esc(titulo(a.nome))}</b><br><small class="apoio">${esc(a.cargo || '')}</small></td><td>${trilha}</td><td>${esc(com)}</td></tr>`;
+  };
+  return `<div class="caixa" style="margin-bottom:12px"><b>Onde está cada kit</b><p class="apoio" style="font-size:12.5px;margin:4px 0 8px">O kit vai para quem assina pela Cimed e volta para a Admissão sem ninguém clicar; esta lista mostra a etapa de cada um (${esc(turma === 'todas' ? 'todas as turmas' : dmd(turma))}).</p>
+  <div class="tab-wrap"><table><thead><tr><th>Pessoa</th><th>Etapa</th><th>Está com</th></tr></thead><tbody>${lista.map(linha).join('')}</tbody></table></div></div>`;
+}
 VIEWS.kit = () => {
   const ts = turmas();
   const prox = E.turmaKit || ts.find((t) => deIso(t) >= deIso(iso(new Date()))) || ts[ts.length - 1] || '';
   const prontos = vivas().filter((a) => a.matricula && a.data_inicio === prox).length;
   return `<div class="cab"><div class="t"><span class="olho">Kit admissional</span><h1>Esteira de assinatura</h1><p class="apoio">A mesma Esteira de Admissão de sempre: junta os PDFs do LG por pessoa, a Cimed assina primeiro e o colaborador assina na tela. Com <b>Publicar on-line</b>, o kit vai para o armazenamento privado da plataforma: a Cimed assina de qualquer aparelho e o colaborador assina pelo QR, no celular dele, depois de confirmar CPF e data de nascimento. Sem publicar, o kit fica só neste aparelho, como antes.</p></div>
-    <a class="bt" href="${(window.ESTEIRA_URL || 'esteira.html') + '?v=16'}" target="_blank" rel="noopener">Abrir em tela cheia</a></div>
+    <a class="bt" href="${(window.ESTEIRA_URL || 'esteira.html') + '?v=17'}" target="_blank" rel="noopener">Abrir em tela cheia</a></div>
   ${faixaBlocos()}
+  ${ondeEstaCadaKit(prox)}
   ${tem('admissao') && ts.length ? `<div class="faixa"><p><b>Lista de admitidos para a Esteira.</b> Copie os matriculados de uma turma e cole no passo 1 da Esteira, em "Colar da planilha". Nome, CPF, matrícula, unidade e cargo vão no formato que ela lê.</p>
     <label class="olho" for="turmaKit">Turma</label><select id="turmaKit" class="sel-doc">${ts.map((t) => `<option value="${t}" ${t === prox ? 'selected' : ''}>${dmd(t)}</option>`).join('')}</select>
     <button class="bt ama" data-act="copiarEsteira" ${prontos ? '' : 'disabled'}>Copiar ${plural(prontos, 'matriculado', 'matriculados')}</button></div>` : ''}`;
@@ -1076,7 +1112,7 @@ POS.kit = () => {
   $('#turmaKit')?.addEventListener('change', (e) => { E.turmaKit = e.target.value; render(); });
   const host = $('#esteiraHost');
   if (!host.firstChild) {
-    host.innerHTML = `<iframe class="esteira" src="${(window.ESTEIRA_URL || 'esteira.html') + '?v=16'}" title="Esteira de Admissão"></iframe>`;
+    host.innerHTML = `<iframe class="esteira" src="${(window.ESTEIRA_URL || 'esteira.html') + '?v=17'}" title="Esteira de Admissão"></iframe>`;
     // a Esteira lê os mesmos parâmetros do Supabase; mandar daqui cobre o teste sem banco e evita esperar
     const fr = host.firstChild;
     fr.addEventListener('load', () => {
