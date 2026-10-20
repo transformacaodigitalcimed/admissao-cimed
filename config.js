@@ -14,5 +14,10 @@ export const SUPABASE_ANON_KEY = 'sb_publishable_-qdtlNmea5BWtFhvDibpLA_zsf29DzO
 // app no Entra e você ligar o provedor Azure no Supabase (ver README).
 export const LOGIN_MICROSOFT = false;
 
+// Endereço publicado da Esteira: é o que vai no link e no QR do kit on-line.
+// A prévia do Lovable (preview--...) é bloqueada pelo próprio Lovable, então
+// o link nunca pode apontar para ela.
+export const SITE_PUBLICO = 'https://admissao.rhcimed.online/app/esteira.html';
+
 // Quem acessa e com qual papel NÃO fica aqui: fica na tabela "perfis"
 // do Supabase. Conta fora da tabela não vê nada.

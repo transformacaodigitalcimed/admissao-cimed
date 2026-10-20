@@ -3123,7 +3123,7 @@ const MATRIZ = [
   ['Declaração de Encargos p/ Imposto de Renda',                  '1111111', {preenche:true, obs:'Tem tabela de dependentes para o colaborador informar'}],
   ['Ficha de Salário-Família',                                    '1111110', {preenche:true, obs:'Tem relação de filhos para o colaborador informar'}],
   ['Termo de Responsabilidade (Salário Família)',                 '1111110', {}],
-  ['Regulamento Interno e Política de Atestados',                 '1111111', {assina:false, obs:'Cartilha. A ciência vai no termo de recebimento de crachá'}],
+  ['Regulamento Interno e Política de Atestados',                 '1111111', {linhaNoPe:true, obs:'Cartilha sem campo de assinatura: o colaborador assina a ciência numa linha no pé da última folha (Josianny, 20/10/2026)'}],
   ['Termo de Confidencialidade',                                  '1111111', {}],
   ['Termo de Autorização de Uso de Imagem e de Dados Para Divulgação na Intranet', '1111111', {}],
   ['Termo de Consentimento Fornecimento Dados LGPD',              '1111111', {}],
@@ -3141,6 +3141,11 @@ const MATRIZ = [
   ['Proposta de Adesão',                                          '0001100', {area:'beneficios', preenche:true, obs:ENTREGA_BEN}]
 ];
 
+/* Documentos sem campo de assinatura que mesmo assim o colaborador assina:
+   a ferramenta desenha uma linha de ciência no pé da última folha. Vale pelo
+   nome, para a base guardada antes desta versão também. */
+const DOCS_LINHA_NO_PE = ['regulamento interno e politica de atestados'];
+function pedeLinhaNoPe(nome){ const c = chaveDoc(nome || '').replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim(); return DOCS_LINHA_NO_PE.some(x=>c.indexOf(x) === 0); }
 function montarBase(){
   const b = {};
   PERFIS.forEach((perfil, i)=>{
@@ -3363,7 +3368,7 @@ FORMULARIOS[CHAVE_TERMO] = {titulo:'Termo de Transparência (Compliance)', campo
   {t:'opcao', id:'codigo_conduta_ciente', l:'Li e estou ciente do Código de Conduta', op:['Sim']}
 ].concat(TERMO_PERGUNTAS.flatMap(([id, l, dica], i)=>[
   {t:'opcao', id:id, l:(i + 1) + '. ' + l.replace('1o', '1º').replace(/conjuge/g,'cônjuge').replace(/area/g,'área').replace(/orgao/g,'órgão').replace(/servico/g,'serviço').replace(/publico/g,'público').replace(/politico/g,'político').replace(/negocios/g,'negócios').replace(/negociacao/g,'negociação').replace(/participacao/g,'participação').replace(/societaria/g,'societária').replace(/litigio/g,'litígio').replace(/Mantem/,'Mantém').replace(/alguem/,'alguém').replace(/gestao/,'gestão').replace(/situacao/,'situação').replace(/Ha /,'Há ').replace(/irmaos/,'irmãos').replace(/esta em/,'está em'), op:['Sim','Não']},
-  {t:'texto', id:id + '_det', l:'Detalhe: ' + dica.replace(/area/g,'área').replace(/orgao/g,'órgão').replace(/servico/g,'serviço').replace(/horaria/g,'horária').replace(/funcao/g,'função').replace(/vinculo/g,'vínculo'), se:{id:id, vale:['Sim']}}
+  {t:'texto', id:id + '_det', l:'Comentário (obrigatório se Sim): ' + dica.replace(/area/g,'área').replace(/orgao/g,'órgão').replace(/servico/g,'serviço').replace(/horaria/g,'horária').replace(/funcao/g,'função').replace(/vinculo/g,'vínculo'), opcional:true, seObrig:{id:id, vale:['Sim']}}
 ]))};
 const FORM_TERMO = FORMULARIOS[CHAVE_TERMO];
 
@@ -4036,7 +4041,9 @@ const COLS = [
   {k:'perfil', t:'Perfil de documentos', alv:['perfil']},
   {k:'cargo', t:'Cargo', alv:['cargo','funcao','posicao']},
   {k:'setor', t:'Setor / área', alv:['setor','area','departamento']},
-  {k:'unidade', t:'Unidade', alv:['estabelecimento','unidade','centro de custo','localidade','local','filial','cd']}
+  {k:'unidade', t:'Unidade', alv:['estabelecimento','unidade','localidade','local','filial','cd']},
+  {k:'cc', t:'Centro de custo', alv:['centro de custo','cc','c custo','ccusto']},
+  {k:'admissao', t:'Data de admissão', alv:['data de admissao','admissao','data de inicio','data inicio','inicio']}
 ];
 
 /* A planilha real de admitidos tem "Empresa", "Estabelecimento",
@@ -5645,10 +5652,19 @@ async function estamparAssinaturas(bytes, p, st, quem, kit){
           assinou++;
         });
       }
-      /* documento sem nenhuma linha reconhecida: reserva no pé da última
-         página, colaborador à esquerda e empresa à direita */
-      /* nada de assinatura onde o documento não pede: antes a
-         ferramenta desenhava uma linha no pé da folha */
+      /* nada de assinatura onde o documento não pede, salvo a lista
+         DOCS_LINHA_NO_PE: linha de ciência no pé da última folha */
+      if(!assinou && quem.papel === 'colaborador' && pedeLinhaNoPe(it.nome)){
+        const n = fim;
+        const pagina = doc.getPage(n);
+        const ponto = {x: 56, y: 60, centro: 178};
+        pagina.drawLine({start:{x:56, y:58}, end:{x:300, y:58}, thickness:0.8, color:cinza});
+        pagina.drawText(limpoPDF('Ciente: ' + (st.marcaNome || p.nome)), {x:56, y:46, size:8, font:reg, color:cinza});
+        if(porMarca){
+          const m = marcas[chaveIt + '#' + n + '#0'];
+          if(m){ assina(pagina, ponto, m.tipo === 'rubrica' ? pngRub : png, m.tipo); assinou++; }
+        }else{ assina(pagina, ponto); assinou++; }
+      }
       if(!assinou) saida.semLinha.push(it.nome);
     }
 
@@ -5726,9 +5742,12 @@ function desenharTermo(doc, p, reg, neg){
     const {y} = posicaoTermo(i);
     const linhas = quebrar(limpoPDF((i + 1) + '. ' + texto), neg, 9, T_W - 2 * T_L).slice(0, 2);
     linhas.forEach((l, k)=>P(pg, l, T_L, y - k * 12, 9, neg));
-    P(pg, '(     ) Sim', T_L, y - 29, 9.5);
-    P(pg, '(     ) Nao', T_L + 90, y - 29, 9.5);
-    P(pg, 'Detalhe (' + dica + '):', T_L + 190, y - 29, 7.5, reg, cinza);
+    /* caixinhas de Sim e Nao, e uma linha de comentario em cada pergunta */
+    pg.drawRectangle({x:T_L, y:y - 33, width:10, height:10, borderWidth:0.8, borderColor:cor});
+    P(pg, 'Sim', T_L + 15, y - 31, 9.5);
+    pg.drawRectangle({x:T_L + 60, y:y - 33, width:10, height:10, borderWidth:0.8, borderColor:cor});
+    P(pg, 'Nao', T_L + 75, y - 31, 9.5);
+    P(pg, 'Comentario (' + dica + '):', T_L + 130, y - 31, 7.5, reg, cinza);
     pg.drawLine({start:{x:T_L, y:y - 47}, end:{x:T_W - T_L, y:y - 47}, thickness:0.6, color:risco});
   };
   /* folha 1: finalidade, cabeçalho e perguntas 1 a 6 */
@@ -5737,7 +5756,8 @@ function desenharTermo(doc, p, reg, neg){
   quebrar(limpoPDF(TXT_FINALIDADE), reg, 8.5, T_W - 2 * T_L)
     .forEach(l=>{ P(pg1, l, T_L, y, 8.5, reg, cinza); y -= 11; });
   y = yCabecalhoTermo(reg);
-  const cab = [['Nome', p.nome], ['CPF', cpfTxt(p.cpf)], ['Area', p.setor || ''], ['Cargo', p.cargo || ''], ['Matricula', p.matricula || ''], ['Local', p.unidade || ''], ['Data', '']];
+  /* Area = centro de custo da ficha de registro; Data = data de admissao (Josianny, 20/10/2026) */
+  const cab = [['Nome', p.nome], ['CPF', cpfTxt(p.cpf)], ['Area', p.cc || p.setor || ''], ['Cargo', p.cargo || ''], ['Matricula', p.matricula || ''], ['Local', p.unidade || ''], ['Data', p.admissao || '']];
   cab.forEach(([k, v], i)=>{
     const col = i % 2, lin = Math.floor(i / 2);
     const x = T_L + col * ((T_W - 2 * T_L) / 2), yy = y - lin * 22;
@@ -5745,7 +5765,7 @@ function desenharTermo(doc, p, reg, neg){
     P(pg1, String(v || ''), x + 48, yy, 9.5);
     pg1.drawLine({start:{x:x + 46, y:yy - 3}, end:{x:x + (T_W - 2 * T_L) / 2 - 12, y:yy - 3}, thickness:0.6, color:risco});
   });
-  P(pg1, 'Marque Sim ou Nao em cada pergunta. Quando Sim, detalhe na linha.', T_L, T_Q0 + 22, 8, reg, cinza);
+  P(pg1, 'Marque Sim ou Nao em cada pergunta e use a linha de comentario. Quando Sim, o comentario e obrigatorio.', T_L, T_Q0 + 22, 8, reg, cinza);
   for(let i = 0; i < T_POR_PAGINA; i++) pergunta(pg1, i);
   P(pg1, 'Pagina 1 de 2', T_W - T_L - 60, 40, 7.5, reg, cinza);
   /* folha 2: perguntas 7 a 11, LGPD, Codigo de Conduta e assinatura */
@@ -5782,15 +5802,15 @@ async function estamparTermo(bytes, p, st, kit){
     if(!v) return;
     const {pag, y} = posicaoTermo(i);
     const pg = pags[pag];
-    pg.drawText('X', {x:(v === 'Sim' ? T_L : T_L + 90) + 8, y:y - 28, size:10, font:neg, color:tinta});
+    pg.drawText('X', {x:(v === 'Sim' ? T_L : T_L + 60) + 1.5, y:y - 31, size:10, font:neg, color:tinta});
     const det = String(resp[q + '_det'] || '').trim();
-    if(v === 'Sim' && det) pg.drawText(cabeNaLargura(limpoPDF(det), reg, 8, T_W - 2 * T_L - 4), {x:T_L + 2, y:y - 44, size:8, font:reg, color:tinta});
+    if(det) pg.drawText(cabeNaLargura(limpoPDF(det), reg, 8, T_W - 2 * T_L - 4), {x:T_L + 2, y:y - 44, size:8, font:reg, color:tinta});
   });
   const agora = agoraCerta();
   const cidade = String(p.unidade || '').replace(/^(CDS?|F.BRICA|ESCRIT.RIO|UNIDADE|FILIAL|LOJA)\s+/i, '').trim();
   pags[1].drawText(limpoPDF((cidade ? cidade + ', ' : '') + agora.getDate() + ' de ' + MESES[agora.getMonth()] + ' de ' + agora.getFullYear()), {x:T_L + 66, y:215, size:9, font:reg, color:tinta});
-  /* data do cabecalho: 7o campo, linha 3, coluna 0 */
-  pags[0].drawText(limpoPDF(agora.getDate() + '/' + String(agora.getMonth() + 1).padStart(2, '0') + '/' + agora.getFullYear()), {x:T_L + 48, y:yCabecalhoTermo(reg) - 3 * 22, size:9.5, font:reg, color:tinta});
+  /* data do cabecalho: a data de admissao ja sai impressa ao gerar; sem ela, vale o dia da assinatura */
+  if(!p.admissao) pags[0].drawText(limpoPDF(agora.getDate() + '/' + String(agora.getMonth() + 1).padStart(2, '0') + '/' + agora.getFullYear()), {x:T_L + 48, y:yCabecalhoTermo(reg) - 3 * 22, size:9.5, font:reg, color:tinta});
   if(resp.codigo_conduta_aberto_em){
     pags[1].drawText(limpoPDF(hojeTxt(new Date(resp.codigo_conduta_aberto_em))), {x:T_L + 118, y:yLinkTermo(reg), size:8, font:reg, color:tinta});
   }
@@ -5798,7 +5818,7 @@ async function estamparTermo(bytes, p, st, kit){
 }
 function respSemTermo(resp){
   const out = {};
-  Object.keys(resp || {}).forEach(k=>{ if(!/^q\d{1,2}(_det)?$/.test(k) && k.indexOf('codigo_conduta') !== 0) out[k] = resp[k]; });
+  Object.keys(resp || {}).forEach(k=>{ if(!/^q\d{1,2}(_det)?$/.test(k) && k.indexOf('codigo_conduta') !== 0 && k.indexOf('termo_') !== 0) out[k] = resp[k]; });
   return out;
 }
 function opcoesDoKit(st){ return respSemTermo(st && st.resp); }
@@ -5950,7 +5970,7 @@ async function gerarKit(pid, avisar){
       const src = await PDFDocument.load(item.a.bytes, {ignoreEncryption:true});
       const pgs = await saida.copyPages(src, src.getPageIndices());
       pgs.forEach(pg=>saida.addPage(pg));
-      indice.push({nome:(item.d?item.d.nome:item.a.nome), ini:ini, qtd:pgs.length, area: areaDoDoc(item.d || {nome: item.a.nome}), assina: item.d ? item.d.assina !== false : true});
+      indice.push({nome:(item.d?item.d.nome:item.a.nome), ini:ini, qtd:pgs.length, area: areaDoDoc(item.d || {nome: item.a.nome}), assina: item.d ? (item.d.assina !== false || pedeLinhaNoPe(item.d.nome)) : true});
     }catch(e){ /* pula arquivo problemático */ }
   }
   if(!saida.getPageCount()){ if(avisar) torrada('Não foi possível ler os PDFs desta pessoa.'); return null; }
@@ -6200,9 +6220,13 @@ async function acharPontos(p, k, docs){
             pag: n, rel: n - d.ini + 1, x: x.x, y: x.y, motivo: x.motivo
           }));
       }
-      /* documento sem campo de assinatura não pede assinatura: a
-         Helaine confirmou que só se assina onde o formulário tem a
-         linha. A ferramenta não inventa mais uma no pé da folha. */
+      /* documento sem campo de assinatura não pede assinatura (Helaine),
+         salvo os da lista DOCS_LINHA_NO_PE: o Regulamento leva uma linha
+         de ciência no pé da última folha (Josianny, 20/10/2026). */
+      if(!lista.length && pedeLinhaNoPe(d.nome)){
+        const n = d.ini + d.qtd - 1;
+        lista.push({id: d.chave + '#' + n + '#0', pag: n, rel: d.qtd, x: 56, y: 60, motivo: 'Ciência do regulamento', pe: true});
+      }
       d.pontos = lista;
     });
   }catch(e){
@@ -6477,6 +6501,22 @@ function renderColab(){
     /* A estrutura sai pronta aqui: a moldura de cada folha e o campo
        de assinatura dela. O desenho da página entra depois, dentro da
        moldura. Assim o campo existe mesmo se o desenho demorar. */
+    /* Termo de Transparencia: primeiro as perguntas; depois de tudo respondido,
+       o documento preenchido para a pessoa revisar e confirmar (Josianny, 20/10/2026) */
+    const ehTermo = doc.form === FORM_TERMO;
+    const termoOk = ehTermo && termoRespondido(st);
+    const termoRevisao = ehTermo && termoOk && (st.resp || {}).termo_etapa === 'revisao';
+    if(ehTermo && !termoRevisao){
+      h += '<div class="doc-card"><p class="dica" style="margin:0">Responda às perguntas abaixo. Depois, o termo aparece preenchido para você revisar e confirmar.</p></div>'
+        + blocoForm(doc, st)
+        + '<div class="passos-nav">'
+        + '<button class="b" id="cbVoltar"' + (C.passo === 0 ? ' disabled' : '') + '>Voltar</button>'
+        + '<button class="b prim" id="cbTermoRevisar"' + (termoOk ? '' : ' disabled') + '>Ver o termo preenchido</button>'
+        + '</div></div></div>';
+      $('#janelaCorpo').innerHTML = h;
+      ligarColaborador(p, k, st);
+      return;
+    }
     h += '<div id="paginas" class="paginas">';
     for(let n = doc.ini; n < doc.ini + doc.qtd; n++){
       h += '<div class="folha-box">'
@@ -6488,7 +6528,12 @@ function renderColab(){
     }
     h += '</div>';
 
-    h += blocoForm(doc, st);
+    if(ehTermo){
+      h += '<div class="doc-card"><p class="dica" style="margin:0 0 8px">Confira as respostas escritas no termo. Se algo estiver errado, volte e corrija; se estiver certo, assine o campo acima e confirme.</p>'
+        + '<button class="b peq" id="cbTermoEditar">Editar respostas</button></div>';
+    }else{
+      h += blocoForm(doc, st);
+    }
 
     h += '<div class="passos-nav">'
       + '<button class="b" id="cbVoltar"' + (C.passo === 0 ? ' disabled' : '') + '>Voltar</button>'
@@ -6497,7 +6542,7 @@ function renderColab(){
          kit inteiro de novo. */
       + (C.doFecho ? '<button class="b prim" id="cbConcluir">Concluir</button>' : '')
       + '<button class="b' + (C.doFecho ? '' : ' prim') + '" id="cbProx">'
-      + (C.passo === total - 1 ? 'Ir para o fecho' : 'Próximo documento') + '</button>'
+      + (ehTermo ? 'Confirmar o termo e continuar' : C.passo === total - 1 ? 'Concluir' : 'Próximo documento') + '</button>'
       + '</div>';
   }
 
@@ -6530,8 +6575,21 @@ function renderColab(){
   if(!noFim){
     const cx = $('#paginas');
     if(cx) ligarCamposAssinatura(cx, st, p);
-    desenharPaginas(k, C.docs[C.passo], st, p);
+    const d0 = C.docs[C.passo];
+    if(d0 && d0.form === FORM_TERMO && (st.resp || {}).termo_etapa === 'revisao'){
+      /* o termo aparece ja com as respostas escritas, para revisar antes de assinar */
+      estamparTermo(k.bytes, p, st, k).then(b=>desenharPaginas(k, d0, st, p, b)).catch(()=>desenharPaginas(k, d0, st, p));
+    }else{
+      desenharPaginas(k, d0, st, p);
+    }
   }
+}
+
+/* todas as perguntas do termo respondidas (e comentario quando Sim) */
+function termoRespondido(st){
+  const r = (st && st.resp) || {};
+  if(r.codigo_conduta_ciente !== 'Sim') return false;
+  return TERMO_PERGUNTAS.every(([q])=>r[q] === 'Sim' ? String(r[q + '_det'] || '').trim() !== '' : r[q] === 'Não');
 }
 
 /* Campo por campo, o que ficou em branco neste formulario.
@@ -6540,7 +6598,8 @@ function renderColab(){
 function camposEmBranco(form, st){
   const faltas = [];
   camposVisiveis(form, st).forEach(c=>{
-    if(c.opcional || c.t === 'link') return;
+    if(c.t === 'link') return;
+    if(c.opcional && !(c.seObrig && condicaoOk({se:c.seObrig}, st))) return;
     const v = (st.resp || {})[c.id];
     if(c.t === 'dependentes' || c.t === 'beneficiarios'){
       const arr = Array.isArray(v) ? v : [];
@@ -6703,7 +6762,7 @@ function blocoDoPonto(ponto, st, p){
   return h + '</div>';
 }
 
-async function desenharPaginas(k, doc, st, p){
+async function desenharPaginas(k, doc, st, p, bytesAlt){
   const box = $('#paginas');
   if(!box) return;
   const molduras = Array.from(box.querySelectorAll('canvas.folha'));
@@ -6718,7 +6777,7 @@ async function desenharPaginas(k, doc, st, p){
   let pdf = null;
   try{
     pdf = await pdfjsLib.getDocument({
-      data: k.bytes.slice(0), isEvalSupported:false, useSystemFonts:false, verbosity:0
+      data: (bytesAlt || k.bytes).slice(0), isEvalSupported:false, useSystemFonts:false, verbosity:0
     }).promise;
   }catch(e){
     box.querySelectorAll('.folha-carga').forEach(el=>{
@@ -6917,6 +6976,13 @@ function ligarColaborador(p, k, st){
   if(bv) bv.addEventListener('click', ()=>{ if(C.passo > 0){ C.passo--; C.captura = null; renderColab(); aoTopo(); } });
   const bp = corpo.querySelector('#cbProx');
   if(bp) bp.addEventListener('click', ()=>{ C.passo++; C.captura = null; salvar(); renderColab(); aoTopo(); });
+  const btr = corpo.querySelector('#cbTermoRevisar');
+  if(btr) btr.addEventListener('click', ()=>{ if(!termoRespondido(st)){ torrada('Responda todas as perguntas (e comente quando a resposta for Sim).', 5000); return; } st.resp.termo_etapa = 'revisao'; salvar(); renderColab(); aoTopo(); });
+  const bte = corpo.querySelector('#cbTermoEditar');
+  if(bte) bte.addEventListener('click', ()=>{ st.resp.termo_etapa = 'perguntas'; salvar(); renderColab(); aoTopo(); });
+  /* o botao "ver o termo" acompanha as respostas sem redesenhar a tela */
+  corpo.addEventListener('change', ()=>{ const b = corpo.querySelector('#cbTermoRevisar'); if(b) b.disabled = !termoRespondido(st); });
+  corpo.addEventListener('input', ()=>{ const b = corpo.querySelector('#cbTermoRevisar'); if(b) b.disabled = !termoRespondido(st); });
   const bc = corpo.querySelector('#cbConcluir');
   if(bc) bc.addEventListener('click', ()=>{
     C.passo = C.docs.length; C.doFecho = false; C.captura = null; salvar(); renderColab(); aoTopo();
@@ -7320,7 +7386,7 @@ function abrirQR(pid){
     catch(e){ qr = '<div class="dica">QR indisponível</div>'; }
     h = '<div class="flex" style="align-items:flex-start;gap:22px">' + qr
       + '<div style="flex:1;min-width:250px">'
-      + '<p class="dica forte" style="margin-top:0">O colaborador aponta a câmera do celular, confirma CPF e data de nascimento, lê os documentos e assina com o dedo. O kit assinado volta para a Admissão.</p>'
+      + '<p class="dica forte" style="margin-top:0">O colaborador aponta a câmera do celular, confirma CPF e data de admissão, lê os documentos e assina com o dedo. O kit assinado volta para a Admissão.</p>'
       + (st.empresa ? '' : blocosAssinados(S.kits[pid], st).length
           ? '<div class="aviso" style="margin-bottom:10px"><div><b>Falta a Cimed assinar: ' + esc(textoPendentes(S.kits[pid], st)) + '.</b> O link já abre (a Cimed assinou ' + esc(blocosAssinados(S.kits[pid], st).map(b=>b.titulo).join(', ')) + '); o bloco pendente é assinado depois por quem tem procuração para a área.</div></div>'
           : '<div class="aviso" style="margin-bottom:10px"><div><b>Falta a assinatura da Cimed.</b> O link só abre depois que a Cimed assinar pelo menos um bloco deste kit.</div></div>')
@@ -7503,8 +7569,12 @@ async function hashTexto(t){ return hashHex(new TextEncoder().encode(t)); }
 function sufixo(){
   return Array.from(crypto.getRandomValues(new Uint8Array(8))).map(x=>(x % 36).toString(36)).join('');
 }
+/* o link do QR sai sempre no endereço publicado (config.js): aberto pelo
+   editor ou pela prévia do Lovable, o link apontaria para um endereço que
+   o próprio Lovable bloqueia ("acesso negado") */
 function urlOnline(o){
-  return location.href.split('#')[0].split('?')[0] + '#online=' + o.id + '.' + o.token;
+  const base = (NUVEM.cfg && NUVEM.cfg.SITE_PUBLICO) || location.href.split('#')[0].split('?')[0];
+  return base + '#online=' + o.id + '.' + o.token;
 }
 
 /* tudo do kit menos os binários: vai como .json ao lado do PDF */
@@ -7576,7 +7646,7 @@ async function publicarOnline(pid, botao){
     await subirNaNuvem(sb, js, JSON.stringify(dadosDoKit(pid)), 'application/json');
     const blocos = blocosParaBanco(k, st);
     const corpo = {
-      p_id: id, p_pid: p.id, p_nome: p.nome, p_cpf: digitos(p.cpf), p_nasc: p.nasc || null,
+      p_id: id, p_pid: p.id, p_nome: p.nome, p_cpf: digitos(p.cpf), p_nasc: p.admissao || p.nasc || null,
       p_token_hash: await hashTexto(token), p_dias: 7, p_hash_original: k.hash,
       p_pdf: pdf, p_json: js, p_empresa_nome: blocos ? null : (st.empresa ? st.empresa.nome : null), p_blocos: blocos
     };
@@ -7803,10 +7873,10 @@ async function modoOnline(id, token){
   $('#janelaTit').textContent = 'Kit de admissão Cimed';
   $('#janelaCorpo').innerHTML = '<div class="porta">'
     + '<h3>Seu kit de admissão</h3>'
-    + '<p class="dica">Confirme os seus dados para abrir os documentos. Eles são conferidos com o cadastro do RH, e nada fica salvo neste celular.</p>'
+    + '<p class="dica">Confirme o seu CPF e a data da sua admissão (o primeiro dia de trabalho) para abrir os documentos. Eles são conferidos com o cadastro do RH, e nada fica salvo neste celular.</p>'
     + '<label class="campo"><span>Seu CPF</span>'
     + '<input type="text" id="cpfOnline" inputmode="numeric" placeholder="000.000.000-00" autocomplete="off"></label>'
-    + '<label class="campo"><span>Data de nascimento</span>'
+    + '<label class="campo"><span>Data de admissão (seu primeiro dia)</span>'
     + '<input type="text" id="nascOnline" inputmode="numeric" placeholder="dd/mm/aaaa" autocomplete="off" maxlength="10"></label>'
     + '<button class="b prim" id="btEntrarOnline" style="width:100%;justify-content:center;margin-top:6px">Abrir meus documentos</button>'
     + '<p class="dica" id="erroOnline" style="color:var(--critico);margin-top:10px" hidden></p>'
@@ -7823,7 +7893,7 @@ async function modoOnline(id, token){
   const entrar = async ()=>{
     const cpf = digitos($('#cpfOnline').value), nasc = nascEl.value.trim();
     if(cpf.length !== 11){ mostrarErro('Digite os 11 números do CPF.'); return; }
-    if(digitos(nasc).length !== 8){ mostrarErro('Digite a data de nascimento completa, como 14/03/1996.'); return; }
+    if(digitos(nasc).length !== 8){ mostrarErro('Digite a data de admissão completa, como 03/11/2026.'); return; }
     erro.hidden = true; bt.disabled = true; bt.textContent = 'Conferindo...';
     let r;
     try{
@@ -7897,9 +7967,9 @@ function telaPronta(p, st){
 /* a sessão venceu ou o link foi aberto em outra aba: confirma de novo sem perder a assinatura */
 function pedirDadosDeNovo(p, k, st, aviso){
   telaOnline('<h3>Confirme os seus dados para enviar</h3>'
-    + '<p class="dica">' + esc(aviso || 'Por segurança, confirme de novo o CPF e a data de nascimento. A sua assinatura continua aqui.') + '</p>'
+    + '<p class="dica">' + esc(aviso || 'Por segurança, confirme de novo o CPF e a data de admissão. A sua assinatura continua aqui.') + '</p>'
     + '<label class="campo"><span>Seu CPF</span><input type="text" id="cpfRenova" inputmode="numeric" placeholder="000.000.000-00" autocomplete="off"></label>'
-    + '<label class="campo"><span>Data de nascimento</span><input type="text" id="nascRenova" inputmode="numeric" placeholder="dd/mm/aaaa" autocomplete="off" maxlength="10"></label>'
+    + '<label class="campo"><span>Data de admissão</span><input type="text" id="nascRenova" inputmode="numeric" placeholder="dd/mm/aaaa" autocomplete="off" maxlength="10"></label>'
     + '<button class="b prim" id="btRenova" style="width:100%;justify-content:center;margin-top:6px">Confirmar e enviar</button>'
     + '<p class="dica" id="erroRenova" style="color:var(--critico);margin-top:10px" hidden></p>');
   const nascEl = $('#nascRenova');
