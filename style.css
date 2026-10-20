@@ -480,3 +480,21 @@ td{padding:8px 10px}
 .trilha-kit .tp.atual i{background:var(--sobre-amarelo);color:var(--amarelo)}
 .trilha-kit .tp.parte{background:var(--at-bg);color:var(--at);border-color:transparent}
 .trilha-kit .tp.parte i{background:var(--at);color:#fff}
+
+/* sino de pendências e novidades, e "ver como" do admin (20/10/2026) */
+.topo-dir{margin-left:auto;display:flex;align-items:center;gap:12px}
+.topo-dir .quem{margin-left:0}
+.sino-wrap{position:relative}
+.sino{position:relative;width:38px;height:38px;border-radius:50%;border:1px solid var(--linha);background:var(--sup);display:inline-flex;align-items:center;justify-content:center;color:var(--tx2);cursor:pointer}
+.sino svg{width:20px;height:20px}
+.sino.aceso{background:var(--amarelo);color:var(--sobre-amarelo);border-color:transparent}
+.sino-n{position:absolute;top:-6px;right:-6px;min-width:20px;height:20px;padding:0 6px;border-radius:999px;background:var(--cr);color:#fff;font-size:11px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;border:2px solid var(--sup)}
+.sino-lista{position:absolute;top:calc(100% + 8px);right:0;width:min(440px,calc(100vw - 32px));background:var(--sup);border:1px solid var(--linha);border-radius:14px;box-shadow:0 12px 32px rgba(29,27,22,.12);padding:6px;display:flex;flex-direction:column;gap:2px;max-height:70vh;overflow:auto;z-index:40}
+.sino-lista button{text-align:left;border:0;background:transparent;padding:10px 12px;border-radius:10px;cursor:pointer;font-size:13px;color:var(--tx);display:flex;gap:8px;align-items:center;width:100%}
+.sino-lista button:hover{background:var(--sup2)}
+.sino-lista .novo{font-size:10.5px;font-weight:700;color:var(--sobre-amarelo);background:var(--amarelo);border-radius:999px;padding:2px 7px;white-space:nowrap}
+.sino-lista .vazio-sino{padding:14px;color:var(--mudo);font-size:13px;text-align:center}
+.ver-como{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--mudo);white-space:nowrap}
+.ver-como select{border:1px solid var(--linha);background:var(--sup);color:var(--tx);border-radius:10px;padding:6px 8px;font-size:12.5px;max-width:220px}
+.ver-como-faixa{margin:12px 20px 0;flex-wrap:wrap}
+@media (max-width:760px){.ver-como span{display:none}.ver-como select{max-width:140px}}

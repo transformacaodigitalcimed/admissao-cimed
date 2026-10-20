@@ -8176,10 +8176,14 @@ function comQuem(k, st){
 }
 function trilhaKit(k, st){
   const e = etapasKit(k, st);
-  const passos = [['Gerado', true], ['Publicado', e.publicado], ['Cimed assinou', e.cimedOk, e.cimedParte], ['Colaborador assinou', e.colab], ['Concluído', e.concluido]];
+  /* etapa feita: "Cimed assinou"; etapa atual (amarela): "Pendente: colaborador assinar" (Josianny, 20/10/2026) */
+  const passos = [['Gerado', true, false, 'gerar'], ['Publicado', e.publicado, false, 'publicar'], ['Cimed assinou', e.cimedOk, e.cimedParte, 'Cimed assinar'], ['Colaborador assinou', e.colab, false, 'colaborador assinar'], ['Concluído', e.concluido, false, 'concluir']];
   let ultimo = -1; passos.forEach((x, i)=>{ if(x[1]) ultimo = i; });
   const c = comQuem(k, st);
-  return '<div class="trilha-kit">' + passos.map((x, i)=>'<span class="tp' + (x[1] ? ' ok' : x[2] ? ' parte' : i === ultimo + 1 ? ' atual' : '') + '"><i>' + (x[1] ? '✓' : (i + 1)) + '</i>' + x[0] + '</span>').join('') + '</div>'
+  return '<div class="trilha-kit">' + passos.map((x, i)=>{
+    const atual = !x[1] && i === ultimo + 1;
+    return '<span class="tp' + (x[1] ? ' ok' : x[2] ? ' parte' : atual ? ' atual' : '') + '"><i>' + (x[1] ? '✓' : (i + 1)) + '</i>' + (x[1] ? x[0] : x[2] ? 'Cimed assinou em parte' : atual ? 'Pendente: ' + x[3] : x[0]) + '</span>';
+  }).join('') + '</div>'
     + '<div class="dica" style="margin:5px 0 0">Está com: <b>' + esc(c.quem) + '</b>' + (c.acao ? ' · ' + esc(c.acao) : '') + '</div>';
 }
 /* áreas em que quem está logado assina pela Cimed (e-mail em signatarios_por_area, SQL 23) */
@@ -9256,6 +9260,8 @@ function checarArmazenamento(){
 }
 
 /* ---- início ---- */
+/* modo signatário: esconde as abas e os passos já na primeira pintura, antes de ler o guardado */
+if(MODO_SIGNATARIO) document.body.classList.add('modo-signatario');
 carregar();
 try{
   /* a versão anterior guardava um nome só: vale como o do bloco DP */

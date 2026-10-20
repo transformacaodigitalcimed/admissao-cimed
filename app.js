@@ -57,7 +57,7 @@ async function criarApi() {
     async whatsapp() { return ok(await sb.from('whatsapp_fila').select('*').order('criado_em', { ascending: false }).limit(200)); },
     async reenviarWhatsapp(id) { return ok(await sb.rpc('reenviar_whatsapp', { wid: id })); },
     // kits publicados on-line (Admissão e signatário leem): para a trilha "onde está cada kit"
-    async kitsOnline() { return ok(await sb.from('kits_online').select('id,admissao_id,versao,empresa_assinou,colab_assinou,token_hash,expira_em,cancelado_em,atualizado_em').is('cancelado_em', null).order('atualizado_em', { ascending: false }).limit(300)); },
+    async kitsOnline() { return ok(await sb.from('kits_online').select('id,admissao_id,nome,versao,empresa_assinou,colab_assinou,token_hash,expira_em,cancelado_em,atualizado_em,blocos').is('cancelado_em', null).order('atualizado_em', { ascending: false }).limit(300)); },
     async areas() { return ok(await sb.from('areas_aviso').select('*').order('ordem')); },
     async salvarArea(id, p) { return ok(await sb.from('areas_aviso').update(p).eq('id', id).select()); },
     async locais() { return ok(await sb.from('locais').select('*').eq('ativo', true).order('nome')); },
@@ -334,11 +334,38 @@ const E = {
   admissoes: [], resumo: {}, locais: [], areas: [], params: {}, emails: [], whatsapp: [], kitsOnline: [], entregas: [],
   turma: null, localF: '', modo: 'quadro', selDoc: null, selMail: null, previa: null,
   turmasCal: [], bps: [], dest: [], termos: [], depsNovo: [], turmaLista: null, locaisLista: null, soMatriculados: true, selTermo: null, matrizOs: [],
+  verComo: null,
 };
 const param = (k, padrao = '') => (E.params[k] == null ? padrao : String(E.params[k]));
 const ligado = (k, padrao = 'sim') => param(k, padrao) === 'sim';
 const localDe = (nome) => E.locais.find((l) => l.nome === nome) || {};
-const tem = (...p) => !!E.perfil && (E.perfil.papeis.includes('admin') || p.some((x) => E.perfil.papeis.includes(x)));
+// "Ver como" (admin, 20/10/2026): o admin escolhe um perfil e a plataforma mostra só o que esse perfil vê.
+// Muda só a tela e os botões; os dados continuam vindo com a permissão do admin.
+const PERFIS_VER_COMO = [
+  ['admin', 'Admin (tudo)', ['admin'], null],
+  ['rs', 'R&S (recrutadora)', ['rs'], null],
+  ['admissao', 'Admissão · ADM de Pessoal', ['admissao'], null],
+  ['saude', 'Saúde ocupacional', ['saude'], null],
+  ['remuneracao', 'Remuneração', ['remuneracao'], null],
+  ['signatario', 'Signatário (Keila)', ['signatario'], null],
+  ['compliance', 'Compliance', ['compliance'], null],
+  ['esp-seguranca', 'Especialista · Segurança do Trabalho', ['especialista'], 'seguranca'],
+  ['esp-ti', 'Especialista · TI', ['especialista'], 'ti'],
+  ['esp-facilities', 'Especialista · Facilities', ['especialista'], 'facilities'],
+];
+const souAdminDeVerdade = () => !!E.perfil && (E.perfil.papeis || []).includes('admin');
+const papeisAtivos = () => (E.verComo ? E.verComo.papeis : (E.perfil ? E.perfil.papeis : []));
+const tem = (...p) => !!E.perfil && (papeisAtivos().includes('admin') || p.some((x) => papeisAtivos().includes(x)));
+function definirVerComo(chave) {
+  const def = PERFIS_VER_COMO.find((x) => x[0] === chave);
+  E.verComo = def && def[0] !== 'admin' && souAdminDeVerdade() ? { chave: def[0], rotulo: def[1], papeis: def[2], area_id: def[3] } : null;
+  try { sessionStorage.setItem('cimed.verComo', E.verComo ? E.verComo.chave : ''); } catch (e) { /* sem sessionStorage */ }
+}
+// a primeira tela de cada perfil: quem não é R&S nem Admissão abre direto na própria
+function visaoInicial() {
+  const so = !tem('rs', 'admissao');
+  return so && tem('saude') ? 'saude' : so && tem('remuneracao') ? 'remuneracao' : so && tem('signatario') ? 'kit' : so && tem('compliance') ? 'compliance' : navVisivel()[0]?.[0];
+}
 
 // [id, nome, ícone, quem vê, seção do menu]
 const NAV = [
@@ -400,9 +427,8 @@ async function aposLogin() {
   E.perfil = await tentar(() => api.perfil(E.sessao.id));
   if (!E.perfil) return telaSemAcesso();
   E.perfil.papeis = E.perfil.papeis || [];
-  // quem não é R&S nem Admissão abre direto na própria tela
-  const so = !tem('rs', 'admissao');
-  E.view = so && tem('saude') ? 'saude' : so && tem('remuneracao') ? 'remuneracao' : so && tem('signatario') ? 'kit' : so && tem('compliance') ? 'compliance' : navVisivel()[0]?.[0];
+  try { definirVerComo(sessionStorage.getItem('cimed.verComo') || ''); } catch (e) { E.verComo = null; }
+  E.view = visaoInicial();
   if (!E.view) return telaSemAcesso();
   await carregar();
   casca();
@@ -528,14 +554,93 @@ function casca() {
           <input id="busca" type="search" placeholder="Buscar pessoa pelo nome ou CPF" autocomplete="off" aria-label="Buscar pessoa"><div class="busca-res" id="buscaRes" hidden></div></div>` : '<div class="esp"></div>'}
         ${E.params.envio_ativo !== 'sim' && tem('admissao') ? '<span class="selo-homolog" title="Os e-mails ficam na fila até o envio ser ligado">Homologação</span>' : ''}
         ${tem('rs', 'admissao') ? `<button class="bt" data-act="ir" data-v="novo">${MI.novo} Cadastrar aprovado</button>` : ''}
+        <div class="topo-dir">
+        ${souAdminDeVerdade() ? `<label class="ver-como" title="Veja a plataforma como cada perfil de acesso vê"><span>Ver como</span><select data-change="verComo">${PERFIS_VER_COMO.map(([c, r]) => `<option value="${c}" ${(E.verComo ? E.verComo.chave : 'admin') === c ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select></label>` : ''}
+        ${sinoHtml()}
         <div class="quem"><span class="avatar">${esc((E.perfil.nome || '?').slice(0, 2).toUpperCase())}</span><span class="quem-nome">${esc(E.perfil.nome)}</span><button class="bt peq" data-act="sair">Sair</button></div>
+        </div>
       </header>
+      ${E.verComo ? `<div class="aviso-faixa info ver-como-faixa">${ICO.info.replace('<svg', '<svg width="16" height="16"')}<span style="flex:1">Você está vendo a plataforma como <b>${esc(E.verComo.rotulo)}</b>. Só as telas e os botões mudam; os dados continuam os seus.</span><button class="bt peq" data-act="verComoSair">Voltar ao admin</button></div>` : ''}
       <main id="main"></main>
       <div id="esteiraHost" class="esteira-host" hidden></div>
     </div></div>`;
   $('#busca')?.addEventListener('input', buscar);
   $('#busca')?.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.target.value = ''; buscar(); } });
   render();
+  iniciarSino();
+}
+
+// ============================================================ SINO (20/10/2026)
+// Pendências da sua parte e novidades que chegaram, por perfil. O número é o que você ainda não abriu.
+const SVG_SINO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>';
+const chaveVistos = () => 'cimed.sino.vistos.' + String((E.perfil && E.perfil.email) || '').toLowerCase();
+function vistosSino() { try { return JSON.parse(localStorage.getItem(chaveVistos()) || '{}') || {}; } catch (e) { return {}; } }
+function marcarVistos(chaves) {
+  const v = vistosSino(); const agora = Date.now();
+  chaves.forEach((c) => { v[c] = agora; });
+  // esquece o que já não está na lista há 60 dias, para não crescer sem parar
+  Object.keys(v).forEach((c) => { if (agora - v[c] > 60 * 864e5) delete v[c]; });
+  try { localStorage.setItem(chaveVistos(), JSON.stringify(v)); } catch (e) { /* sem espaço */ }
+}
+// áreas em que quem está logado assina pela Cimed (e-mail em signatarios_por_area, SQL 23)
+function minhasAreasSig() {
+  try { const m = JSON.parse(E.params.signatarios_por_area || '{}'); const eu = String((E.perfil && E.perfil.email) || '').toLowerCase(); return Object.keys(m).filter((a) => (m[a] || []).some((s) => String(s.email || '').toLowerCase() === eu)); }
+  catch (e) { return []; }
+}
+function notificacoes() {
+  const l = []; const nome = (n) => titulo(n || '');
+  const recente = (k) => !k.atualizado_em || (Date.now() - new Date(k.atualizado_em).getTime()) < 14 * 864e5;
+  const areas = tem('signatario') ? minhasAreasSig() : [];
+  (E.kitsOnline || []).forEach((k) => {
+    if (k.cancelado_em) return;
+    const b = k.blocos || {};
+    if (areas.length && !k.colab_assinou && areas.some((a) => b[a] && b[a].assinavel !== false && !b[a].assinado_empresa_em)) l.push({ chave: 'sig:' + k.id + ':' + k.versao, nivel: 0, texto: 'Chegou para você assinar: ' + nome(k.nome), view: 'kit' });
+    if (!tem('admissao') || !recente(k)) return;
+    if (k.colab_assinou) l.push({ chave: 'colab:' + k.id, nivel: 1, texto: nome(k.nome) + ' assinou o kit', view: 'kit', id: k.admissao_id });
+    else if (k.empresa_assinou) l.push({ chave: 'cimed:' + k.id + ':' + k.versao, nivel: 2, texto: 'A Cimed assinou o kit de ' + nome(k.nome) + ': pendente o colaborador assinar', view: 'kit', id: k.admissao_id });
+  });
+  if (tem('admissao')) (E.emails || []).filter((m) => m.status === 'erro').forEach((m) => l.push({ chave: 'mail:' + m.id, nivel: 1, texto: 'E-mail com erro: ' + (m.assunto || ''), view: 'emails' }));
+  if (tem('especialista') && !tem('admissao')) (E.entregas || []).filter((x) => !x.pronto_em).slice(0, 20).forEach((x) => l.push({ chave: 'entrega:' + x.admissao_id + ':' + x.area_id, nivel: 2, texto: 'Entrega pendente da sua área: ' + nome(x.nome) + (x.area_nome ? ' (' + x.area_nome + ')' : ''), view: 'entregas' }));
+  // a lista de atenção do Início é de quem toca a admissão; quem só assina ou só vê o Compliance não recebe
+  if (tem('rs', 'admissao', 'saude', 'remuneracao') || souSeguranca() || souTi()) listaAtencao().forEach(([p, a, tx]) => l.push({ chave: 'at:' + a.id + ':' + tx.slice(0, 24), nivel: p, texto: nome(a.nome) + ' · ' + tx, id: a.id }));
+  l.sort((x, y) => x.nivel - y.nivel);
+  return l;
+}
+function sinoHtml() {
+  const l = notificacoes(); const v = vistosSino(); const novos = l.filter((x) => !v[x.chave]).length;
+  return `<div class="sino-wrap"><button class="sino${novos ? ' aceso' : ''}" data-act="sino" aria-label="Pendências e novidades" title="${novos ? plural(novos, 'novidade', 'novidades') : 'Pendências e novidades'}">${SVG_SINO}${novos ? `<span class="sino-n num">${novos > 99 ? '99+' : novos}</span>` : ''}</button><div class="sino-lista" id="sinoLista" hidden></div></div>`;
+}
+function atualizarSino() { const w = $('.sino-wrap'); if (w) w.outerHTML = sinoHtml(); }
+function abrirSino() {
+  const box = $('#sinoLista'); if (!box) return;
+  if (!box.hidden) { box.hidden = true; return; }
+  const l = notificacoes(); const v = vistosSino();
+  box.innerHTML = l.length
+    ? l.map((x) => `<button data-act="sinoIr" data-v="${x.view || ''}" data-id="${x.id || ''}">${x.nivel === 0 ? chip('c-cr', 'cr', '!') : ''}<span style="flex:1">${esc(x.texto)}</span>${v[x.chave] ? '' : '<span class="novo">novo</span>'}</button>`).join('')
+    : '<div class="vazio-sino">Nada pendente da sua parte. Quando chegar algo, o sino acende.</div>';
+  box.hidden = false;
+  marcarVistos(l.map((x) => x.chave));
+  const b = $('.sino'); if (b) { b.classList.remove('aceso'); const n = b.querySelector('.sino-n'); if (n) n.remove(); }
+}
+let SINO_TIMER = null;
+function iniciarSino() {
+  if (SINO_TIMER) return;
+  // de minuto em minuto, com a aba visível: recarrega o que muda sozinho (kits, e-mails, admissões) e acende o sino
+  SINO_TIMER = setInterval(async () => {
+    if (document.hidden || !E.perfil || !$('#main')) return;
+    const antes = notificacoes().filter((x) => !vistosSino()[x.chave]).length;
+    try {
+      const tarefas = [];
+      if (tem('admissao', 'signatario') && api.kitsOnline) tarefas.push(api.kitsOnline().then((r) => (E.kitsOnline = r || [])).catch(() => {}));
+      if (tem('admissao')) tarefas.push(api.emails().then((r) => (E.emails = r || [])).catch(() => {}));
+      if (tem('rs', 'admissao', 'saude', 'remuneracao', 'signatario') || souSeguranca() || souTi()) tarefas.push(api.admissoes().then((r) => (E.admissoes = r || [])).catch(() => {}));
+      await Promise.all(tarefas);
+    } catch (e) { return; }
+    atualizarSino();
+    const lista = notificacoes().filter((x) => !vistosSino()[x.chave]);
+    if (lista.length > antes) toast((lista.length - antes === 1 ? 'Novidade: ' : plural(lista.length - antes, 'novidade', 'novidades') + ': ') + lista[0].texto);
+    if (['kit', 'inicio'].includes(E.view) && !$('.gaveta')) render();
+  }, 60000);
 }
 
 // Busca de pessoa: nome ou CPF, abre a ficha
@@ -585,7 +690,7 @@ function chipAso(a) { const s = a.aso_status; if (s === 'apto') return chip('c-o
 const asoOk = (a) => a.aso_status === 'apto' || a.aso_status === 'apto_restricao';
 // Segurança do Trabalho: a Ordem de Serviço vale para todas as unidades (Josianny, 20/10/2026)
 const temOs = (a) => a.os_status !== 'nao_aplica';
-const minhaArea = () => (E.perfil && E.perfil.area_id) || '';
+const minhaArea = () => (E.verComo ? (E.verComo.area_id || '') : (E.perfil && E.perfil.area_id) || '');
 const souSeguranca = () => tem('admissao') || (tem('especialista') && ['seguranca', 'seguranca_prev'].includes(minhaArea()));
 const souTi = () => tem('admissao') || (tem('especialista') && ['ti', 'tiprev', 'ti_cancela'].includes(minhaArea()));
 function chipOs(a) { if (!temOs(a)) return ''; return a.os_status === 'validada' ? chip('c-ok', 'ok', 'OS validada' + (a.os_validada_em ? ' ' + dm(new Date(a.os_validada_em)) : '')) : (a.os_atividades || a.os_riscos || a.os_epi) ? chip('c-ag', 'ag', 'OS pré-preenchida, falta validar') : chip('c-at', 'at', 'OS sem dados'); }
@@ -615,11 +720,9 @@ function faixaCorte(turma) {
 // ============================================================ TELAS
 const VIEWS = {}, POS = {};
 
-VIEWS.inicio = () => {
+// o que precisa de atenção de quem está logado: Início e sino
+function listaAtencao() {
   const v = vivas();
-  const prox = turmas().find((t) => deIso(t) >= deIso(iso(new Date())));
-  const n = (f) => v.filter(f).length;
-  const max = Math.max(1, ...ETAPAS.map((e) => n((a) => a.etapa === e.id)));
   const atencao = [];
   v.forEach((a) => {
     if (risco(a)) atencao.push([0, a, 'Integração ' + dmd(a.data_inicio) + ' e documentação incompleta']);
@@ -633,6 +736,14 @@ VIEWS.inicio = () => {
     if (resumo(a).analise) atencao.push([2, a, plural(resumo(a).analise, 'documento recebido para conferir', 'documentos recebidos para conferir')]);
   });
   atencao.sort((x, y) => x[0] - y[0]);
+  return atencao;
+}
+VIEWS.inicio = () => {
+  const v = vivas();
+  const prox = turmas().find((t) => deIso(t) >= deIso(iso(new Date())));
+  const n = (f) => v.filter(f).length;
+  const max = Math.max(1, ...ETAPAS.map((e) => n((a) => a.etapa === e.id)));
+  const atencao = listaAtencao();
   return `<div class="cab"><div class="t"><span class="olho">Visão geral</span><h1>Admissões em andamento</h1><p class="apoio">Tudo o que vivia na planilha de admissão, atualizado por quem faz cada etapa. A etapa de cada pessoa é calculada pelo sistema a partir dos documentos, do ASO e da remuneração.</p></div>
     <div class="linha-flex">${tem('admissao') ? '<button class="bt" data-act="importar">Importar a planilha atual (.xlsx)</button>' : ''}<button class="bt ama" data-act="ir" data-v="novo">${MI.novo} Cadastrar aprovado</button></div></div>
   ${prox ? faixaCorte(prox) : ''}
@@ -1077,9 +1188,10 @@ function ondeEstaCadaKit(turma) {
     const cimedParte = !cimedOk && bl.some((b) => b.assinado_empresa_em);
     const colab = a.kit_status === 'concluido' || !!(ko && ko.colab_assinou) || bl.some((b) => b.colab_em);
     const concluido = a.kit_status === 'concluido';
-    const passos = [['Gerado', gerado], ['Publicado', publicado], ['Cimed assinou', cimedOk, cimedParte], ['Colaborador assinou', colab], ['Concluído', concluido]];
+    // etapa feita: "Cimed assinou"; etapa atual (amarela): "Pendente: colaborador assinar"
+    const passos = [['Gerado', gerado, false, 'gerar'], ['Publicado', publicado, false, 'publicar'], ['Cimed assinou', cimedOk, cimedParte, 'Cimed assinar'], ['Colaborador assinou', colab, false, 'colaborador assinar'], ['Concluído', concluido, false, 'concluir']];
     let ultimo = -1; passos.forEach((x, i) => { if (x[1]) ultimo = i; });
-    const trilha = `<div class="trilha-kit">${passos.map((x, i) => `<span class="tp${x[1] ? ' ok' : x[2] ? ' parte' : i === ultimo + 1 ? ' atual' : ''}"><i>${x[1] ? '✓' : i + 1}</i>${x[0]}</span>`).join('')}</div>`;
+    const trilha = `<div class="trilha-kit">${passos.map((x, i) => { const atual = !x[1] && i === ultimo + 1; return `<span class="tp${x[1] ? ' ok' : x[2] ? ' parte' : atual ? ' atual' : ''}"><i>${x[1] ? '✓' : i + 1}</i>${x[1] ? x[0] : x[2] ? 'Cimed assinou em parte' : atual ? 'Pendente: ' + x[3] : x[0]}</span>`; }).join('')}</div>`;
     let com;
     if (concluido) com = 'Admissão · entregar a via';
     else if (!gerado) com = 'Admissão · gerar o kit na Esteira';
@@ -1101,10 +1213,10 @@ VIEWS.kit = () => {
   const prox = E.turmaKit || ts.find((t) => deIso(t) >= deIso(iso(new Date()))) || ts[ts.length - 1] || '';
   const prontos = vivas().filter((a) => a.matricula && a.data_inicio === prox).length;
   if (modoEsteira()) return `<div class="cab"><div class="t"><span class="olho">Kit admissional</span><h1>Assinatura pela Cimed</h1><p class="apoio">Os kits publicados pela Admissão chegam aqui sozinhos. Leia o kit se quiser e assine com a sua assinatura; ela volta para a Admissão na hora.</p></div>
-    <a class="bt" href="${(window.ESTEIRA_URL || 'esteira.html') + '?v=18' + modoEsteira()}" target="_blank" rel="noopener">Abrir em tela cheia</a></div>
+    <a class="bt" href="${(window.ESTEIRA_URL || 'esteira.html') + '?v=19' + modoEsteira()}" target="_blank" rel="noopener">Abrir em tela cheia</a></div>
   ${ondeEstaCadaKit('todas')}`;
   return `<div class="cab"><div class="t"><span class="olho">Kit admissional</span><h1>Esteira de assinatura</h1><p class="apoio">A mesma Esteira de Admissão de sempre: junta os PDFs do LG por pessoa, a Cimed assina primeiro e o colaborador assina na tela. Com <b>Publicar on-line</b>, o kit vai para o armazenamento privado da plataforma: a Cimed assina de qualquer aparelho e o colaborador assina pelo QR, no celular dele, depois de confirmar CPF e data de nascimento. Sem publicar, o kit fica só neste aparelho, como antes.</p></div>
-    <a class="bt" href="${(window.ESTEIRA_URL || 'esteira.html') + '?v=18' + modoEsteira()}" target="_blank" rel="noopener">Abrir em tela cheia</a></div>
+    <a class="bt" href="${(window.ESTEIRA_URL || 'esteira.html') + '?v=19' + modoEsteira()}" target="_blank" rel="noopener">Abrir em tela cheia</a></div>
   ${faixaBlocos()}
   ${ondeEstaCadaKit(prox)}
   ${tem('admissao') && ts.length ? `<div class="faixa"><p><b>Lista de admitidos para a Esteira.</b> Copie os matriculados de uma turma e cole no passo 1 da Esteira, em "Colar da planilha". Nome, CPF, matrícula, unidade e cargo vão no formato que ela lê.</p>
@@ -1116,8 +1228,11 @@ VIEWS.kit = () => {
 POS.kit = () => {
   $('#turmaKit')?.addEventListener('change', (e) => { E.turmaKit = e.target.value; render(); });
   const host = $('#esteiraHost');
+  // o "ver como" troca entre a Esteira completa e a tela do signatário: o iframe nasce de novo
+  const atual = host.firstChild;
+  if (atual && String(atual.src || '').includes('modo=signatario') !== !!modoEsteira()) host.innerHTML = '';
   if (!host.firstChild) {
-    host.innerHTML = `<iframe class="esteira" src="${(window.ESTEIRA_URL || 'esteira.html') + '?v=18' + modoEsteira()}" title="Esteira de Admissão"></iframe>`;
+    host.innerHTML = `<iframe class="esteira" src="${(window.ESTEIRA_URL || 'esteira.html') + '?v=19' + modoEsteira()}" title="Esteira de Admissão"></iframe>`;
     // a Esteira lê os mesmos parâmetros do Supabase; mandar daqui cobre o teste sem banco e evita esperar
     const fr = host.firstChild;
     fr.addEventListener('load', () => {
@@ -1397,7 +1512,12 @@ async function confirmarImport(bt) {
 }
 
 // ================================================================ EVENTOS
+document.addEventListener('change', async (e) => {
+  const sel = e.target.closest('[data-change="verComo"]'); if (!sel) return;
+  definirVerComo(sel.value); E.view = null; await carregar(); E.view = visaoInicial(); casca();
+});
 document.addEventListener('click', async (e) => {
+  if (!e.target.closest('.sino-wrap')) { const sl = $('#sinoLista'); if (sl && !sl.hidden) sl.hidden = true; }
   const el = e.target.closest('[data-act]'); if (!el) return;
   const a = el.dataset.act, id = el.dataset.id;
   if (a === 'fechar') { if (el.classList.contains('veu') && e.target.closest('[data-pare]')) return; $('#camada').innerHTML = ''; E.fichaAberta = null; return; }
@@ -1405,6 +1525,9 @@ document.addEventListener('click', async (e) => {
   switch (a) {
     case 'ir': E.view = el.dataset.v; render(); window.scrollTo(0, 0); break;
     case 'sair': await api.sair(); E.sessao = null; E.perfil = null; telaLogin(); break;
+    case 'sino': abrirSino(); break;
+    case 'sinoIr': { const v = el.dataset.v; $('#sinoLista').hidden = true; if (v && NAV.some((n) => n[0] === v)) { E.view = v; render(); window.scrollTo(0, 0); } if (id) abrirFicha(id); break; }
+    case 'verComoSair': definirVerComo('admin'); E.view = null; await carregar(); E.view = visaoInicial(); casca(); break;
     case 'microsoft': await tentar(() => api.entrarMicrosoft()); break;
     case 'recarregar': await recarregar(); toast('Dados atualizados'); break;
     case 'tema': { const r = document.documentElement; const at = r.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'); r.dataset.theme = at === 'dark' ? 'light' : 'dark'; break; }
