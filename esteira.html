@@ -5591,6 +5591,15 @@ function rotuloDoNome(t, nomeC, mat){
 }
 
 /* acha, por página, onde a assinatura deve entrar */
+/* "POUSO ALEGRE, 20 de outubro de 2026", "Local e data": faz parte do bloco de assinaturas,
+   não é rótulo de tabela. Não pode tirar a linha de baixo do jogo (20/10/2026: a Keila ficou
+   sem assinar o Termo de Confidencialidade porque a data estava 25 pontos acima). */
+const RX_MES_EXTENSO = /\b[0-9]{1,2} DE (JANEIRO|FEVEREIRO|MARCO|ABRIL|MAIO|JUNHO|JULHO|AGOSTO|SETEMBRO|OUTUBRO|NOVEMBRO|DEZEMBRO)( DE [0-9]{4})?\b/;
+function ehLinhaDeLocalData(txt){
+  const t = sem(txt);
+  if(!t || t.length > 80) return false;
+  return RX_MES_EXTENSO.test(t) || /^LOCAL E DATA\b/.test(t) || /^(LOCAL|DATA)\b.{0,30}$/.test(t);
+}
 function pontosDeAssinatura(itens, p, altura){
   const nomeC = sem(p.nome).replace(/[^A-Z0-9]/g,'');
   const mat = digitos(p.matricula);
@@ -5602,6 +5611,7 @@ function pontosDeAssinatura(itens, p, altura){
      rótulo logo acima, e ali não se assina. */
   const livreAcima = i=>!itens.some(o=>{
     if(o === i) return false;
+    if(ehLinhaDeLocalData(o.str)) return false;
     const dy = o.y - i.y;
     if(dy < 4 || dy > 30) return false;
     const e1 = i.x - 40, e2 = i.x + (i.w || 0) + 40;
@@ -5660,6 +5670,22 @@ function pontosDeAssinatura(itens, p, altura){
   achados.forEach(a=>{
     if(limpos.some(b=>b.dono === a.dono && Math.abs(b.y - a.y) < 26 && Math.abs(b.centro - a.centro) < 260)) return;
     limpos.push(a);
+  });
+  /* teto: o texto mais próximo logo acima da linha, na mesma faixa. A assinatura não pode
+     subir por cima dele: no Termo de Confidencialidade a linha "POUSO ALEGRE, 20 de outubro"
+     fica a 25 pontos de "Cimed Industria S.A" e a assinatura da Keila saiu em cima da data
+     (20/10/2026). */
+  limpos.forEach(a=>{
+    let teto = null;
+    itens.forEach(o=>{
+      if(!(o.str || '').trim()) return;
+      const dy = o.y - a.y;
+      if(dy < 4 || dy > 60) return;
+      const o1 = o.x, o2 = o.x + (o.w || 0);
+      if(o2 < a.centro - 90 || o1 > a.centro + 90) return;
+      if(teto === null || o.y < teto) teto = o.y;
+    });
+    if(teto !== null) a.teto = teto;
   });
   return limpos;
 }
@@ -5721,9 +5747,15 @@ async function estamparAssinaturas(bytes, p, st, quem, kit){
       const larguraPag = tamPag.width;
       /* trava final: aconteca o que acontecer com a ancora, a marca fica
          dentro do papel */
-      const y = Math.max(4, Math.min(ponto.y + (ponto.centro ? 9 : 7), tamPag.height - alt - 4));
+      let y = Math.max(4, Math.min(ponto.y + (ponto.centro ? 9 : 7), tamPag.height - alt - 4));
+      /* sem espaço para a altura cheia (texto logo acima): desce um pouco e encolhe, sem invadir */
+      let altMax = alt;
+      if(ponto.teto){
+        y = Math.min(y, Math.max(ponto.y + 4, 4));
+        altMax = Math.max(10, Math.min(alt, ponto.teto - 3 - y));
+      }
       if(usar){
-        const e = Math.min(larg / usar.width, alt / usar.height);
+        const e = Math.min(larg / usar.width, altMax / usar.height);
         const w = usar.width * e;
         const x = ponto.centro ? Math.max(6, Math.min(ponto.centro - w / 2, larguraPag - w - 6)) : ponto.x;
         pagina.drawImage(usar, {x: x, y: y, width: w, height: usar.height * e});
