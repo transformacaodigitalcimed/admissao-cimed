@@ -8299,7 +8299,8 @@ async function sincronizarAutomatico(){
       const l = local[row.id];
       if(l){ if(l.versao < row.versao) mudados.push(row); return; }
       const esperaPorMim = minhas.some(a=>{ const b = row.blocos && row.blocos[a]; return b && b.assinavel !== false && !b.assinado_empresa_em; });
-      if(esperaPorMim && !row.colab_assinou) novos.push(row);
+      /* mesmo com o colaborador já assinado: a Cimed pode fechar depois */
+      if(esperaPorMim) novos.push(row);
     });
     let n = 0; const assinouCimed = [], assinouColab = [];
     for(const row of mudados.concat(novos)){
