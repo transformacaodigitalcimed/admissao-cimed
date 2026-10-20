@@ -8105,9 +8105,18 @@ async function trazerOnline(sb, row){
   const original = await baixarDaNuvem(sb, row.id + '/original.pdf');
   const pdf = row.pdf_atual ? await baixarDaNuvem(sb, row.pdf_atual) : null;
   const pe = pessoaSegura(dados.pessoa);
-  let p = S.pessoas.find(x=>x.id === pe.id)
-       || S.pessoas.find(x=>digitos(x.cpf) && digitos(x.cpf) === digitos(pe.cpf));
-  if(!p){ p = pe; S.pessoas.push(p); }
+  /* o dono do kit é quem tem o MESMO CPF; o id interno se repete entre computadores e já
+     colocou o kit de uma pessoa no lugar de outra (20/10/2026). Id só vale sem conflito de CPF. */
+  const cpfNuvem = digitos(pe.cpf);
+  let p = cpfNuvem.length === 11 ? S.pessoas.find(x=>digitos(x.cpf) === cpfNuvem) : null;
+  if(!p){
+    const porId = S.pessoas.find(x=>x.id === pe.id);
+    if(porId && (!cpfNuvem || !digitos(porId.cpf) || digitos(porId.cpf) === cpfNuvem)) p = porId;
+  }
+  if(!p){
+    if(S.pessoas.some(x=>x.id === pe.id)) pe.id = novoId();
+    p = pe; S.pessoas.push(p);
+  }
   const antigo = S.assin[p.id] || {};
   const tokenAntigo = antigo.online && antigo.online.id === row.id ? antigo.online.token : null;
   const hashOk = typeof dados.hash === 'string' && /^[0-9a-f]{64}$/.test(dados.hash) ? dados.hash : await hashHex(original);
@@ -8322,13 +8331,41 @@ async function sincronizarAutomatico(){
        troca pelo kit ativo da mesma pessoa, para o link e a assinatura saírem do kit certo */
     const ativos = {}; (r.data || []).forEach(row=>{ ativos[row.id] = row; });
     const norm = s=>sem(String(s || '')).toLowerCase().replace(/\s+/g, ' ').trim();
-    Object.keys(local).forEach(id=>{
-      if(ativos[id]) return;
-      const pid = local[id].pid, p = S.pessoas.find(x=>x.id === pid);
-      if(!p) return;
-      const subst = (r.data || []).find(row=>!local[row.id] && (row.pid === pid || norm(row.nome) === norm(p.nome)));
-      if(subst && !mudados.some(x=>x.id === subst.id)){ subst._substitui = pid; mudados.push(subst); }
-    });
+    /* CPF de quem é o kit na nuvem: lido do JSON da versão, uma vez por kit */
+    SINC_AUTO.cpfDe = SINC_AUTO.cpfDe || {};
+    const cpfDoKit = async row=>{
+      if(SINC_AUTO.cpfDe[row.id] !== undefined) return SINC_AUTO.cpfDe[row.id];
+      let c = '';
+      try{ const d = JSON.parse(new TextDecoder().decode(await baixarDaNuvem(sb, row.json_atual))); c = digitos(d && d.pessoa && d.pessoa.cpf); }catch(e){ c = ''; }
+      SINC_AUTO.cpfDe[row.id] = c; return c;
+    };
+    /* kit local ativo na nuvem: confere se o dono é mesmo esta pessoa (uma vez); se não for, tira daqui */
+    const errados = [];
+    for(const id of Object.keys(local)){
+      const row = ativos[id]; const pid = local[id].pid; const st = S.assin[pid]; const p = S.pessoas.find(x=>x.id === pid);
+      if(!row || !st || !st.online || st.online.cpfOk || !p || digitos(p.cpf).length !== 11) continue;
+      const c = await cpfDoKit(row);
+      if(!c){ continue; }
+      if(c === digitos(p.cpf)){ st.online.cpfOk = true; continue; }
+      errados.push({pid, row, nome: p.nome});
+    }
+    for(const e of errados){
+      delete S.kits[e.pid]; delete S.assin[e.pid]; delete local[e.row.id];
+      try{ await apagarKitGuardado(e.pid); }catch(x){}
+      try{ await trazerOnline(sb, e.row); }catch(x){}   /* o kit volta para o dono certo, pelo CPF */
+      torrada('O kit de ' + e.row.nome.split(' ')[0] + ' estava no lugar de ' + e.nome.split(' ')[0] + '. Corrigido: cada kit com o seu dono.', 10000);
+    }
+    /* pessoa da lista sem kit ativo aqui (kit cancelado ou publicado em outro computador): traz o kit
+       ativo com o mesmo nome, só depois de conferir o CPF */
+    for(const p of S.pessoas){
+      const o = S.assin[p.id] && S.assin[p.id].online;
+      if(o && ativos[o.id] && S.kits[p.id]) continue;
+      if(digitos(p.cpf).length !== 11) continue;
+      const cands = (r.data || []).filter(row=>!local[row.id] && norm(row.nome) === norm(p.nome));
+      for(const row of cands){
+        if(await cpfDoKit(row) === digitos(p.cpf)){ if(!mudados.some(x=>x.id === row.id)){ row._substitui = p.id; mudados.push(row); } break; }
+      }
+    }
     (r.data || []).forEach(row=>{
       const l = local[row.id];
       if(l){ if(l.versao < row.versao) mudados.push(row); return; }
