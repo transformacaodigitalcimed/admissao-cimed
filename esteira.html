@@ -181,6 +181,15 @@ main{max-width:1400px;margin:0 auto;padding:28px 26px 96px}
 .trilha-kit .tp.atual i{background:#17160E;color:var(--amarelo)}
 .trilha-kit .tp.parte{background:var(--atencao-bg);color:var(--atencao);border-color:transparent}
 .trilha-kit .tp.parte i{background:var(--atencao);color:#fff}
+/* modo signatário: só a tela de assinatura pela Cimed */
+body.modo-signatario .abas, body.modo-signatario #p-kits, body.modo-signatario #p-base, body.modo-signatario #p-painel, body.modo-signatario #p-ajuda, body.modo-signatario #btModoTeste{display:none !important}
+body.modo-signatario #p-sig{display:block}
+.sig-previa{display:inline-flex;align-items:center;gap:12px;padding:8px 12px;border:1px solid var(--linha);border-radius:12px;background:var(--papel)}
+.sig-previa img{max-height:64px;max-width:260px;display:block}
+.sig-kit{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--linha)}
+.sig-kit:last-child{border-bottom:0}
+.sig-kit .quem{min-width:220px;flex:1}
+.sig-kit .quem small{display:block;color:var(--suave)}
 .rotulo{font-size:11.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--suave)}
 
 /* ---------- formulários ---------- */
@@ -457,6 +466,19 @@ body.modo-colab .marca-nome small{display:none}
 <main>
 
 <div class="aviso" id="avisoArmazen" hidden style="margin-bottom:20px"></div>
+
+<!-- ============ TELA DE QUEM ASSINA PELA CIMED (esteira.html?modo=signatario) ============ -->
+<section class="painel" id="p-sig" hidden>
+  <div class="bloco">
+    <div class="bloco-cab so">
+      <div>
+        <h2>Assinatura pela Cimed</h2>
+        <p>Os kits publicados pela Admissão chegam aqui sozinhos. Leia o kit se quiser e assine: a sua assinatura volta para a Admissão na hora e o colaborador já consegue abrir o dele.</p>
+      </div>
+    </div>
+    <div class="bloco-corpo"><div id="sigBox"><div class="carregando">Procurando os kits publicados...</div></div></div>
+  </div>
+</section>
 
 <!-- ============ ABA GERAR KITS ============ -->
 <section class="painel" id="p-kits">
@@ -3284,6 +3306,11 @@ let OS_ATIVA = true;
    enfileira o link do kit on-line para a plataforma mandar pela API oficial da Meta.
    Desligado (padrão), fica só o caminho manual: abrir a conversa no wa.me. */
 let WHATSAPP_ATIVO = false;
+/* Tela própria de quem assina pela Cimed (Josianny, 20/10/2026): esteira.html?modo=signatario.
+   A assinatura dela é uma imagem (desenhada com o mouse ou anexada), guardada no banco (SQL 24)
+   ligada ao e-mail do login, com cópia neste navegador. */
+const MODO_SIGNATARIO = /[?&]modo=signatario\b/.test(location.search);
+const ASSINATURA_CIMED = {imagem: null, email: '', carregadaDe: ''};
 function temOS(p){ return OS_ATIVA && p && String(p.os_status || '').toLowerCase() === 'validada' && !!(p.os_atividades || p.os_riscos || p.os_epi); }
 function osPendente(p){ return OS_ATIVA && p && /pendente/i.test(String(p.os_status || '')); }
 let TERMO_URL = 'https://www.canalconfidencial.com.br/atitudecimed/';
@@ -6260,6 +6287,7 @@ function renderKits(){
   }));
   ligarBarraOnline(box);
   marcarPasso();
+  if(MODO_SIGNATARIO) renderSignatario();
 }
 
 async function baixarZip(){
@@ -6415,6 +6443,12 @@ async function assinarPelaCimed(ids, botao, area){
   }
   const alvos = ids.filter(id=>S.kits[id] && blocosPendentes(S.kits[id], S.assin[id]).some(b=>b.area === area));
   if(!alvos.length){ torrada('Nenhum kit com o bloco ' + titulo + ' pendente pela Cimed.'); return; }
+  /* quem assina pela Cimed assina com a própria assinatura em imagem; sem ela, cadastra primeiro */
+  if(souSignatario() && !ASSINATURA_CIMED.imagem){
+    abrirAssinaturaCimed(()=>assinarPelaCimed(ids, botao && botao.isConnected ? botao : null, area));
+    return;
+  }
+  const imagem = souSignatario() ? ASSINATURA_CIMED.imagem : null;
   const rotulo = botao ? botao.textContent : '';
   if(botao){ botao.disabled = true; botao.textContent = 'Assinando...'; }
   let n = 0;
@@ -6424,7 +6458,7 @@ async function assinarPelaCimed(ids, botao, area){
       if(!p || !k) continue;
       const st = S.assin[id] || (S.assin[id] = {resp:{}, vistos:{}, marcas:{}});
       $('#dicaGerar').textContent = 'Assinando ' + titulo + ' pela Cimed: ' + p.nome.split(' ')[0] + '...';
-      if(await assinar(p, k, st, {nome: nome, imagem: null, papel: 'empresa', area: area}) === false) break;
+      if(await assinar(p, k, st, {nome: nome, imagem: imagem, papel: 'empresa', area: area}) === false) break;
       n++;
       await new Promise(r=>setTimeout(r, 0));
     }
@@ -7723,7 +7757,7 @@ async function nuvemEquipe(silencioso){
   }
   /* e-mail de quem está logado: o campo "quem assina pela Cimed" segue este login (SQL 23) */
   const emailLogado = String((r.data.session.user && r.data.session.user.email) || '').trim().toLowerCase();
-  if(emailLogado !== NUVEM.email){ NUVEM.email = emailLogado; atualizarCampoSignatario(); }
+  if(emailLogado !== NUVEM.email){ NUVEM.email = emailLogado; atualizarCampoSignatario(); carregarAssinaturaCimed(sb); }
   if(!NUVEM.relogio){
     NUVEM.relogio = true;
     sb.rpc('agora_servidor').then(x=>{ if(x && x.data) acertarRelogio(x.data); }).catch(()=>{});
@@ -8218,9 +8252,166 @@ async function sincronizarAutomatico(){
 }
 function iniciarSincronizacaoAutomatica(){
   if(MODO_ONLINE || location.protocol === 'file:' || SINC_AUTO.timer) return;
-  sincronizarAutomatico();
-  SINC_AUTO.timer = setInterval(sincronizarAutomatico, 60000);
+  sincronizarAutomatico().then(()=>{ SINC_AUTO.primeira = true; if(MODO_SIGNATARIO) renderSignatario(); });
+  SINC_AUTO.timer = setInterval(sincronizarAutomatico, MODO_SIGNATARIO ? 30000 : 60000);
   document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) sincronizarAutomatico(); });
+}
+
+/* ---- tela de quem assina pela Cimed (modo signatário) ---- */
+function kitsDoSignatario(){
+  const areas = minhasAreas();
+  const ids = Object.keys(S.kits).filter(id=>S.pessoas.some(p=>p.id === id));
+  const esperando = [], assinados = [];
+  ids.forEach(id=>{
+    const k = S.kits[id], st = S.assin[id] || {};
+    const pend = blocosPendentes(k, st).filter(b=>areas.indexOf(b.area) >= 0);
+    const meus = blocosAssinados(k, st).filter(b=>areas.indexOf(b.area) >= 0);
+    if(pend.length) esperando.push({id, pend});
+    else if(meus.length) assinados.push({id, meus});
+  });
+  return {areas, esperando, assinados};
+}
+function renderSignatario(){
+  const box = $('#sigBox');
+  if(!box) return;
+  $('#p-sig').hidden = false;
+  if(location.protocol === 'file:'){
+    box.innerHTML = '<div class="aviso"><div>Esta tela só funciona aberta pela Plataforma de Admissão, com o seu login.</div></div>';
+    return;
+  }
+  const {areas, esperando, assinados} = kitsDoSignatario();
+  let h = '';
+  /* a assinatura em imagem */
+  h += '<div class="flex" style="align-items:center;gap:14px;margin-bottom:16px;flex-wrap:wrap">'
+    + (ASSINATURA_CIMED.imagem
+        ? '<div class="sig-previa"><img src="' + esc(ASSINATURA_CIMED.imagem) + '" alt="Sua assinatura"><div><b>Sua assinatura</b><br><span class="dica">vai carimbada em cada kit que você assinar</span></div></div>'
+          + '<button class="b peq" id="btTrocarAss">Trocar assinatura</button>'
+        : '<div class="aviso" style="flex:1;margin:0"><div><b>Cadastre a sua assinatura uma vez:</b> desenhe com o mouse (ou o dedo) ou anexe uma imagem. Ela fica guardada no seu login e vale para todos os kits.</div></div>'
+          + '<button class="b prim" id="btTrocarAss">Cadastrar assinatura</button>')
+    + '</div>';
+  if(!NUVEM.email){
+    h += '<div class="aviso"><div>Entre na Plataforma de Admissão com o seu login para ver os kits.</div></div>';
+  }else if(!areas.length){
+    h += '<div class="aviso"><div><b>O seu login (' + esc(NUVEM.email) + ') não está cadastrado como signatário.</b> Peça à Josianny para incluir o seu e-mail em signatarios_por_area.</div></div>';
+  }else{
+    const nomeArea = a=>AREA_NOME[a] || a;
+    h += '<h3 style="margin:6px 0 4px">Esperando a sua assinatura' + (esperando.length ? ' · ' + esperando.length : '') + '</h3>';
+    if(!esperando.length){
+      h += '<div class="vazio">' + (SINC_AUTO.primeira ? 'Nenhum kit esperando você agora. Quando a Admissão publicar, ele aparece aqui sozinho.' : 'Procurando os kits publicados...') + '</div>';
+    }else{
+      h += '<div class="flex" style="margin:6px 0 10px">' + areas.map(a=>{
+        const n = esperando.filter(x=>x.pend.some(b=>b.area === a)).length;
+        return n ? '<button class="b prim" data-sig-todos="' + a + '">Assinar o bloco ' + esc(nomeArea(a)) + ' em ' + n + ' kit(s)</button>' : '';
+      }).join('') + '</div>';
+      esperando.forEach(x=>{
+        const p = S.pessoas.find(q=>q.id === x.id), k = S.kits[x.id], st = S.assin[x.id] || {};
+        h += '<div class="sig-kit"><div class="quem"><b>' + esc(p.nome) + '</b><small>' + esc([p.cargo, p.unidade].filter(Boolean).join(' · ')) + ' · ' + k.indice.length + ' documento(s), ' + esc(k.pags) + ' página(s)</small>' + trilhaKit(k, st) + '</div>'
+          + '<div class="flex"><button class="b" data-sig-ler="' + esc(x.id) + '">Ler o kit</button>'
+          + x.pend.map(b=>'<button class="b prim" data-sig-um="' + esc(x.id) + '" data-area="' + b.area + '">Assinar ' + esc(b.titulo) + '</button>').join('') + '</div></div>';
+      });
+    }
+    if(assinados.length){
+      h += '<h3 style="margin:18px 0 4px">Já assinados por você · ' + assinados.length + '</h3>';
+      assinados.forEach(x=>{
+        const p = S.pessoas.find(q=>q.id === x.id), k = S.kits[x.id], st = S.assin[x.id] || {};
+        h += '<div class="sig-kit"><div class="quem"><b>' + esc(p.nome) + '</b><small>' + esc(x.meus.map(b=>b.titulo + ' assinado em ' + hojeTxt(new Date(assinaturaBloco(st, b.area).em))).join(' · ')) + '</small>' + trilhaKit(k, st) + '</div>'
+          + '<div class="flex"><button class="b" data-sig-ler="' + esc(x.id) + '">Ler o kit</button></div></div>';
+      });
+    }
+    h += '<p class="dica" style="margin-top:14px">Atualiza sozinho a cada 30 segundos. Fechou sem querer? Abra de novo pela plataforma: os kits voltam.</p>';
+  }
+  box.innerHTML = h;
+  const bt = box.querySelector('#btTrocarAss');
+  if(bt) bt.addEventListener('click', ()=>abrirAssinaturaCimed(()=>renderSignatario()));
+  box.querySelectorAll('[data-sig-ler]').forEach(b=>b.addEventListener('click', ()=>abrirLeituraKit(b.dataset.sigLer)));
+  box.querySelectorAll('[data-sig-um]').forEach(b=>b.addEventListener('click', ()=>{
+    const sel = $('#areaCimed'); if(sel) sel.value = b.dataset.area;
+    atualizarCampoSignatario();
+    assinarPelaCimed([b.dataset.sigUm], b, b.dataset.area);
+  }));
+  box.querySelectorAll('[data-sig-todos]').forEach(b=>b.addEventListener('click', ()=>{
+    const sel = $('#areaCimed'); if(sel) sel.value = b.dataset.sigTodos;
+    atualizarCampoSignatario();
+    assinarPelaCimed(esperando.map(x=>x.id), b, b.dataset.sigTodos);
+  }));
+}
+/* abre o PDF do kit (a versão mais recente) numa aba nova, só para ler */
+function abrirLeituraKit(pid){
+  const k = S.kits[pid], st = S.assin[pid] || {};
+  if(!k) return;
+  const bytes = st.pdfAssinado || k.bytes;
+  if(!bytes || !bytes.length){ torrada('O PDF deste kit ainda não chegou. Aguarde a próxima atualização.'); return; }
+  const url = URL.createObjectURL(new Blob([bytes], {type: 'application/pdf'}));
+  const w = window.open(url, '_blank', 'noopener');
+  if(!w) torrada('O navegador bloqueou a aba nova. Libere pop-ups para este site e tente de novo.', 7000);
+  setTimeout(()=>URL.revokeObjectURL(url), 60000);
+}
+/* a assinatura em imagem: desenhada com o mouse ou anexada; guardada no banco (SQL 24) e neste navegador */
+function chaveAssinaturaLocal(){ return 'cimed.assinatura.' + (NUVEM.email || 'anon'); }
+async function carregarAssinaturaCimed(sb){
+  if(!NUVEM.email || ASSINATURA_CIMED.email === NUVEM.email) return;
+  ASSINATURA_CIMED.email = NUVEM.email;
+  try{ const l = localStorage.getItem(chaveAssinaturaLocal()); if(l && /^data:image\/png;base64,/.test(l)){ ASSINATURA_CIMED.imagem = l; ASSINATURA_CIMED.carregadaDe = 'navegador'; } }catch(e){}
+  try{
+    const r = await sb.from('assinaturas_cimed').select('imagem, atualizado_em').eq('email', NUVEM.email).maybeSingle();
+    if(r && r.data && r.data.imagem && /^data:image\/png;base64,[A-Za-z0-9+\/=]+$/.test(r.data.imagem)){
+      ASSINATURA_CIMED.imagem = r.data.imagem; ASSINATURA_CIMED.carregadaDe = 'banco';
+      try{ localStorage.setItem(chaveAssinaturaLocal(), r.data.imagem); }catch(e){}
+    }
+  }catch(e){ /* banco sem o SQL 24: vale a cópia do navegador */ }
+  if(MODO_SIGNATARIO) renderSignatario();
+}
+async function guardarAssinaturaCimed(img){
+  ASSINATURA_CIMED.imagem = img; ASSINATURA_CIMED.email = NUVEM.email;
+  try{ localStorage.setItem(chaveAssinaturaLocal(), img); }catch(e){}
+  const sb = await nuvemEquipe(true);
+  if(!sb || !NUVEM.email) return 'navegador';
+  const r = await sb.from('assinaturas_cimed').upsert({email: NUVEM.email, nome: nomeDaCimed(minhasAreas()[0] || 'dp') || null, imagem: img, atualizado_em: new Date().toISOString()}, {onConflict: 'email'});
+  if(r && r.error){ console.warn('assinatura no banco', r.error.message); return 'navegador'; }
+  return 'banco';
+}
+function abrirAssinaturaCimed(depois){
+  $('#janelaTit').textContent = 'Sua assinatura pela Cimed';
+  $('#janelaCorpo').innerHTML = '<p class="dica forte" style="margin-top:0">Desenhe a sua assinatura no quadro com o mouse (ou o dedo), ou anexe uma imagem dela (PNG ou JPG, fundo branco). Ela é guardada no seu login e carimbada em todos os kits que você assinar.</p>'
+    + '<div class="assina-caixa"><canvas id="cvAssCimed" width="820" height="260"></canvas>'
+    + '<div class="assina-pe"><button class="b peq fant" id="btAssLimpar">Apagar</button>'
+    + '<label class="b peq fant" style="cursor:pointer">Anexar imagem<input type="file" id="inAssImg" accept="image/png,image/jpeg" hidden></label>'
+    + '<span class="dica">mouse, dedo ou imagem</span></div></div>'
+    + '<div class="flex" style="margin-top:12px"><button class="b prim" id="btAssSalvar">Salvar assinatura</button><button class="b" id="btAssCancelar">Cancelar</button></div>';
+  $('#tampa').hidden = false;
+  const cv = $('#cvAssCimed');
+  ligarCanvas(cv, $('#btAssLimpar'));
+  let anexada = false;
+  $('#inAssImg').addEventListener('change', ev=>{
+    const f = ev.target.files && ev.target.files[0];
+    if(!f) return;
+    const img = new Image();
+    img.onload = ()=>{
+      const ctx = cv.getContext('2d');
+      ctx.clearRect(0, 0, cv.width, cv.height);
+      const esc_ = Math.min(cv.width / img.width, cv.height / img.height);
+      const w = img.width * esc_, hh = img.height * esc_;
+      ctx.drawImage(img, (cv.width - w) / 2, (cv.height - hh) / 2, w, hh);
+      /* fundo branco vira transparente, para a assinatura não tampar o texto do documento */
+      const d = ctx.getImageData(0, 0, cv.width, cv.height), px = d.data;
+      for(let i = 0; i < px.length; i += 4){ if(px[i] > 225 && px[i + 1] > 225 && px[i + 2] > 225) px[i + 3] = 0; }
+      ctx.putImageData(d, 0, 0);
+      anexada = true;
+      URL.revokeObjectURL(img.src);
+    };
+    img.onerror = ()=>torrada('Não consegui ler esta imagem. Use PNG ou JPG.');
+    img.src = URL.createObjectURL(f);
+  });
+  $('#btAssCancelar').addEventListener('click', ()=>{ $('#tampa').hidden = true; });
+  $('#btAssSalvar').addEventListener('click', async ()=>{
+    if(!cv._tocou() && !anexada){ torrada('Desenhe no quadro ou anexe uma imagem antes de salvar.'); return; }
+    const img = cv.toDataURL('image/png');
+    if(img.length > 400000){ torrada('A imagem ficou grande demais. Use um traço mais simples ou uma imagem menor.', 7000); return; }
+    const onde = await guardarAssinaturaCimed(img);
+    $('#tampa').hidden = true;
+    torrada(onde === 'banco' ? 'Assinatura guardada no seu login. Vale em qualquer computador.' : 'Assinatura guardada neste navegador (o banco ainda não tem o SQL 24).', 6000);
+    if(typeof depois === 'function') depois();
+  });
 }
 
 /* ---- colaborador: abre pelo QR, no próprio celular ---- */
@@ -9103,6 +9294,7 @@ if(alvoOnline){
     }
     /* quem assinou enquanto a página estava fechada, e os kits que esperam a assinatura de quem está logado:
        ao abrir, ao voltar para a aba e de minuto em minuto */
+    if(MODO_SIGNATARIO){ document.body.classList.add('modo-signatario'); renderSignatario(); }
     iniciarSincronizacaoAutomatica();
     nuvemEquipe(true).then(()=>reenviarRespostasPendentes());
   });
