@@ -172,6 +172,14 @@ main{max-width:1400px;margin:0 auto;padding:28px 26px 96px}
 .et.n{background:var(--superficie);color:var(--suave);border:1px solid var(--linha)}
 .et.am{background:var(--amarelo);color:#17160E}
 /* trilha do kit: em que etapa está (gerado → publicado → Cimed → colaborador → concluído) */
+/* confirmação final do kit: caixa grande, o cartão inteiro é clicável (feedback do colaborador, 20/10/2026) */
+.aceite-final{box-sizing:border-box;width:100%;max-width:100%;display:flex;gap:14px;align-items:flex-start;margin:0 0 14px;padding:14px 16px;border:2px solid var(--linha-forte);border-radius:14px;background:var(--papel);cursor:pointer;font-size:15px;line-height:1.45;color:var(--texto)}
+.aceite-final input{appearance:none;-webkit-appearance:none;flex:0 0 auto;width:30px;height:30px;margin:0;border:2.5px solid var(--tinta);border-radius:8px;background:#fff;cursor:pointer;display:grid;place-items:center}
+.aceite-final input:checked{background:var(--amarelo);border-color:var(--tinta)}
+.aceite-final input:checked::after{content:'';width:9px;height:16px;border:solid var(--tinta);border-width:0 3.5px 3.5px 0;transform:translateY(-2px) rotate(45deg)}
+.aceite-final input:focus-visible{outline:3px solid var(--amarelo);outline-offset:2px}
+.aceite-final:has(input:checked){border-color:#17160E;background:#FFF8D6;color:#17160E}
+.botao-fechar{min-height:54px;font-size:16px !important;font-weight:700}
 .trilha-kit{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
 .trilha-kit .tp{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:3px 8px 3px 4px;border-radius:999px;background:var(--superficie);color:var(--suave);border:1px solid var(--linha);white-space:nowrap}
 .trilha-kit .tp i{font-style:normal;width:16px;height:16px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:10px;background:var(--linha);color:var(--texto)}
@@ -6862,10 +6870,10 @@ function renderColab(){
         + '</div>'
         + '<label class="campo" style="margin:0 0 10px"><span>Confirme seu nome completo</span>'
         + '<input type="text" id="cbNomeDig" value="' + esc(st.marcaNome || '') + '" placeholder="' + esc(p.nome) + '"></label>'
-        + '<label style="display:flex;gap:8px;font-size:12px;align-items:flex-start;margin-bottom:11px">'
-        + '<input type="checkbox" id="cbAceite" style="width:auto;margin-top:2px">'
+        + '<label class="aceite-final" for="cbAceite">'
+        + '<input type="checkbox" id="cbAceite">'
         + '<span>Li os documentos do meu kit de admissão, as informações que preenchi estão corretas e concordo em assinar eletronicamente.</span></label>'
-        + '<button class="b prim" id="cbAssinar" style="width:100%;justify-content:center"'
+        + '<button class="b prim botao-fechar" id="cbAssinar" style="width:100%;justify-content:center"'
         + (feitos ? '' : ' disabled') + ' data-pend="' + pd.total + '">'
         + (feitos
             ? (pd.total ? 'Fechar mesmo com ' + pd.total + ' pendência(s)' : 'Fechar e assinar meu kit')
