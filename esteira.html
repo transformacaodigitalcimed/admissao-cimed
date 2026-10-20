@@ -548,16 +548,17 @@ MARIA APARECIDA SOUZA	123.456.789-00	maria.souza@exemplo.com.br	14/03/1996	48219
     <div class="bloco-corpo">
       <div class="flex" style="margin-bottom:14px">
         <button class="b prim" id="btGerarKits">Gerar kits unificados</button>
-        <button class="b escura" id="btEmpresaTodos">Assinar todos pela Cimed</button>
+        <select id="areaCimed" title="Bloco do kit" style="width:auto"><option value="dp">Bloco DP</option><option value="beneficios">Bloco Benefícios</option><option value="compliance">Bloco Compliance</option><option value="seguranca">Bloco Segurança</option></select>
         <input type="text" id="assinanteCimed" list="listaSignatarios" placeholder="Quem assina pela Cimed" style="max-width:230px">
         <datalist id="listaSignatarios"></datalist>
+        <button class="b escura" id="btEmpresaTodos">Assinar este bloco em todos os kits</button>
         <button class="b" id="btBaixarTodos">Baixar todos (.zip)</button>
         <button class="b" id="btCsvAssin">Exportar cadastro para assinatura (.csv)</button>
         <button class="b" id="btRetomar">Retomar kit assinado</button>
         <input type="file" id="inRetomar" accept="application/pdf" hidden>
         <span class="dica" id="dicaGerar"></span>
       </div>
-      <div class="aviso info" style="margin-bottom:16px"><div><b>A Cimed assina primeiro.</b> Quem tem procuração assina aqui, de uma vez, e o kit desce para o colaborador já com a assinatura da empresa. É como a integração funciona hoje: a via que fica com ele já vai assinada pelos dois lados.</div></div>
+      <div class="aviso info" style="margin-bottom:16px"><div><b>A Cimed assina primeiro, bloco por bloco.</b> O kit é um PDF só, dividido em blocos por área: DP, Benefícios, Compliance e Segurança. Cada bloco tem o seu signatário com procuração e o seu status, e o nome de uma área não assina o bloco de outra. Escolha o bloco, confira o nome e assine de uma vez em todos os kits. Bloco sem signatário cadastrado fica pendente, sem travar os outros, e o colaborador assina tudo no mesmo fluxo.<span id="dicaArea" style="display:block;margin-top:4px;font-weight:600"></span></div></div>
       <div class="aviso" style="margin-bottom:16px"><div><b>Os kits ficam guardados neste navegador.</b> Fechar a aba não perde mais nada. O que não fica guardado são os PDFs originais do LG, só o kit montado.</div></div>
       <div id="kitsBox"></div>
     </div>
@@ -589,7 +590,7 @@ MARIA APARECIDA SOUZA	123.456.789-00	maria.souza@exemplo.com.br	14/03/1996	48219
         <button class="b" id="btAddDoc" style="margin-top:18px">Adicionar documento</button>
       </div>
       <div class="aviso info" style="margin-bottom:14px">
-        <div><b>Legenda.</b> <b>Obrigatório</b> conta na conferência. <b>Condicional</b> só vale para alguns casos (RS e ES, CD São Paulo, cargo de gestão) e por isso não acusa falta. <b>Assina</b> vai para assinatura eletrônica. <b>Preenche</b> tem campos que o colaborador completa on-line. <b>No kit</b> entra no PDF unificado.</div>
+        <div><b>Legenda.</b> <b>Obrigatório</b> conta na conferência. <b>Condicional</b> só vale para alguns casos (RS e ES, CD São Paulo, cargo de gestão) e por isso não acusa falta. <b>Assina</b> vai para assinatura eletrônica. <b>Preenche</b> tem campos que o colaborador completa on-line. <b>No kit</b> entra no PDF unificado. <b>Área</b> é o bloco do kit (DP, Benefícios, Compliance, Segurança): cada bloco tem o seu signatário pela Cimed e o seu status.</div>
       </div>
       <div class="rolar" id="tabBase"></div>
     </div>
@@ -650,7 +651,7 @@ MARIA APARECIDA SOUZA	123.456.789-00	maria.souza@exemplo.com.br	14/03/1996	48219
         <li><b>Termo de Transparência do Compliance dentro do kit.</b> A Esteira gera as duas folhas com o cabeçalho preenchido e as 11 perguntas; o colaborador responde e assina no mesmo fluxo. As respostas vão para a Plataforma de Admissão, onde só o Compliance abre, e qualquer "Sim" avisa a área por e-mail. As escolhas de benefícios também vão para a plataforma e chegam a Benefícios.</li>
         <li><b>Preencher benefício on-line.</b> Vale transporte, Unimed, odontológico, Sul América, beneficiários, restaurante, VA, Hiperlife, seguro de vida e ajuda de custo de linha móvel, com dependentes digitados.</li>
         <li><b>Leitura documento por documento.</b> Na tela do colaborador ele não responde no escuro: cada documento do kit aparece renderizado na tela, página por página, e os campos daquele documento vêm logo abaixo do que ele acabou de ler. Só depois de passar por todos é que chega a assinatura. A página de assinaturas registra quantos documentos foram abertos.</li>
-        <li><b>A Cimed assina primeiro.</b> Quem tem procuração escreve o nome no passo 4 e clica em <b>Assinar todos pela Cimed</b>. Os kits descem para o tablet já assinados pela empresa, que é como a integração funciona hoje: a via do colaborador sai assinada pelos dois lados. Dá para assinar um por um pelo botão no cartão da pessoa.</li>
+        <li><b>A Cimed assina primeiro, bloco por bloco.</b> O kit é um PDF só, dividido em blocos por área (DP, Benefícios, Compliance e Segurança), e cada bloco tem o seu signatário com procuração: quem assina pelo DP não assina Benefícios, e vice-versa. No passo 4 escolhe-se o bloco, confere-se o nome e assina-se de uma vez em todos os kits; no cartão da pessoa há um botão por bloco. Bloco sem signatário cadastrado fica pendente, sem travar os outros. A capa lista os blocos e o status de cada um, a página de assinaturas mostra a assinatura da Cimed por bloco, e o colaborador assina tudo no mesmo fluxo.</li>
         <li><b>Assinatura só onde o documento pede.</b> Antes a ferramenta desenhava uma linha no pé da folha quando não achava campo de assinatura. A Helaine confirmou que se assina só onde o formulário tem a linha, então a ferramenta não inventa mais campo nenhum.</li>
         <li><b>A via do colaborador vai por WhatsApp ou e-mail.</b> Ao fechar o kit ele escolhe como quer receber. Quem escolhe WhatsApp ou e-mail não precisa de papel. A lista do que enviar, com o contato de cada um, fica no Painel e sai em .csv.</li>
         <li><b>O link do kit abre o kit, não a esteira.</b> No botão <b>Link e QR</b> de cada pessoa sai um endereço que abre direto os documentos dela, depois de conferir o CPF. Não aparece painel, nem lista de admitidos, nem o kit de mais ninguém. É o que você abre no tablet ou no totem e entrega na mão.</li>
@@ -3096,7 +3097,7 @@ const { PDFDocument, StandardFonts, rgb, degrees } = PDFLib;
    compartilhada pela Helaine): 25 documentos x 7 perfis.
    ========================================================= */
 function d(n, o){
-  return Object.assign({nome:n, aba:'', obrig:true, assina:true, preenche:false, unifica:true, obs:'', cond:''}, o||{});
+  return Object.assign({nome:n, aba:'', obrig:true, assina:true, preenche:false, unifica:true, obs:'', cond:'', area:'dp'}, o||{});
 }
 
 const PERFIS = [
@@ -3131,13 +3132,13 @@ const MATRIZ = [
   ['Ajuda de Custo Linha Móvel',                                  '0001100', {preenche:true}],
   ['Termo de Aditivo Contrato de Trabalho Home Office ART 62',    '0001100', {obs:'Artigo 62'}],
   ['Termo de Aditivo Contrato Trabalho Home Office',             '0010000', {}],
-  ['CIMED_Solicitação de Vale Transporte',                        '1111011', {preenche:true, obs:'CD com desconto de 6%, CD São Paulo 3%. Aprendiz é linha fretado. ' + ENTREGA_BEN}],
-  ['CIMED_Desconto de Restaurante - VA - HIPERLIFE - Seguro de Vida', '0110100', {assina:false, preenche:true, obs:ENTREGA_BEN}],
-  ['Termo de Nomeação de Beneficiarios',                          '1111111', {preenche:true, obs:ENTREGA_BEN}],
-  ['Termo de Inclusão UNIMED',                                    '1111110', {preenche:true, obs:ENTREGA_BEN}],
-  ['Termo de Inclusão Sul America',                               '1000000', {preenche:true, obs:'Só São Paulo. ' + ENTREGA_BEN}],
-  ['Termo de Inclusão Para Beneficios Odontológicos',             '1111110', {preenche:true, obs:ENTREGA_BEN}],
-  ['Proposta de Adesão',                                          '0001100', {preenche:true, obs:ENTREGA_BEN}]
+  ['CIMED_Solicitação de Vale Transporte',                        '1111011', {area:'beneficios', preenche:true, obs:'CD com desconto de 6%, CD São Paulo 3%. Aprendiz é linha fretado. ' + ENTREGA_BEN}],
+  ['CIMED_Desconto de Restaurante - VA - HIPERLIFE - Seguro de Vida', '0110100', {area:'beneficios', assina:false, preenche:true, obs:ENTREGA_BEN}],
+  ['Termo de Nomeação de Beneficiarios',                          '1111111', {area:'beneficios', preenche:true, obs:ENTREGA_BEN}],
+  ['Termo de Inclusão UNIMED',                                    '1111110', {area:'beneficios', preenche:true, obs:ENTREGA_BEN}],
+  ['Termo de Inclusão Sul America',                               '1000000', {area:'beneficios', preenche:true, obs:'Só São Paulo. ' + ENTREGA_BEN}],
+  ['Termo de Inclusão Para Beneficios Odontológicos',             '1111110', {area:'beneficios', preenche:true, obs:ENTREGA_BEN}],
+  ['Proposta de Adesão',                                          '0001100', {area:'beneficios', preenche:true, obs:ENTREGA_BEN}]
 ];
 
 function montarBase(){
@@ -3150,6 +3151,89 @@ function montarBase(){
 const BASE_PADRAO = montarBase();
 
 /* =========================================================
+   BLOCOS POR ÁREA (decisão 4 da Josianny, 19/10/2026)
+   O kit continua um PDF só, mas cada documento pertence a uma área
+   (DP, Benefícios, Compliance, Segurança), e cada área tem o seu
+   signatário pela Cimed e o seu status. O Compliance proibiu assinar
+   por outra pessoa: o nome de uma área nunca assina o bloco de outra.
+   Segurança já existe, sem documento hoje.
+   ========================================================= */
+const AREAS = [['dp','DP'], ['beneficios','Benefícios'], ['compliance','Compliance'], ['seguranca','Segurança']];
+const AREA_NOME = Object.fromEntries(AREAS);
+function areaValida(a){ return AREA_NOME[a] ? a : null; }
+/* base guardada antes desta versão não tem a área: deduz pelo nome */
+function areaPadrao(nome){
+  const n = chaveDoc(nome || '');
+  if(/transparencia|conflito de interesses/.test(n)) return 'compliance';
+  if(/vale transporte|restaurante|hiperlife|seguro de vida|nomeacao de beneficiarios|unimed|sul america|odontolog|proposta de adesao/.test(n)) return 'beneficios';
+  return 'dp';
+}
+function areaDoDoc(dd){ return areaValida(dd && dd.area) || areaPadrao(dd && dd.nome); }
+function areaDoItem(it){ return areaValida(it && it.area) || areaPadrao(it && it.nome); }
+/* os blocos de um kit, na ordem das áreas; só as áreas que têm documento */
+function blocosDoKit(k){
+  const m = {};
+  (k && k.indice || []).forEach(it=>{
+    const a = areaDoItem(it);
+    const b = m[a] || (m[a] = {area:a, titulo:AREA_NOME[a], docs:[], assinavel:false});
+    b.docs.push(it);
+    if(it.assina !== false) b.assinavel = true;
+  });
+  const lista = AREAS.map(x=>m[x[0]]).filter(Boolean);
+  /* kit retomado de um PDF, sem índice: um bloco só, como antes */
+  if(!lista.length && k) lista.push({area:'dp', titulo:'Cimed', docs:[], assinavel:true, legado:true});
+  return lista;
+}
+/* a assinatura da Cimed naquele bloco (kits antigos tinham uma só, que vale para todos) */
+function assinaturaBloco(st, area){
+  if(!st) return null;
+  if(st.blocos && st.blocos[area]) return st.blocos[area];
+  if(st.empresa && !st.blocos) return st.empresa;
+  return null;
+}
+function blocosPendentes(k, st){ return blocosDoKit(k).filter(b=>b.assinavel && !assinaturaBloco(st, b.area)); }
+function blocosAssinados(k, st){ return blocosDoKit(k).filter(b=>assinaturaBloco(st, b.area)); }
+function textoPendentes(k, st){ return blocosPendentes(k, st).map(b=>b.titulo).join(', '); }
+function empresaCompleta(k, st){
+  const bs = blocosDoKit(k);
+  if(!bs.some(b=>b.assinavel)) return blocosAssinados(k, st).length > 0;
+  return !blocosPendentes(k, st).length;
+}
+/* resumo da Cimed para o resto da ferramenta: st.empresa só existe quando todos os blocos estão assinados */
+function resumoEmpresa(k, st){
+  const ass = blocosAssinados(k, st).map(b=>assinaturaBloco(st, b.area));
+  if(!ass.length) return null;
+  const nomes = Array.from(new Set(ass.map(a=>a.nome)));
+  const ult = ass.slice().sort((a,b)=>String(a.em).localeCompare(String(b.em))).pop();
+  return Object.assign({}, ult, {nome: nomes.join(' / '), imagem: null, blocos: true});
+}
+/* o que vai para o banco (kits_online.blocos e admissoes.kit_blocos) */
+function blocosParaBanco(k, st){
+  const o = {};
+  blocosDoKit(k).forEach(b=>{
+    if(b.legado) return;
+    const s = assinaturaBloco(st, b.area);
+    o[b.area] = {titulo: b.titulo, docs: b.docs.length, assinavel: b.assinavel,
+      assinado_empresa_em: s ? s.em : null, empresa_nome: s ? s.nome : null,
+      procuracao: s && s.procuracao ? s.procuracao : null,
+      colab_em: st && st.colab ? st.colab.em : null};
+  });
+  return Object.keys(o).length ? o : null;
+}
+/* um botão por bloco que ainda falta a Cimed; bloco sem signatário cadastrado fica marcado como pendente */
+function botoesBlocos(pid, k, st){
+  let h = '';
+  blocosDoKit(k).forEach(b=>{
+    if(!b.assinavel) return;
+    const s = assinaturaBloco(st, b.area);
+    if(s) h += '<span class="et ok" title="' + esc(s.nome) + '">' + esc(b.titulo) + ' · Cimed assinou</span>';
+    else if(SIG_AREAS && !signatariosDaArea(b.area).length) h += '<span class="et at" title="Ninguém cadastrado com procuração para esta área">' + esc(b.titulo) + ' · pendente Cimed</span>';
+    else h += '<button class="b peq prim" data-empresa="' + esc(pid) + '" data-area="' + b.area + '">Assinar ' + esc(b.titulo) + ' pela Cimed</button>';
+  });
+  return h;
+}
+
+/* =========================================================
    TERMO DE TRANSPARÊNCIA (Compliance, pedido de 15/10/2026)
    Não vem do LG: a própria Esteira gera as duas folhas no kit, com o
    cabeçalho preenchido, as 11 perguntas e a linha de assinatura. As
@@ -3157,7 +3241,7 @@ const BASE_PADRAO = montarBase();
    são escritas na folha na hora em que o colaborador assina.
    Parâmetro termo_transparencia_ativo desliga (lido da plataforma).
    ========================================================= */
-const DOC_TERMO = d('Termo de Transparencia e Conflito de Interesses', {gerado:true, preenche:true, assina:true, obs:'Gerado pela Esteira. Respostas só com o Compliance.'});
+const DOC_TERMO = d('Termo de Transparencia e Conflito de Interesses', {area:'compliance', gerado:true, preenche:true, assina:true, obs:'Gerado pela Esteira. Respostas só com o Compliance.'});
 const CHAVE_TERMO = 'termo de transparencia e conflito de interesses';
 let TERMO_ATIVO = true;
 let TERMO_URL = 'https://www.canalconfidencial.com.br/atitudecimed/';
@@ -3309,6 +3393,51 @@ let MODO_ONLINE = false;
 const AVISO_PRIVACIDADE = 'A Cimed usa os seus dados pessoais e os documentos que você envia para fazer a sua admissão: cadastro, exame admissional, registro no eSocial, benefícios, crachá e assinatura do kit admissional. Fazemos isso para cumprir obrigações legais e para executar o seu contrato de trabalho (Lei Geral de Proteção de Dados, art. 7º, incisos II e V). Alguns documentos são conferidos com apoio de inteligência artificial e sempre revisados por uma pessoa da equipe. Só as equipes que participam da sua admissão têm acesso, em ambiente protegido, e os dados ficam guardados pelos prazos que a lei exige. Para pedir acesso, correção ou mais informações sobre os seus dados, fale com o Time de Admissão.';
 /* quem tem procuração para assinar pela Cimed (parâmetro signatarios_cimed) */
 let SIGNATARIOS = [];
+/* por área (parâmetro signatarios_por_area). null = parâmetro não carregado: vale a lista única */
+let SIG_AREAS = null;
+function signatariosDaArea(area){ return SIG_AREAS ? (SIG_AREAS[area] || []) : SIGNATARIOS; }
+function listaSignatarios(l){
+  return Array.isArray(l) ? l.filter(s=>s && s.nome).map(s=>({nome: String(s.nome).slice(0, 120),
+    procuracao: String(s.procuracao || '').slice(0, 60), validade: String(s.validade || '').slice(0, 10)})) : [];
+}
+function aplicarSignatarios(unico, porArea){
+  if(unico !== undefined){
+    try{ SIGNATARIOS = listaSignatarios(typeof unico === 'string' ? JSON.parse(unico || '[]') : unico); }catch(e){ SIGNATARIOS = []; }
+  }
+  if(porArea !== undefined){
+    try{
+      const m = typeof porArea === 'string' ? JSON.parse(porArea || '{}') : porArea;
+      if(m && typeof m === 'object' && !Array.isArray(m) && Object.keys(m).length){
+        SIG_AREAS = {};
+        AREAS.forEach(([a])=>{ SIG_AREAS[a] = listaSignatarios(m[a]); });
+      }else SIG_AREAS = null;
+    }catch(e){ SIG_AREAS = null; }
+  }
+  atualizarCampoSignatario();
+  if(S.pessoas.length){ renderCartoes(); renderKits(); renderPainel(); }
+}
+function areaSelecionada(){ const s = document.getElementById('areaCimed'); return areaValida(s && s.value) || 'dp'; }
+/* o campo "quem assina" do passo 4 segue o bloco escolhido */
+function atualizarCampoSignatario(){
+  const area = areaSelecionada();
+  const lista = signatariosDaArea(area);
+  const dl = document.getElementById('listaSignatarios');
+  if(dl) dl.innerHTML = lista.map(s=>'<option value="' + esc(s.nome) + '">').join('');
+  const c = document.getElementById('assinanteCimed');
+  if(c){
+    let v = '';
+    try{ v = localStorage.getItem('cimed.assinante.' + area) || ''; }catch(e){}
+    if(lista.length && !lista.some(s=>s.nome.toLowerCase() === v.toLowerCase())) v = lista.length === 1 ? lista[0].nome : '';
+    c.value = v;
+    const sem = !!(SIG_AREAS && !lista.length);
+    c.placeholder = sem ? 'Sem signatário cadastrado para ' + AREA_NOME[area] : 'Quem assina pela Cimed';
+    c.disabled = sem;
+  }
+  const dica = document.getElementById('dicaArea');
+  if(dica) dica.textContent = SIG_AREAS && !lista.length
+    ? 'Bloco ' + AREA_NOME[area] + ': ninguém cadastrado com procuração. Os kits ficam pendentes neste bloco, sem travar os outros, até a Josianny informar o nome.'
+    : '';
+}
 /* diferença entre o relógio do servidor e o do aparelho: os carimbos de
    data e hora do kit usam a hora do servidor quando ela é conhecida */
 let DESVIO_MS = 0;
@@ -3335,6 +3464,7 @@ function assinLeve(){
       respostasEnviadas: v.respostasEnviadas, respostasPendentes: v.respostasPendentes,
       colab: v.colab ? Object.assign({}, v.colab, {imagem:undefined}) : undefined,
       empresa: v.empresa ? Object.assign({}, v.empresa, {imagem:undefined}) : undefined,
+      blocos: v.blocos || undefined,
       online: v.online
     };
   });
@@ -4817,14 +4947,14 @@ function renderCartoes(){
          dizia assinado e ninguem via que faltava o colaborador. */
       if(st.empresa && st.colab) h += '<span class="et ok">Assinado pelos dois</span>';
       else if(st.empresa) h += '<span class="et at">Cimed assinou · falta o colaborador</span>';
-      else if(st.colab) h += '<span class="et at">Falta a empresa</span>';
+      else if(st.colab) h += '<span class="et at">Colaborador assinou · falta a Cimed: ' + esc(textoPendentes(S.kits[p.id], st)) + '</span>';
       const pf2 = st.pendAoFechar;
       if(st.colab && pf2 && (pf2.assin || pf2.campos)){
         h += '<span class="et at" title="Campos que o colaborador deixou em branco">'
           + ((pf2.assin || 0) + (pf2.campos || 0)) + ' em branco</span>';
       }
       h += '<button class="b peq" data-kit="'+esc(p.id)+'">Baixar</button>';
-      if(!st.empresa) h += '<button class="b peq prim" data-empresa="'+esc(p.id)+'">Assinar pela Cimed</button>';
+      if(!st.empresa) h += botoesBlocos(p.id, S.kits[p.id], st);
       h += '<button class="b peq escura" data-colab="'+esc(p.id)+'">Tela do colaborador</button>';
     }else{
       h += '<span class="et n">Sem kit gerado</span>'
@@ -4838,7 +4968,7 @@ function renderCartoes(){
   box.querySelectorAll('[data-gerar]').forEach(b=>b.addEventListener('click',()=>gerarKit(b.dataset.gerar,true)));
   box.querySelectorAll('[data-kit]').forEach(b=>b.addEventListener('click',()=>baixarKit(b.dataset.kit)));
   box.querySelectorAll('[data-colab]').forEach(b=>b.addEventListener('click',()=>abrirColaborador(b.dataset.colab)));
-  box.querySelectorAll('[data-empresa]').forEach(b=>b.addEventListener('click',()=>assinarPelaCimed([b.dataset.empresa], b)));
+  box.querySelectorAll('[data-empresa]').forEach(b=>b.addEventListener('click',()=>assinarPelaCimed([b.dataset.empresa], b, b.dataset.area)));
   atualizarPlacar();
   marcarPasso();
 }
@@ -5508,13 +5638,21 @@ async function estamparAssinaturas(bytes, p, st, quem, kit){
 
     /* rodapé de verificação em cada página de documento, para a folha
        viajar sozinha para o fornecedor e ainda assim ser conferível */
-    const marca = quem.papel === 'colaborador' ? st.colab : st.empresa;
+    const marca = quem.papel === 'colaborador' ? st.colab : (st.blocos && quem.area ? st.blocos[quem.area] : st.empresa);
     const codigo = (marca && marca.codigo) || (quem.codigo || '');
     const quando = hojeTxt(agoraCerta());
     const linha = limpoPDF('Assinado eletronicamente por ' + quem.nome
+      + (quem.papel === 'empresa' && quem.area ? ' (' + (AREA_NOME[quem.area] || quem.area) + ')' : '')
       + (quem.papel === 'colaborador' && p.cpf ? '  |  CPF ' + cpfTxt(p.cpf) : '')
       + '  |  ' + quando + (codigo ? '  |  codigo ' + codigo : ''));
+    /* a Cimed assina por bloco: o rodapé vai só nas folhas daquele bloco */
+    let soPaginas = null;
+    if(quem.papel === 'empresa'){
+      soPaginas = new Set();
+      kit.indice.forEach(it=>{ for(let n = it.ini; n < it.ini + it.qtd; n++) soPaginas.add(n); });
+    }
     for(let n = 1; n < total; n++){
+      if(soPaginas && !soPaginas.has(n)) continue;
       const pagina = doc.getPage(n);
       const yBase = quem.papel === 'colaborador' ? 20 : 12;
       pagina.drawText(linha, {x: 29, y: yBase, size: 5.4, font: reg, color: cinza});
@@ -5684,6 +5822,76 @@ async function reenviarRespostasPendentes(){
   }
 }
 
+/* A capa do kit: dados da pessoa, os blocos com o status de cada um e o
+   índice dos documentos. É desenhada ao gerar e refeita a cada assinatura
+   (por cima de um fundo branco), para a via final dizer o que já foi
+   assinado e o que ainda falta. */
+function desenharCapa(capa, p, indice, totalPags, reg, neg, st){
+  const L = 56, W = 595.28, H = 841.89;
+  capa.drawRectangle({x:0, y:0, width:W, height:H, color:rgb(1,1,1)});
+  capa.drawRectangle({x:0, y:H-118, width:W, height:118, color:rgb(0.984,0.769,0)});
+  capa.drawText('CIMED', {x:L, y:H-64, size:26, font:neg, color:rgb(0.078,0.075,0.031)});
+  capa.drawText('KIT DE ADMISSAO', {x:L, y:H-92, size:13, font:neg, color:rgb(0.078,0.075,0.031)});
+  let y = H-165;
+  const nomeL = quebrar(limpoPDF(p.nome), neg, 21, W-2*L);
+  nomeL.forEach(l=>{ capa.drawText(l, {x:L, y:y, size:21, font:neg, color:rgb(0.09,0.086,0.05)}); y-=25; });
+  y -= 6;
+  /* O perfil saiu da capa: e regra interna da matriz de documentos, nao
+     informacao do colaborador. Campo vazio nao vira linha "nao informado". */
+  const linhas = [
+    ['Unidade', p.unidade],
+    ['Cargo', p.cargo],
+    ['Matricula', p.matricula],
+    ['CPF', cpfTxt(p.cpf)],
+    ['E-mail', p.email],
+    ['Kit gerado em', hojeTxt()]
+  ].filter(function(l){ return String(l[1] == null ? '' : l[1]).trim(); });
+  linhas.forEach(([k,v])=>{
+    capa.drawText(limpoPDF(k), {x:L, y:y, size:9, font:neg, color:rgb(0.42,0.4,0.32)});
+    capa.drawText(limpoPDF(v), {x:L+112, y:y, size:10.5, font:reg, color:rgb(0.11,0.106,0.07)});
+    y -= 18;
+  });
+  y -= 10;
+  capa.drawLine({start:{x:L,y:y}, end:{x:W-L,y:y}, thickness:1, color:rgb(0.89,0.874,0.796)});
+  y -= 22;
+  /* blocos por área: a Cimed assina cada um com o seu signatário; o colaborador assina tudo */
+  capa.drawText('BLOCOS DO KIT E ASSINATURAS', {x:L, y:y, size:9.5, font:neg, color:rgb(0.42,0.4,0.32)});
+  y -= 16;
+  const blocos = blocosDoKit({indice: indice}).filter(b=>!b.legado);
+  const colab = st && st.colab;
+  blocos.forEach(b=>{
+    const s = assinaturaBloco(st, b.area);
+    let txt, cor;
+    if(!b.assinavel){ txt = 'sem documento para assinar'; cor = rgb(0.5,0.48,0.4); }
+    else if(s){ txt = 'Cimed: ' + s.nome + ', ' + hojeTxt(new Date(s.em)); cor = rgb(0.11,0.106,0.07); }
+    else { txt = 'Cimed: pendente' + (SIG_AREAS && !signatariosDaArea(b.area).length ? ' (sem signatario cadastrado para a area)' : ''); cor = rgb(0.61,0.38,0.02); }
+    if(b.assinavel) txt += '  |  Colaborador: ' + (colab ? hojeTxt(new Date(colab.em)) : 'pendente');
+    capa.drawText(limpoPDF(b.titulo.toUpperCase() + ' · ' + b.docs.length + ' doc.'), {x:L, y:y, size:9, font:neg, color:rgb(0.3,0.29,0.22)});
+    const ls = quebrar(limpoPDF(txt), reg, 9, W-2*L-130);
+    ls.forEach((l,i)=>capa.drawText(l, {x:L+130, y:y-i*11, size:9, font:reg, color:cor}));
+    y -= 11*ls.length + 4;
+  });
+  y -= 10;
+  capa.drawLine({start:{x:L,y:y}, end:{x:W-L,y:y}, thickness:1, color:rgb(0.89,0.874,0.796)});
+  y -= 22;
+  capa.drawText('DOCUMENTOS DESTE KIT', {x:L, y:y, size:9.5, font:neg, color:rgb(0.42,0.4,0.32)});
+  y -= 18;
+  let cortados = 0;
+  indice.forEach((it,i)=>{
+    if(y<72){ cortados++; return; }
+    const nls = quebrar(limpoPDF(nomeNoIndice(it, p)), reg, 9.5, W-2*L-190);
+    capa.drawText(String(i+1).padStart(2,'0'), {x:L, y:y, size:8.5, font:neg, color:rgb(0.62,0.6,0.5)});
+    nls.forEach((l,k)=>{ capa.drawText(l, {x:L+24, y:y-k*12, size:9.5, font:reg, color:rgb(0.11,0.106,0.07)}); });
+    capa.drawText(limpoPDF(AREA_NOME[areaDoItem(it)] || ''), {x:W-L-150, y:y, size:8, font:reg, color:rgb(0.55,0.53,0.45)});
+    const pg = 'pag. ' + (it.ini+1) + (it.qtd>1 ? ' a ' + (it.ini+it.qtd) : '');
+    capa.drawText(pg, {x:W-L-72, y:y, size:8.5, font:reg, color:rgb(0.45,0.43,0.35)});
+    y -= 12*nls.length + 3;
+  });
+  if(cortados) capa.drawText(limpoPDF('... e mais ' + cortados + ' documento(s), na ordem do kit.'), {x:L+24, y:Math.max(y, 60), size:8.5, font:reg, color:rgb(0.45,0.43,0.35)});
+  capa.drawText(limpoPDF('Total de '+indice.length+' documentos em '+blocos.length+' bloco(s), '+totalPags+' paginas.'),
+    {x:L, y:46, size:8.5, font:reg, color:rgb(0.5,0.48,0.4)});
+}
+
 async function gerarKit(pid, avisar){
   const p = S.pessoas.find(x=>x.id===pid);
   if(!p) return null;
@@ -5725,64 +5933,19 @@ async function gerarKit(pid, avisar){
       const src = await PDFDocument.load(item.a.bytes, {ignoreEncryption:true});
       const pgs = await saida.copyPages(src, src.getPageIndices());
       pgs.forEach(pg=>saida.addPage(pg));
-      indice.push({nome:(item.d?item.d.nome:item.a.nome), ini:ini, qtd:pgs.length});
+      indice.push({nome:(item.d?item.d.nome:item.a.nome), ini:ini, qtd:pgs.length, area: areaDoDoc(item.d || {nome: item.a.nome}), assina: item.d ? item.d.assina !== false : true});
     }catch(e){ /* pula arquivo problemático */ }
   }
   if(!saida.getPageCount()){ if(avisar) torrada('Não foi possível ler os PDFs desta pessoa.'); return null; }
   if(TERMO_ATIVO){
     const ini = saida.getPageCount() + 1;
     const qtd = desenharTermo(saida, p, reg, neg);
-    indice.push({nome: DOC_TERMO.nome, ini: ini, qtd: qtd});
+    indice.push({nome: DOC_TERMO.nome, ini: ini, qtd: qtd, area: 'compliance', assina: true});
   }
 
-  // capa
+  // capa (refeita a cada assinatura, com o status de cada bloco)
   const capa = saida.insertPage(0, [595.28, 841.89]);
-  const L = 56, W = 595.28;
-  capa.drawRectangle({x:0, y:841.89-118, width:W, height:118, color:rgb(0.984,0.769,0)});
-  capa.drawText('CIMED', {x:L, y:841.89-64, size:26, font:neg, color:rgb(0.078,0.075,0.031)});
-  capa.drawText('KIT DE ADMISSAO', {x:L, y:841.89-92, size:13, font:neg, color:rgb(0.078,0.075,0.031)});
-  let y = 841.89-165;
-  const nomeL = quebrar(limpoPDF(p.nome), neg, 21, W-2*L);
-  nomeL.forEach(l=>{ capa.drawText(l, {x:L, y:y, size:21, font:neg, color:rgb(0.09,0.086,0.05)}); y-=25; });
-  y -= 6;
-  /* O perfil saiu da capa: e regra interna da matriz de documentos, nao
-     informacao do colaborador, e nao diz nada para quem recebe o kit.
-     Campo vazio tambem nao vira linha "nao informado": some da capa. */
-  const linhas = [
-    ['Unidade', p.unidade],
-    ['Cargo', p.cargo],
-    ['Matricula', p.matricula],
-    ['CPF', cpfTxt(p.cpf)],
-    ['E-mail', p.email],
-    ['Kit gerado em', hojeTxt()]
-  ].filter(function(l){ return String(l[1] == null ? '' : l[1]).trim(); });
-  linhas.forEach(([k,v])=>{
-    capa.drawText(limpoPDF(k), {x:L, y:y, size:9, font:neg, color:rgb(0.42,0.4,0.32)});
-    capa.drawText(limpoPDF(v), {x:L+112, y:y, size:10.5, font:reg, color:rgb(0.11,0.106,0.07)});
-    y -= 18;
-  });
-  y -= 14;
-  capa.drawLine({start:{x:L,y:y}, end:{x:W-L,y:y}, thickness:1, color:rgb(0.89,0.874,0.796)});
-  y -= 24;
-  capa.drawText('DOCUMENTOS DESTE KIT', {x:L, y:y, size:9.5, font:neg, color:rgb(0.42,0.4,0.32)});
-  /* Documento que nao esta na matriz entra no kit com o nome do arquivo.
-     Na capa isso saia cru, com o ".pdf" e o nome da pessoa repetido no fim,
-     que a propria ferramenta acrescenta ao separar o lote. */
-
-  y -= 20;
-  indice.forEach((it,i)=>{
-    if(y<70) return;
-    /* a largura era maior que o espaco ate a coluna de paginas, e nomes
-       compridos escreviam por cima do "pag. 20" */
-    const nls = quebrar(limpoPDF(nomeNoIndice(it, p)), reg, 10, W-2*L-108);
-    capa.drawText(String(i+1).padStart(2,'0'), {x:L, y:y, size:9, font:neg, color:rgb(0.62,0.6,0.5)});
-    nls.forEach((l,k)=>{ capa.drawText(l, {x:L+24, y:y-k*13, size:10, font:reg, color:rgb(0.11,0.106,0.07)}); });
-    const pg = 'pag. ' + (it.ini+1) + (it.qtd>1 ? ' a ' + (it.ini+it.qtd) : '');
-    capa.drawText(pg, {x:W-L-72, y:y, size:9, font:reg, color:rgb(0.45,0.43,0.35)});
-    y -= 13*nls.length + 6;
-  });
-  capa.drawText(limpoPDF('Total de '+indice.length+' documentos, '+(saida.getPageCount())+' paginas.'),
-    {x:L, y:46, size:8.5, font:reg, color:rgb(0.5,0.48,0.4)});
+  desenharCapa(capa, p, indice, saida.getPageCount(), reg, neg, null);
 
   const bytes = await saida.save();
   const hash = await hashHex(bytes);
@@ -5790,10 +5953,10 @@ async function gerarKit(pid, avisar){
      ela foi impressa em outro conjunto de folhas. Limpa as marcas e as
      assinaturas, mas guarda o que a pessoa respondeu nos formularios. */
   const antigo = S.kits[pid];
-  const jaAssinado = S.assin[pid] && (S.assin[pid].empresa || S.assin[pid].colab || S.assin[pid].pdfAssinado);
+  const jaAssinado = S.assin[pid] && (S.assin[pid].empresa || S.assin[pid].blocos || S.assin[pid].colab || S.assin[pid].pdfAssinado);
   if(antigo && jaAssinado && antigo.hash !== hash){
     const a = S.assin[pid];
-    a.pdfAssinado = null; a.empresa = null; a.colab = null;
+    a.pdfAssinado = null; a.empresa = null; a.blocos = null; a.colab = null;
     a.marcas = {}; a.pgAssin = null; a.estampadas = null;
     a.assinaturasReplicadas = 0; a.datasPreenchidas = 0; a.pendAoFechar = null;
     torrada('O kit de ' + p.nome.split(' ')[0] + ' mudou, entao as assinaturas anteriores foram apagadas. '
@@ -5829,6 +5992,7 @@ function nomeArquivoKit(p, st){
   const sufixo = (a.empresa && a.colab) ? ' - ASSINADO'
     : a.colab ? ' - SO O COLABORADOR ASSINOU'
     : a.empresa ? ' - SO A CIMED ASSINOU'
+    : (a.blocos && Object.keys(a.blocos).length) ? ' - CIMED ASSINOU EM PARTE'
     : '';
   return base + sufixo + '.pdf';
 }
@@ -5898,9 +6062,11 @@ function renderKits(){
   let h = barraOnline() + '<div class="rolar"><table><thead><tr><th>Pessoa</th><th>Perfil</th><th>Documentos</th><th>Páginas</th><th>Verificação</th><th>Situação</th><th></th></tr></thead><tbody>';
   ids.forEach(id=>{
     const p = S.pessoas.find(x=>x.id===id), k = S.kits[id], st = S.assin[id]||{};
+    const pend = textoPendentes(k, st), ass = blocosAssinados(k, st);
     const et = (st.empresa && st.colab ? '<span class="et ok">Concluído</span>'
-             : st.colab ? '<span class="et at">Aguardando a Cimed</span>'
+             : st.colab ? '<span class="et at">Falta a Cimed: ' + esc(pend) + '</span>'
              : st.empresa ? '<span class="et n">Aguardando o colaborador</span>'
+             : ass.length ? '<span class="et at">Cimed assinou ' + esc(ass.map(b=>b.titulo).join(', ')) + ' · falta ' + esc(pend) + '</span>'
              : '<span class="et at">Aguardando a Cimed</span>')
              + (st.online ? ' <span class="et am">on-line</span>' : '');
     h += '<tr><td><b>'+esc(p.nome)+'</b></td><td>'+esc(p.perfil)+'</td>'
@@ -6035,27 +6201,41 @@ async function acharPontos(p, k, docs){
    lados. Então a assinatura da Cimed vem antes de o tablet descer,
    e pode ser feita de uma vez em todos os kits do dia.
    ========================================================= */
-function nomeDaCimed(){
+function nomeDaCimed(area){
+  area = areaValida(area) || areaSelecionada();
   const campo = $('#assinanteCimed');
-  const digitado = campo ? campo.value.trim() : '';
+  const digitado = campo && areaSelecionada() === area ? campo.value.trim() : '';
   if(digitado){
-    S.assinanteCimed = digitado;
-    try{ localStorage.setItem('cimed.assinante', digitado); }catch(e){}
+    try{ localStorage.setItem('cimed.assinante.' + area, digitado); }catch(e){}
     return digitado;
   }
-  return S.assinanteCimed || '';
+  let g = '';
+  try{ g = localStorage.getItem('cimed.assinante.' + area) || ''; }catch(e){}
+  if(!g){ const l = signatariosDaArea(area); if(l.length === 1) g = l[0].nome; }
+  return g;
 }
 
-async function assinarPelaCimed(ids, botao){
-  const nome = nomeDaCimed();
+/* Assina UM bloco (área) em vários kits de uma vez. Cada área tem o seu
+   signatário; bloco sem signatário cadastrado fica pendente e não trava
+   os outros. */
+async function assinarPelaCimed(ids, botao, area){
+  area = areaValida(area) || areaSelecionada();
+  const titulo = AREA_NOME[area];
+  if(SIG_AREAS && !signatariosDaArea(area).length){
+    torrada('Ninguém cadastrado com procuração para o bloco ' + titulo + '. Ele fica pendente até a Josianny informar o nome (parâmetro signatarios_por_area).', 8000);
+    return;
+  }
+  const nome = nomeDaCimed(area);
   if(!nome){
-    torrada('Escreva quem assina pela Cimed no passo 4, quem tem procuração, e clique de novo.', 7000);
+    torrada('Escolha o bloco ' + titulo + ' no passo 4, escreva quem assina pela Cimed (quem tem procuração para essa área) e clique de novo.', 7000);
+    const sel = $('#areaCimed'); if(sel) sel.value = area;
+    atualizarCampoSignatario();
     const campo = $('#assinanteCimed');
     if(campo){ campo.focus(); campo.scrollIntoView({block:'center'}); }
     return;
   }
-  const alvos = ids.filter(id=>S.kits[id] && !(S.assin[id] && S.assin[id].empresa));
-  if(!alvos.length){ torrada('Estes kits já estão assinados pela Cimed.'); return; }
+  const alvos = ids.filter(id=>S.kits[id] && blocosPendentes(S.kits[id], S.assin[id]).some(b=>b.area === area));
+  if(!alvos.length){ torrada('Nenhum kit com o bloco ' + titulo + ' pendente pela Cimed.'); return; }
   const rotulo = botao ? botao.textContent : '';
   if(botao){ botao.disabled = true; botao.textContent = 'Assinando...'; }
   let n = 0;
@@ -6064,19 +6244,20 @@ async function assinarPelaCimed(ids, botao){
       const p = S.pessoas.find(x=>x.id === id), k = S.kits[id];
       if(!p || !k) continue;
       const st = S.assin[id] || (S.assin[id] = {resp:{}, vistos:{}, marcas:{}});
-      $('#dicaGerar').textContent = 'Assinando pela Cimed: ' + p.nome.split(' ')[0] + '...';
-      if(await assinar(p, k, st, {nome: nome, imagem: null, papel: 'empresa'}) === false) break;
+      $('#dicaGerar').textContent = 'Assinando ' + titulo + ' pela Cimed: ' + p.nome.split(' ')[0] + '...';
+      if(await assinar(p, k, st, {nome: nome, imagem: null, papel: 'empresa', area: area}) === false) break;
       n++;
       await new Promise(r=>setTimeout(r, 0));
     }
   } finally {
-    /* o botao precisa voltar mesmo se der erro no meio: senao a pessoa fica
-       sem conseguir assinar os proximos sem recarregar a pagina */
-    if(botao){ botao.disabled = false; botao.textContent = rotulo; }
+    /* o botao precisa voltar mesmo se der erro no meio */
+    if(botao && botao.isConnected){ botao.disabled = false; botao.textContent = rotulo; }
   }
   $('#dicaGerar').textContent = '';
   renderCartoes(); renderKits(); renderPainel(); atualizarPlacar();
-  torrada(n + ' kit(s) assinado(s) por ' + nome + '. Agora é só entregar o tablet ao colaborador.', 6000);
+  const faltam = Array.from(new Set(alvos.map(id=>textoPendentes(S.kits[id], S.assin[id])).filter(Boolean)));
+  torrada(n + ' kit(s): bloco ' + titulo + ' assinado por ' + nome + '.'
+    + (faltam.length ? ' Ainda falta a Cimed assinar: ' + faltam.join(' / ') + '.' : ' Agora é só entregar o tablet ao colaborador.'), 7000);
 }
 
 function abrirColaborador(pid){
@@ -6114,6 +6295,20 @@ function aoTopo(){
   try{ window.scrollTo(0, 0); }catch(e){}
 }
 
+/* No tablet isto ficava mudo, e a pessoa assinava e levava uma via sem a
+   assinatura da empresa sem ninguém perceber. Agora diz bloco por bloco. */
+function fitaCimed(k, st){
+  if(st.empresa) return '<div class="fita ok">Este kit já está assinado pela Cimed'
+    + (st.blocos ? ', bloco por bloco: ' + esc(blocosAssinados(k, st).map(b=>b.titulo + ' (' + assinaturaBloco(st, b.area).nome + ')').join(', ')) : ', por ' + esc(st.empresa.nome)) + '.</div>';
+  const ass = blocosAssinados(k, st), pend = textoPendentes(k, st);
+  if(ass.length) return '<div class="fita at">A Cimed assinou ' + esc(ass.map(b=>b.titulo).join(', ')) + '. Ainda falta a Cimed assinar: ' + esc(pend) + '. '
+    + (C.kiosk ? 'Você pode continuar; o RH completa a assinatura depois e a sua via fica com as duas assinaturas em todos os blocos.'
+               : 'O colaborador pode assinar; o bloco pendente é assinado depois por quem tem procuração para a área.') + '</div>';
+  return C.kiosk
+    ? '<div class="fita at">Este kit ainda não foi assinado pela Cimed. Chame o RH antes de continuar: a sua via só vale com as duas assinaturas.</div>'
+    : '<div class="fita at">A Cimed ainda não assinou este kit. O combinado é assinar antes de entregar o tablet.</div>';
+}
+
 function renderColab(){
   const p = S.pessoas.find(x=>x.id===C.pid), k = S.kits[C.pid], st = S.assin[C.pid];
   if(!p || !k) return;
@@ -6139,13 +6334,7 @@ function renderColab(){
   h += '<div class="celular"><div class="celular-topo">'
     + '<strong>Kit de admissão Cimed</strong>'
     + '<span>' + esc(p.nome) + ' · ' + esc(p.unidade || p.perfil) + '</span></div>'
-    + (st.empresa
-        ? '<div class="fita ok">Este kit já está assinado pela Cimed, por ' + esc(st.empresa.nome) + '.</div>'
-        /* No tablet isto ficava mudo, e a pessoa assinava e levava uma via
-           sem a assinatura da empresa sem ninguém perceber. */
-        : (C.kiosk
-           ? '<div class="fita at">Este kit ainda não foi assinado pela Cimed. Chame o RH antes de continuar: a sua via só vale com as duas assinaturas.</div>'
-           : '<div class="fita at">A Cimed ainda não assinou este kit. O combinado é assinar antes de entregar o tablet.</div>'))
+    + fitaCimed(k, st)
     + '<div class="trilha"><i style="width:' + Math.round(100 * (noFim ? total : C.passo) / (total || 1)) + '%"></i></div>'
     + '<div class="celular-corpo">';
 
@@ -6300,18 +6489,21 @@ function renderColab(){
   if(C.kiosk){
     h += '';
   }else if(!st.empresa){
+    const pend = blocosPendentes(k, st);
     h += '<div class="sep"></div>'
       + '<div class="aviso' + (st.colab ? '' : ' info') + '"><div>'
       + (st.colab
-          ? '<b>Falta a assinatura da empresa.</b> Pode ser agora ou depois, com <b>Retomar kit assinado</b> no passo 4.'
-          : '<b>A empresa pode assinar antes.</b> Útil para integração em fábrica: quem assina pela Cimed assina no escritório e o tablet desce só para o colaborador.')
+          ? '<b>Falta a assinatura da Cimed em: ' + esc(textoPendentes(k, st)) + '.</b> Pode ser agora ou depois, com <b>Retomar kit assinado</b> no passo 4.'
+          : '<b>A Cimed pode assinar antes, bloco por bloco.</b> Útil para integração em fábrica: quem tem procuração assina o seu bloco no escritório e o tablet desce só para o colaborador.')
       + '</div></div>'
       + '<div class="flex" style="margin-top:12px">'
-      + '<input type="text" id="cbEmpNome" list="listaSignatarios" placeholder="Quem assina pela Cimed" style="max-width:280px">'
-      + '<button class="b escura" id="cbEmpAssinar">Assinar como empresa</button></div>';
+      + '<select id="cbEmpArea" style="width:auto">' + pend.map(b=>'<option value="' + b.area + '">Bloco ' + esc(b.titulo) + (SIG_AREAS && !signatariosDaArea(b.area).length ? ' (sem signatário cadastrado)' : '') + '</option>').join('') + '</select>'
+      + '<input type="text" id="cbEmpNome" list="listaSigColab" placeholder="Quem assina pela Cimed" style="max-width:280px"><datalist id="listaSigColab"></datalist>'
+      + '<button class="b escura" id="cbEmpAssinar">Assinar este bloco pela Cimed</button></div>';
   }else{
-    h += '<div class="sep"></div><div class="aviso info"><div><b>Assinatura da empresa registrada</b>, por '
-      + esc(st.empresa.nome) + '.' + (st.colab ? ' Kit concluído.' : ' Falta o colaborador.') + '</div></div>'
+    h += '<div class="sep"></div><div class="aviso info"><div><b>Assinatura da Cimed registrada</b>'
+      + (st.blocos ? ' em todos os blocos (' + esc(blocosAssinados(k, st).map(b=>b.titulo + ': ' + assinaturaBloco(st, b.area).nome).join('; ')) + ')' : ', por ' + esc(st.empresa.nome))
+      + '.' + (st.colab ? ' Kit concluído.' : ' Falta o colaborador.') + '</div></div>'
       + '<div class="flex" style="margin-top:12px"><button class="b prim" id="cbBaixarAss2">Baixar kit</button></div>';
   }
 
@@ -6766,11 +6958,24 @@ function ligarColaborador(p, k, st){
   });
 
   const be = corpo.querySelector('#cbEmpAssinar');
+  const sa = corpo.querySelector('#cbEmpArea');
+  const dlc = corpo.querySelector('#listaSigColab');
+  const encherSig = ()=>{
+    if(!sa) return;
+    const l = signatariosDaArea(sa.value);
+    if(dlc) dlc.innerHTML = l.map(s=>'<option value="' + esc(s.nome) + '">').join('');
+    const inp = corpo.querySelector('#cbEmpNome');
+    if(inp){ inp.value = nomeDaCimed(sa.value) || ''; inp.disabled = !!(SIG_AREAS && !l.length); }
+  };
+  if(sa){ sa.addEventListener('change', encherSig); encherSig(); }
   if(be) be.addEventListener('click', async ()=>{
+    const area = sa ? sa.value : 'dp';
+    if(SIG_AREAS && !signatariosDaArea(area).length){ torrada('Ninguém cadastrado com procuração para o bloco ' + AREA_NOME[area] + '. Ele fica pendente.', 7000); return; }
     const nome = corpo.querySelector('#cbEmpNome').value.trim();
-    if(!nome){ torrada('Informe quem assina pela Cimed.'); return; }
+    if(!nome){ torrada('Informe quem assina pela Cimed neste bloco.'); return; }
+    try{ localStorage.setItem('cimed.assinante.' + area, nome); }catch(e){}
     be.disabled = true; be.textContent = 'Assinando...';
-    await assinar(p, k, st, {nome:nome, imagem:null, papel:'empresa'});
+    await assinar(p, k, st, {nome:nome, imagem:null, papel:'empresa', area: area});
     renderColab();
   });
 
@@ -6780,21 +6985,34 @@ function ligarColaborador(p, k, st){
   });
 }
 
-function signatarioDaLista(nome){
+function signatarioDaLista(nome, area){
   const n = String(nome || '').trim().toLowerCase();
   const hoje = agoraCerta().toISOString().slice(0, 10);
-  return SIGNATARIOS.find(s=>String(s.nome || '').trim().toLowerCase() === n && (!s.validade || String(s.validade) >= hoje)) || null;
+  const lista = area ? signatariosDaArea(area) : SIGNATARIOS;
+  return lista.find(s=>String(s.nome || '').trim().toLowerCase() === n && (!s.validade || String(s.validade) >= hoje)) || null;
 }
 
 async function assinar(p, k, st, quem){
-  if(quem.papel === 'empresa' && SIGNATARIOS.length){
-    const s = signatarioDaLista(quem.nome);
-    if(!s){
-      torrada('Só quem tem procuração cadastrada assina pela Cimed: ' + SIGNATARIOS.map(x=>x.nome).join(', ') + '.', 8000);
+  if(quem.papel === 'empresa'){
+    /* a Cimed assina por bloco: só o signatário daquela área, nunca o de outra */
+    quem = Object.assign({}, quem, {area: areaValida(quem.area) || 'dp'});
+    const bloco = blocosDoKit(k).find(b=>b.area === quem.area);
+    if(!bloco){ torrada('Este kit não tem o bloco ' + AREA_NOME[quem.area] + '.'); return false; }
+    if(assinaturaBloco(st, quem.area)){ torrada('O bloco ' + bloco.titulo + ' já está assinado pela Cimed.'); return false; }
+    const lista = signatariosDaArea(quem.area);
+    if(SIG_AREAS && !lista.length){
+      torrada('Ninguém cadastrado com procuração para o bloco ' + bloco.titulo + '. Ele fica pendente até ter nome.', 8000);
       return false;
     }
-    quem = Object.assign({}, quem, {nome: s.nome,
-      procuracao: s.procuracao ? 'Procuracao ' + s.procuracao + (s.validade ? ', valida ate ' + String(s.validade).split('-').reverse().join('/') : '') : ''});
+    if(lista.length){
+      const s = signatarioDaLista(quem.nome, quem.area);
+      if(!s){
+        torrada('Só quem tem procuração cadastrada para ' + bloco.titulo + ' assina este bloco: ' + lista.map(x=>x.nome).join(', ') + '. O nome de uma área não assina o bloco de outra.', 9000);
+        return false;
+      }
+      quem = Object.assign({}, quem, {nome: s.nome,
+        procuracao: s.procuracao ? 'Procuracao ' + s.procuracao + (s.validade ? ', valida ate ' + String(s.validade).split('-').reverse().join('/') : '') : ''});
+    }
   }
   let base = st.pdfAssinado || k.bytes;
 
@@ -6817,8 +7035,12 @@ async function assinar(p, k, st, quem){
      depois: cada termo de benefício vai para um fornecedor diferente.
      Então a rubrica é replicada em todos os documentos e cada folha
      leva no pé a identificação de quem assinou. */
+  /* a Cimed carimba só as folhas do bloco dela; o colaborador, todas */
+  const kitAlvo = quem.papel === 'empresa'
+    ? Object.assign({}, k, {indice: (k.indice || []).filter(it=>areaDoItem(it) === quem.area)})
+    : k;
   const rep = await estamparAssinaturas(base, p, st,
-    Object.assign({}, quem, {codigo: codigo}), k);
+    Object.assign({}, quem, {codigo: codigo}), kitAlvo);
   base = rep.bytes;
   if(quem.papel === 'colaborador'){
     st.assinaturasReplicadas = rep.feitas;
@@ -6848,6 +7070,18 @@ async function assinar(p, k, st, quem){
   }
   const extraEm = doc.getPageCount();
   st.pgAssin = null;
+  const nova = {
+    papel: quem.papel, nome: quem.nome, imagem: quem.imagem || null,
+    cpf: quem.papel==='colaborador' ? cpfTxt(p.cpf) : '',
+    procuracao: quem.procuracao || '',
+    area: quem.papel === 'empresa' ? quem.area : undefined,
+    em: agora.toISOString(), codigo: codigo, hash: hash,
+    disp: (navigator.userAgent||'').slice(0,90)
+  };
+  /* como o kit fica depois desta assinatura */
+  const stDepois = quem.papel === 'colaborador'
+    ? Object.assign({}, st, {colab: nova})
+    : Object.assign({}, st, {blocos: Object.assign({}, st.blocos || {}, {[quem.area]: nova})});
 
   // anexo com as respostas, uma vez só. Só entram os formulários dos
   // documentos que vieram no kit: listar Unimed sem o termo da Unimed
@@ -6858,7 +7092,8 @@ async function assinar(p, k, st, quem){
     const c = chaveDoc(o.d.nome).replace(/[^a-z0-9 ]/g,'').replace(/\s+/g,' ').trim();
     return chavesDoKit.some(x=>x === c || x.indexOf(c) === 0 || c.indexOf(x) === 0);
   });
-  if(quem.papel==='colaborador' && forms.length){
+  /* o anexo existe sempre que o colaborador já assinou, mesmo quando a Cimed assina um bloco depois dele */
+  if(stDepois.colab && forms.length){
     const pg = doc.addPage([595.28,841.89]);
     const W = 595.28, L = 56;
     pg.drawRectangle({x:0,y:841.89-70,width:W,height:70,color:rgb(0.984,0.769,0)});
@@ -6911,28 +7146,37 @@ async function assinar(p, k, st, quem){
   pg.drawText(limpoPDF('Kit de admissao de '+p.nome), {x:L,y:y,size:13,font:neg,color:rgb(0.09,0.086,0.05)});
   y -= 30;
 
-  const nova = {
-    papel: quem.papel, nome: quem.nome, imagem: quem.imagem || null,
-    cpf: quem.papel==='colaborador' ? cpfTxt(p.cpf) : '',
-    procuracao: quem.procuracao || '',
-    em: agora.toISOString(), codigo: codigo, hash: hash,
-    disp: (navigator.userAgent||'').slice(0,90)
-  };
-  /* empresa em cima, colaborador embaixo, que é a ordem do processo */
-  const todas = [];
-  if(quem.papel === 'colaborador'){
-    if(st.empresa) todas.push(st.empresa);
-    todas.push(nova);
-  }else{
-    todas.push(nova);
-    if(st.colab) todas.push(st.colab);
+  /* a capa é refeita com o status de cada bloco (não num kit retomado de PDF, que não tem capa nossa) */
+  if((k.indice || []).length && !k.retomado){
+    try{ desenharCapa(doc.getPage(0), p, k.indice, k.pags, reg, neg, stDepois); }catch(e){}
   }
+  /* empresa em cima, bloco por bloco, colaborador embaixo, que é a ordem do processo */
+  const todas = [];
+  if(st.empresa && !st.blocos && quem.papel === 'colaborador'){
+    todas.push(Object.assign({}, st.empresa, {rotulo: 'PELA CIMED'}));
+  }else{
+    blocosDoKit(k).forEach(b=>{
+      if(!b.assinavel) return;
+      const s = assinaturaBloco(stDepois, b.area);
+      const rot = b.legado ? 'PELA CIMED' : 'PELA CIMED · BLOCO ' + b.titulo.toUpperCase() + ' (' + b.docs.length + ' doc.)';
+      if(s) todas.push(Object.assign({}, s, {rotulo: rot}));
+      else todas.push({pendente: true, rotulo: rot,
+        motivo: SIG_AREAS && !signatariosDaArea(b.area).length ? 'sem signatario cadastrado para esta area' : 'aguardando quem tem procuracao para esta area'});
+    });
+  }
+  if(stDepois.colab) todas.push(Object.assign({}, stDepois.colab, {rotulo: 'COLABORADOR'}));
+  const compacto = todas.length > 4;
 
   for(const s of todas){
     pg.drawLine({start:{x:L,y:y+12},end:{x:W-L,y:y+12},thickness:1,color:rgb(0.89,0.874,0.796)});
     y -= 6;
-    pg.drawText(limpoPDF(s.papel==='colaborador'?'COLABORADOR':'PELA CIMED'), {x:L,y:y,size:8.5,font:neg,color:rgb(0.55,0.53,0.45)});
+    pg.drawText(limpoPDF(s.rotulo), {x:L,y:y,size:8.5,font:neg,color:rgb(0.55,0.53,0.45)});
     y -= 18;
+    if(s.pendente){
+      pg.drawText(limpoPDF('Pendente: a Cimed ainda nao assinou este bloco (' + s.motivo + ').'), {x:L,y:y,size:9.5,font:reg,color:rgb(0.61,0.38,0.02)});
+      y -= compacto ? 22 : 30;
+      continue;
+    }
     if(s.imagem){
       try{
         const png = await doc.embedPng(s.imagem);
@@ -6949,9 +7193,14 @@ async function assinar(p, k, st, quem){
       'Assinado em '+hojeTxt(new Date(s.em)),
       'Codigo de verificacao '+s.codigo
     ].filter(Boolean);
-    info.forEach(t=>{ pg.drawText(limpoPDF(t), {x:L,y:y,size:9.5,font:reg,color:rgb(0.3,0.29,0.22)}); y-=13; });
-    quebrar(limpoPDF('Dispositivo: '+s.disp), reg, 8, W-2*L).forEach(l=>{ pg.drawText(l,{x:L,y:y,size:8,font:reg,color:rgb(0.55,0.53,0.45)}); y-=10; });
-    y -= 18;
+    if(compacto){
+      quebrar(limpoPDF(info.join('  |  ')), reg, 8.5, W-2*L).forEach(l=>{ pg.drawText(l, {x:L,y:y,size:8.5,font:reg,color:rgb(0.3,0.29,0.22)}); y-=11; });
+      y -= 10;
+    }else{
+      info.forEach(t=>{ pg.drawText(limpoPDF(t), {x:L,y:y,size:9.5,font:reg,color:rgb(0.3,0.29,0.22)}); y-=13; });
+      quebrar(limpoPDF('Dispositivo: '+s.disp), reg, 8, W-2*L).forEach(l=>{ pg.drawText(l,{x:L,y:y,size:8,font:reg,color:rgb(0.55,0.53,0.45)}); y-=10; });
+      y -= 18;
+    }
   }
   /* O pe da pagina tem lugar fixo. Com um unico signatario o y do
      bloco ainda esta alto, e o resumo caia em cima do nome. */
@@ -6993,11 +7242,16 @@ async function assinar(p, k, st, quem){
   st.pgAssin = doc.getPageCount() - 1;
   try{ doc.setKeywords(['cimed-extra:' + extraEm]); }catch(e){}
   st.pdfAssinado = await doc.save();
-  if(quem.papel==='colaborador') st.colab = nova; else st.empresa = nova;
+  if(quem.papel==='colaborador') st.colab = nova;
+  else{
+    st.blocos = Object.assign({}, st.blocos || {}, {[quem.area]: nova});
+    /* st.empresa só existe com todos os blocos assinados: é o que o resto da ferramenta entende por "a Cimed assinou" */
+    st.empresa = empresaCompleta(k, st) ? resumoEmpresa(k, st) : null;
+  }
   salvar();
   if(quem.papel === 'colaborador' && !MODO_ONLINE) enviarRespostasPlataforma(p, st, k);
   if(quem.papel === 'empresa' && st.online && !MODO_ONLINE) atualizarOnline(p.id);
-  marcarKitNoBanco(p, st);
+  marcarKitNoBanco(p, st, k);
   guardarKit(p.id).then(()=>{
     try{ if(canal) canal.postMessage({tipo:'assinado', pid:p.id, papel:quem.papel, nome:quem.nome}); }catch(e){}
   });
@@ -7015,7 +7269,9 @@ async function assinar(p, k, st, quem){
       + (sem2 ? ' · ' + sem2 + ' documento(s) sem espaço para assinar' : ''),
       (falhas || sem2) ? 8500 : 5500);
   }else{
-    torrada('Kit concluído com as duas assinaturas.', 4500);
+    const falta = textoPendentes(k, st);
+    torrada('Bloco ' + AREA_NOME[quem.area] + ' assinado pela Cimed por ' + quem.nome + '.'
+      + (falta ? ' Ainda falta a Cimed assinar: ' + falta + '.' : (st.colab ? ' Kit concluído com as duas assinaturas.' : ' Todos os blocos assinados pela Cimed.')), 5500);
   }
 }
 
@@ -7040,7 +7296,9 @@ function abrirQR(pid){
     h = '<div class="flex" style="align-items:flex-start;gap:22px">' + qr
       + '<div style="flex:1;min-width:250px">'
       + '<p class="dica forte" style="margin-top:0">O colaborador aponta a câmera do celular, confirma CPF e data de nascimento, lê os documentos e assina com o dedo. O kit assinado volta para a Admissão.</p>'
-      + (st.empresa ? '' : '<div class="aviso" style="margin-bottom:10px"><div><b>Falta a assinatura da Cimed.</b> O link só abre depois que a Cimed assinar este kit.</div></div>')
+      + (st.empresa ? '' : blocosAssinados(S.kits[pid], st).length
+          ? '<div class="aviso" style="margin-bottom:10px"><div><b>Falta a Cimed assinar: ' + esc(textoPendentes(S.kits[pid], st)) + '.</b> O link já abre (a Cimed assinou ' + esc(blocosAssinados(S.kits[pid], st).map(b=>b.titulo).join(', ')) + '); o bloco pendente é assinado depois por quem tem procuração para a área.</div></div>'
+          : '<div class="aviso" style="margin-bottom:10px"><div><b>Falta a assinatura da Cimed.</b> O link só abre depois que a Cimed assinar pelo menos um bloco deste kit.</div></div>')
       + '<label class="campo" style="margin-bottom:10px"><span>Link do kit</span><input type="text" readonly value="' + esc(url) + '"></label>'
       + '<div class="flex"><button class="b peq" id="btCopiar">Copiar link</button>'
       + '<button class="b peq" id="btNovoLink">Gerar link novo</button></div>'
@@ -7185,31 +7443,30 @@ async function nuvemEquipe(silencioso){
         if(r.chave === 'codigo_conduta_url' && /^https?:\/\//.test(String(r.valor || ''))) TERMO_URL = String(r.valor).trim();
       });
     }).catch(()=>{});
-    sb.from('parametros').select('valor').eq('chave', 'signatarios_cimed').maybeSingle().then(x=>{
-      try{
-        const l = JSON.parse((x && x.data && x.data.valor) || '[]');
-        SIGNATARIOS = Array.isArray(l) ? l.filter(s=>s && s.nome).map(s=>({nome: String(s.nome).slice(0, 120),
-          procuracao: String(s.procuracao || '').slice(0, 60), validade: String(s.validade || '').slice(0, 10)})) : [];
-      }catch(e){ SIGNATARIOS = []; }
-      const dl = document.getElementById('listaSignatarios');
-      if(dl) dl.innerHTML = SIGNATARIOS.map(s=>'<option value="' + esc(s.nome) + '">').join('');
-      if(SIGNATARIOS.length === 1){
-        const c = document.getElementById('assinanteCimed');
-        if(c && !c.value) c.value = SIGNATARIOS[0].nome;
-      }
+    sb.from('parametros').select('chave, valor').in('chave', ['signatarios_cimed', 'signatarios_por_area']).then(x=>{
+      const m = {};
+      (x && x.data || []).forEach(r=>{ m[r.chave] = r.valor; });
+      aplicarSignatarios(m.signatarios_cimed || '[]', m.signatarios_por_area || '{}');
     }).catch(()=>{});
   }
   return sb;
 }
 
 /* Esteira no tablet (sem kit online): leva a situação do kit para a admissão */
-async function marcarKitNoBanco(p, st){
+async function marcarKitNoBanco(p, st, k){
   if(MODO_ONLINE || location.protocol === 'file:' || !p || !st) return;
-  const status = st.empresa && st.colab ? 'concluido' : st.empresa ? 'empresa' : null;
+  const blocos = k ? blocosParaBanco(k, st) : null;
+  /* 'gerado' só grava o status dos blocos (um assinado, outros pendentes) */
+  const status = st.empresa && st.colab ? 'concluido' : st.empresa ? 'empresa' : blocos ? 'gerado' : null;
   if(!status || digitos(p.cpf).length !== 11) return;
   const sb = await nuvemEquipe(true);
   if(!sb) return;
-  try{ await sb.rpc('kit_marcar', {p_cpf: digitos(p.cpf), p_status: status}); }catch(e){}
+  try{
+    const r = await sb.rpc('kit_marcar', {p_cpf: digitos(p.cpf), p_status: status, p_blocos: blocos});
+    if(r && r.error && blocos && bancoSemBlocos(r.error) && status !== 'gerado'){
+      await sb.rpc('kit_marcar', {p_cpf: digitos(p.cpf), p_status: status});
+    }
+  }catch(e){}
 }
 
 function b64url(u8){
@@ -7234,6 +7491,7 @@ function dadosDoKit(pid){
       resp: st.resp || {}, vistos: st.vistos || {}, marcas: st.marcas || {},
       assinatura: st.assinatura || null, rubrica: st.rubrica || null,
       marcaNome: st.marcaNome || '', colab: st.colab || null, empresa: st.empresa || null,
+      blocos: st.blocos || null,
       pendAoFechar: st.pendAoFechar || null, entrega: st.entrega || null,
       assinaturasReplicadas: st.assinaturasReplicadas || 0, estampadas: st.estampadas || 0,
       datasPreenchidas: st.datasPreenchidas || 0
@@ -7241,6 +7499,19 @@ function dadosDoKit(pid){
   };
 }
 
+/* banco ainda sem o SQL 17 (kit em blocos): a função não conhece p_blocos ou a
+   coluna blocos não existe. Nesse caso a Esteira volta ao jeito antigo, com um
+   nome só, e avisa uma vez. */
+let AVISOU_SEM_BLOCOS = false;
+function bancoSemBlocos(err){
+  const m = String((err && err.message) || err || '');
+  const sem = /p_blocos|column .*blocos|kit_blocos|does not exist|PGRST202|PGRST204|schema cache/i.test(m);
+  if(sem && !AVISOU_SEM_BLOCOS){
+    AVISOU_SEM_BLOCOS = true;
+    torrada('O banco ainda não tem o kit em blocos (SQL 17). O kit on-line segue com um signatário só até ele ser instalado.', 9000);
+  }
+  return sem;
+}
 async function subirNaNuvem(sb, caminho, dados, tipo){
   const r = await sb.storage.from('kits').upload(caminho, new Blob([dados], {type:tipo}), {contentType:tipo, upsert:false, cacheControl:'0'});
   if(r.error) throw new Error(r.error.message || 'falha no envio');
@@ -7278,11 +7549,17 @@ async function publicarOnline(pid, botao){
     }
     const js = id + '/e-1-' + suf + '.json';
     await subirNaNuvem(sb, js, JSON.stringify(dadosDoKit(pid)), 'application/json');
-    const r = await sb.rpc('kit_publicar', {
+    const blocos = blocosParaBanco(k, st);
+    const corpo = {
       p_id: id, p_pid: p.id, p_nome: p.nome, p_cpf: digitos(p.cpf), p_nasc: p.nasc || null,
       p_token_hash: await hashTexto(token), p_dias: 7, p_hash_original: k.hash,
-      p_pdf: pdf, p_json: js, p_empresa_nome: st.empresa ? st.empresa.nome : null
-    });
+      p_pdf: pdf, p_json: js, p_empresa_nome: blocos ? null : (st.empresa ? st.empresa.nome : null), p_blocos: blocos
+    };
+    let r = await sb.rpc('kit_publicar', corpo);
+    if(r.error && blocos && bancoSemBlocos(r.error)){
+      delete corpo.p_blocos; corpo.p_empresa_nome = st.empresa ? st.empresa.nome : null;
+      r = await sb.rpc('kit_publicar', corpo);
+    }
     if(r.error) throw new Error(r.error.message);
     st.online = {id: id, token: token, versao: r.data.versao, em: new Date().toISOString()};
     salvar(); guardarKit(pid); renderKits();
@@ -7313,8 +7590,8 @@ async function publicarTodosOnline(botao){
 
 /* ---- equipe: devolver versão nova (depois de a Cimed assinar) ---- */
 async function atualizarOnline(pid){
-  const st = S.assin[pid];
-  if(!st || !st.online || !st.pdfAssinado) return;
+  const st = S.assin[pid], k = S.kits[pid];
+  if(!st || !st.online || !st.pdfAssinado || !k) return;
   const sb = await nuvemEquipe();
   if(!sb) return;
   const o = st.online, suf = sufixo();
@@ -7323,10 +7600,16 @@ async function atualizarOnline(pid){
     const js = o.id + '/e-' + (o.versao + 1) + '-' + suf + '.json';
     await subirNaNuvem(sb, pdf, st.pdfAssinado, 'application/pdf');
     await subirNaNuvem(sb, js, JSON.stringify(dadosDoKit(pid)), 'application/json');
-    const r = await sb.rpc('kit_salvar', {
+    const blocos = blocosParaBanco(k, st);
+    const corpo = {
       p_id: o.id, p_versao: o.versao, p_pdf: pdf, p_json: js,
-      p_empresa_nome: st.empresa ? st.empresa.nome : null
-    });
+      p_empresa_nome: blocos ? null : (st.empresa ? st.empresa.nome : null), p_blocos: blocos
+    };
+    let r = await sb.rpc('kit_salvar', corpo);
+    if(r.error && blocos && bancoSemBlocos(r.error)){
+      delete corpo.p_blocos; corpo.p_empresa_nome = st.empresa ? st.empresa.nome : null;
+      r = await sb.rpc('kit_salvar', corpo);
+    }
     if(r.error) throw new Error(r.error.message);
     o.versao = r.data.versao;
     salvar(); guardarKit(pid); renderKits();
@@ -7366,7 +7649,8 @@ function pessoaSegura(pe){
 function indiceSeguro(ix){
   return (Array.isArray(ix) ? ix : []).slice(0, 300).map(it=>{
     it = it || {};
-    return {nome: String(it.nome || '').slice(0, 300), ini: Math.max(0, Math.trunc(+it.ini) || 0), qtd: Math.max(0, Math.trunc(+it.qtd) || 0)};
+    return {nome: String(it.nome || '').slice(0, 300), ini: Math.max(0, Math.trunc(+it.ini) || 0), qtd: Math.max(0, Math.trunc(+it.qtd) || 0),
+            area: areaValida(it.area) || undefined, assina: it.assina === false ? false : true};
   });
 }
 async function trazerOnline(sb, row){
@@ -7391,13 +7675,21 @@ async function trazerOnline(sb, row){
   return p;
 }
 
+/* blocos como o banco guarda (kits_online.blocos): quais faltam pela Cimed */
+function pendentesDoBanco(b){
+  return Object.keys(b || {}).filter(a=>b[a] && b[a].assinavel !== false && !b[a].assinado_empresa_em).map(a=>(b[a].titulo || AREA_NOME[a] || a));
+}
 function situacaoOnline(r){
   if(r.colab_assinou && r.empresa_assinou) return '<span class="et ok">Concluído</span>';
-  if(r.colab_assinou) return '<span class="et at">Falta a Cimed</span>';
-  if(!r.empresa_assinou) return '<span class="et at">Falta a Cimed</span>';
-  if(!r.token_hash) return '<span class="et n">Sem link ativo</span>';
-  if(new Date(r.expira_em) < new Date()) return '<span class="et cr">Link vencido</span>';
-  return '<span class="et am">Com o colaborador</span>';
+  const pend = pendentesDoBanco(r.blocos);
+  const falta = pend.length ? ': ' + esc(pend.join(', ')) : '';
+  if(r.colab_assinou) return '<span class="et at">Falta a Cimed' + falta + '</span>';
+  const algum = Object.keys(r.blocos || {}).some(a=>r.blocos[a] && r.blocos[a].assinado_empresa_em);
+  if(!r.empresa_assinou && !algum) return '<span class="et at">Falta a Cimed' + falta + '</span>';
+  const extra = r.empresa_assinou ? '' : ' <span class="et at">Cimed: falta' + falta + '</span>';
+  if(!r.token_hash) return '<span class="et n">Sem link ativo</span>' + extra;
+  if(new Date(r.expira_em) < new Date()) return '<span class="et cr">Link vencido</span>' + extra;
+  return '<span class="et am">Com o colaborador</span>' + extra;
 }
 
 async function abrirKitsOnline(){
@@ -7406,9 +7698,12 @@ async function abrirKitsOnline(){
   $('#janelaTit').textContent = 'Kits on-line';
   $('#janelaCorpo').innerHTML = '<div class="carregando">Buscando os kits publicados...</div>';
   $('#tampa').hidden = false;
-  const r = await sb.from('kits_online')
-    .select('id,nome,turma,versao,empresa_assinou,empresa_nome,colab_assinou,colab_em,expira_em,token_hash,pdf_atual,json_atual,atualizado_em')
+  const campos = 'id,nome,turma,versao,empresa_assinou,empresa_nome,colab_assinou,colab_em,expira_em,token_hash,pdf_atual,json_atual,atualizado_em';
+  let r = await sb.from('kits_online').select(campos + ',blocos')
     .is('cancelado_em', null).order('atualizado_em', {ascending:false}).limit(300);
+  if(r.error && bancoSemBlocos(r.error)){
+    r = await sb.from('kits_online').select(campos).is('cancelado_em', null).order('atualizado_em', {ascending:false}).limit(300);
+  }
   if(r.error){ $('#janelaCorpo').innerHTML = '<div class="aviso"><div>Não foi possível listar: ' + esc(erroLegivel(r.error)) + '</div></div>'; return; }
   const linhas = r.data || [];
   const local = {};
@@ -7674,12 +7969,13 @@ function renderBase(){
   if(!unis.includes(S.unidadeSel)) S.unidadeSel = unis[0];
   sel.innerHTML = unis.map(u=>'<option'+(u===S.unidadeSel?' selected':'')+'>'+esc(u)+'</option>').join('');
   const docs = S.base[S.unidadeSel]||[];
-  let h = '<table><thead><tr><th style="min-width:280px">Documento</th><th>Relatório</th><th>Aba</th>'
+  let h = '<table><thead><tr><th style="min-width:280px">Documento</th><th>Área (bloco)</th><th>Relatório</th><th>Aba</th>'
     + '<th>Obrigatório</th><th>Assina</th><th>Preenche</th><th>No kit</th><th style="min-width:180px">Condição</th>'
     + '<th style="min-width:200px">Observação</th><th></th></tr></thead><tbody>';
   docs.forEach((dd,i)=>{
     h += '<tr data-i="'+i+'">'
       + '<td><input data-f="nome" value="'+esc(dd.nome)+'"></td>'
+      + '<td><select data-f="area" style="min-width:110px">'+AREAS.map(([a,tt])=>'<option value="'+a+'"'+(areaDoDoc(dd)===a?' selected':'')+'>'+esc(tt)+'</option>').join('')+'</select></td>'
       + '<td><input data-f="rel" value="'+esc(dd.rel||'')+'" style="min-width:90px"></td>'
       + '<td><input data-f="aba" class="mono" value="'+esc(dd.aba||'')+'" style="min-width:52px"></td>'
       + '<td style="text-align:center"><input type="checkbox" data-f="obrig" style="width:auto"'+(dd.obrig?' checked':'')+'></td>'
@@ -7693,7 +7989,7 @@ function renderBase(){
   h += '</tbody></table>';
   $('#tabBase').innerHTML = h;
 
-  $('#tabBase').querySelectorAll('input[data-f]').forEach(el=>{
+  $('#tabBase').querySelectorAll('input[data-f], select[data-f]').forEach(el=>{
     el.addEventListener('change', ()=>{
       const i = +el.closest('tr').dataset.i;
       const dd = S.base[S.unidadeSel][i];
@@ -7763,6 +8059,28 @@ function renderPainel(){
     + kpi(conc,'Kits assinados pelos dois', aguard?aguard+' esperando uma das partes':'', conc?'ok':null)
     + kpiD(minSalvos>=60 ? (minSalvos/60).toFixed(1).replace('.',',')+' h' : minSalvos+' min','Tempo poupado','estimativa de 16 min por kit no processo manual')
     + '</div>';
+
+  /* assinatura da Cimed por bloco: o que falta e por quê */
+  const porBloco = {};
+  kits.forEach(id=>{
+    const st0 = S.assin[id] || {};
+    blocosDoKit(S.kits[id]).forEach(b=>{
+      if(!b.assinavel || b.legado) return;
+      const o = porBloco[b.area] || (porBloco[b.area] = {n:0, ok:0});
+      o.n++; if(assinaturaBloco(st0, b.area)) o.ok++;
+    });
+  });
+  if(Object.keys(porBloco).length){
+    h += '<div class="bloco"><div class="bloco-cab so"><div><h2>Assinatura da Cimed por bloco</h2>'
+      + '<p>Cada bloco do kit tem o seu signatário com procuração. Bloco sem nome cadastrado fica pendente, sem travar os outros, até a Josianny informar.</p></div></div>'
+      + '<div class="bloco-corpo"><div class="flex" style="flex-wrap:wrap">';
+    AREAS.forEach(([a, tt])=>{
+      const o = porBloco[a]; if(!o) return;
+      const semSig = SIG_AREAS && !signatariosDaArea(a).length;
+      h += '<span class="et ' + (o.ok === o.n ? 'ok' : 'at') + '">' + esc(tt) + ': ' + o.ok + ' de ' + o.n + ' kit(s) assinado(s)' + (semSig ? ' · sem signatário cadastrado' : '') + '</span>';
+    });
+    h += '</div></div></div>';
+  }
 
   // por unidade
   const unis = {};
@@ -7870,7 +8188,8 @@ function renderPainel(){
       + '<td>'+(S.kits[p.id]?'<span class="et ok">'+esc(S.kits[p.id].pags)+' pág</span>':'<span class="et n">não gerado</span>')+'</td>'
       + '<td>'+(st.empresa&&st.colab ? '<span class="et ok">concluída</span>'
               : st.empresa ? '<span class="et at">falta o colaborador</span>'
-              : st.colab ? '<span class="et at">falta a empresa</span>'
+              : st.colab ? '<span class="et at">falta a Cimed: '+esc(textoPendentes(S.kits[p.id], st))+'</span>'
+              : S.kits[p.id] && blocosAssinados(S.kits[p.id], st).length ? '<span class="et at">Cimed: falta '+esc(textoPendentes(S.kits[p.id], st))+'</span>'
               : '<span class="et n">pendente</span>')+'</td></tr>';
   });
   h += '</tbody></table></div></div></div>';
@@ -8135,7 +8454,19 @@ $('#btGerarKits').addEventListener('click', gerarTodos);
 $('#btEmpresaTodos').addEventListener('click', function(){
   const ids = Object.keys(S.kits).filter(id=>S.pessoas.some(p=>p.id === id));
   if(!ids.length){ torrada('Gere os kits antes de assinar pela Cimed.'); return; }
-  assinarPelaCimed(ids, this);
+  assinarPelaCimed(ids, this, areaSelecionada());
+});
+$('#areaCimed').addEventListener('change', atualizarCampoSignatario);
+$('#assinanteCimed').addEventListener('change', ()=>{
+  try{ localStorage.setItem('cimed.assinante.' + areaSelecionada(), $('#assinanteCimed').value.trim()); }catch(e){}
+});
+/* a Plataforma de Admissão (que abre a Esteira num iframe) manda os parâmetros
+   que já leu: signatários por área e se o termo está ativo */
+window.addEventListener('message', ev=>{
+  const d = ev.data;
+  if(!d || d.tipo !== 'cimed-parametros' || ev.source !== window.parent || window.parent === window) return;
+  if(d.signatarios_cimed !== undefined || d.signatarios_por_area !== undefined) aplicarSignatarios(d.signatarios_cimed, d.signatarios_por_area);
+  if(d.termo_transparencia_ativo !== undefined){ TERMO_ATIVO = String(d.termo_transparencia_ativo || 'sim').trim() !== 'nao'; if(S.pessoas.length) renderCartoes(); }
 });
 $('#btBaixarTodos').addEventListener('click', baixarZip);
 $('#btCsvAssin').addEventListener('click', csvAssinatura);
@@ -8218,7 +8549,8 @@ function limparAssin(){
       entrega: v.entrega,
       pendAoFechar: v.pendAoFechar,
       colab: v.colab ? Object.assign({}, v.colab, {imagem:undefined}) : undefined,
-      empresa: v.empresa || undefined
+      empresa: v.empresa || undefined,
+      blocos: v.blocos || undefined
     };
   });
   return g;
@@ -8274,9 +8606,11 @@ function checarArmazenamento(){
 /* ---- início ---- */
 carregar();
 try{
-  S.assinanteCimed = localStorage.getItem('cimed.assinante') || '';
-  if(S.assinanteCimed && $('#assinanteCimed')) $('#assinanteCimed').value = S.assinanteCimed;
+  /* a versão anterior guardava um nome só: vale como o do bloco DP */
+  const antigo = localStorage.getItem('cimed.assinante');
+  if(antigo && !localStorage.getItem('cimed.assinante.dp')) localStorage.setItem('cimed.assinante.dp', antigo);
 }catch(e){}
+atualizarCampoSignatario();
 const alvoLink = (location.hash.match(/[#&]kit=([^&]+)/) || [])[1];
 const alvoOnline = location.hash.match(/[#&]online=([0-9a-f-]{36})\.([A-Za-z0-9_-]{20,})/);
 if(alvoOnline){

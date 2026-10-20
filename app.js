@@ -427,6 +427,22 @@ function corteTurma(turma) {
 }
 const faltaLg = (a) => ligado('exige_lg_movimentado') && !a.declinou_em && !a.matricula && a.aso_status === 'apto' && !a.lg_movimentado_em;
 const faltaDossie = (a) => !a.declinou_em && a.kit_status === 'concluido' && !a.arquivado_em && !a.expurgado_em;
+// kit em blocos por área (decisão 4 de 19/10/2026): status gravado pela Esteira em admissoes.kit_blocos
+// (cópia de kits_online.blocos). Cada bloco tem o seu signatário pela Cimed; o colaborador assina tudo.
+const AREAS_KIT = { dp: 'DP', beneficios: 'Benefícios', compliance: 'Compliance', seguranca: 'Segurança' };
+const blocosKit = (a) => (a.kit_blocos && typeof a.kit_blocos === 'object') ? Object.keys(AREAS_KIT).filter((k) => a.kit_blocos[k]).map((k) => Object.assign({ area: k, titulo: AREAS_KIT[k] }, a.kit_blocos[k])) : [];
+const faltaAssinar = (a) => blocosKit(a).filter((b) => b.assinavel !== false && !b.assinado_empresa_em).map((b) => b.titulo);
+// área sem ninguém cadastrado em signatarios_por_area: o bloco fica pendente até a Josianny informar o nome
+function semSignatario(area) {
+  try { const m = JSON.parse(E.params.signatarios_por_area || '{}'); return !!m && typeof m === 'object' && Object.keys(m).length > 0 && !(Array.isArray(m[area]) && m[area].length); }
+  catch (e) { return false; }
+}
+function faixaBlocos() {
+  const pend = vivas().filter((a) => a.matricula && a.kit_status !== 'concluido' && faltaAssinar(a).length);
+  if (!pend.length) return '';
+  const por = {}; pend.forEach((a) => faltaAssinar(a).forEach((t) => { (por[t] = por[t] || []).push(titulo(a.nome)); }));
+  return `<div class="faixa"><p><b>Falta a Cimed assinar:</b> ${Object.entries(por).map(([t, ns]) => `${esc(t)} em ${plural(ns.length, 'kit', 'kits')} (${ns.map(esc).join(', ')})`).join(' · ')}. Bloco sem signatário cadastrado fica pendente, sem travar os outros, até o nome entrar no parâmetro <code>signatarios_por_area</code>.</p></div>`;
+}
 
 // ============================================================ TELAS FIXAS
 function telaLogin(msg) {
@@ -509,7 +525,8 @@ function render() {
 function chipEtapa(a) {
   if (a.declinou_em) return chip('c-ag', 'cr', 'Declinou');
   const m = { aguardando: ['c-ag', 'ag'], pendencia: ['c-at', 'at'], conferencia: ['c-info', 'info'], docs_ok: ['c-info', 'info'], registro: ['c-ok', 'ok'], assinatura: ['c-info', 'ag'], pronto: ['c-ok', 'ok'] }[a.etapa] || ['c-ag', ''];
-  return chip(m[0], m[1], ETAPA[a.etapa]?.n || a.etapa);
+  const falta = a.etapa === 'assinatura' && a.kit_status !== 'concluido' ? faltaAssinar(a) : [];
+  return chip(m[0], m[1], ETAPA[a.etapa]?.n || a.etapa) + (falta.length ? ` <span class="apoio" style="font-size:11.5px;white-space:nowrap">falta assinar: ${esc(falta.join(', '))}</span>` : '');
 }
 function chipDocs(a) { const r = resumo(a); const cls = r.ok === r.total ? ['c-ok', 'ok'] : r.reenviar || r.total - r.ok - r.analise ? ['c-at', 'at'] : ['c-info', 'info']; return chip(cls[0], cls[1], `Docs ${r.ok}/${r.total}`); }
 function chipAso(a) { const s = a.aso_status; if (s === 'apto') return chip('c-ok', 'ok', 'ASO apto' + (a.aso_data ? ' ' + dm(a.aso_data) : '')); if (s === 'agendado') return chip('c-ag', 'ag', 'ASO ' + (a.aso_data ? dm(a.aso_data) : 'agendado')); if (s === 'inapto') return chip('c-cr', 'cr', 'ASO inapto'); return chip('c-at', 'at', 'ASO a agendar'); }
@@ -815,6 +832,7 @@ function desenharFicha(a, docs, evs, arqs = []) {
      <div class="docs">${docs.map((d) => `<div class="doc"><div><div class="dn">${esc(d.nome)}</div><div class="dm">${esc(d.dica || '')}</div>${d.motivo ? `<div class="motivo">Pedido porque: ${esc(d.motivo)}</div>` : ''}${d.obs ? `<div class="motivo">${esc(d.obs)}</div>` : ''}${d.atualizado_por && d.status !== 'falta' ? `<div class="motivo">${esc(d.atualizado_por)} · ${quando(d.atualizado_em)}</div>` : ''}${ehLaudo(d) ? (tem('admissao', 'saude') ? listaArquivos(a, d.tipo, arqs, { enviar: tem('admissao'), remover: false }) : '') + (dp && !tem('saude') ? '<div class="motivo">Só a Saúde abre o laudo e decide a situação.</div>' : '') : dp ? listaArquivos(a, d.tipo, arqs) : ''}</div><div class="acoes">${(ehLaudo(d) ? tem('saude') : dp) && !a.declinou_em ? selDoc(d) : stDoc[d.status]}</div></div>`).join('')}</div>
      ${dp ? '<p class="apoio" style="font-size:12px">Envie o arquivo na caixa do documento: a IA confere se é o documento certo, se está legível, se o nome bate com o cadastro e se falta frente ou verso. O mesmo arquivo não entra duas vezes. A situação continua editável: a analista sempre decide.</p>' : ''}</div>` : ''}
    ${dp && a.matricula ? `<div class="caixa pilha"><h3>Kit, benefícios e dossiê</h3>
+     ${blocosKit(a).length ? `<div class="pilha" style="gap:4px"><span class="apoio" style="font-size:12.5px">Kit em blocos por área, cada um com o seu signatário pela Cimed (status gravado pela Esteira):</span><div class="linha-flex" style="flex-wrap:wrap">${blocosKit(a).map((b) => b.assinavel === false ? chip('c-ag', '', `${esc(b.titulo)} · sem assinatura`) : b.assinado_empresa_em ? chip('c-ok', 'ok', `${esc(b.titulo)} · Cimed: ${esc(b.empresa_nome || '')} ${dm(new Date(b.assinado_empresa_em))}${b.colab_em ? ' · colaborador ' + dm(new Date(b.colab_em)) : ''}`) : chip('c-at', 'at', `${esc(b.titulo)} · falta a Cimed${semSignatario(b.area) ? ' (sem signatário cadastrado)' : ''}${b.colab_em ? ' · colaborador ' + dm(new Date(b.colab_em)) : ''}`)).join('')}</div></div>` : a.kit_status !== 'nao' ? '<span class="apoio" style="font-size:12.5px">Kit sem status por bloco ainda: ele aparece quando a Cimed assina o primeiro bloco na Esteira.</span>' : ''}
      <div class="linha-flex">${E.termoFicha ? chip('c-ok', 'ok', 'Termo de Transparência assinado ' + dm(new Date(E.termoFicha.em))) + '<span class="apoio" style="font-size:12px">As respostas só o Compliance abre.</span>' : chip('c-ag', 'ag', 'Termo de Transparência ainda não assinado')}</div>
      ${E.opcFicha ? `<div class="pilha" style="gap:4px"><span class="apoio" style="font-size:12.5px">Escolhas de benefícios feitas no kit (${quando(E.opcFicha.recebido_em)}${E.opcFicha.avisado_em ? ', Benefícios avisado' : ''}):</span><div class="grade g2" style="gap:4px 16px;font-size:13px">${resumoOpcoes(E.opcFicha.dados) || '<span class="apoio">nenhuma escolha registrada</span>'}</div></div>` : '<span class="apoio" style="font-size:12.5px">As escolhas de benefícios chegam aqui quando o kit é assinado.</span>'}
      <div class="linha-flex" style="align-items:flex-start"><div style="flex:1;min-width:240px"><b>Dossiê</b><div class="apoio" style="font-size:12.5px">Baixa um .zip com o kit assinado e os documentos renomeados (MATRÍCULA - NOME/NN Documento), a ficha e as escolhas de benefícios. O laudo PCD fica fora. ${ligado('expurgo_exige_dossie') ? 'O descarte de 30 dias só roda depois disto.' : ''}</div>${a.arquivado_em ? `<div class="apoio" style="font-size:12.5px">Arquivado em ${quando(a.arquivado_em)} por ${esc(a.arquivado_por || '')}.</div>` : ''}</div><button class="bt ${a.arquivado_em ? '' : 'pri'}" data-act="dossie" data-id="${a.id}">${a.arquivado_em ? 'Exportar de novo' : 'Exportar dossiê (.zip)'}</button></div></div>` : ''}
@@ -933,7 +951,8 @@ VIEWS.kit = () => {
   const prox = E.turmaKit || ts.find((t) => deIso(t) >= deIso(iso(new Date()))) || ts[ts.length - 1] || '';
   const prontos = vivas().filter((a) => a.matricula && a.data_inicio === prox).length;
   return `<div class="cab"><div class="t"><span class="olho">Kit admissional</span><h1>Esteira de assinatura</h1><p class="apoio">A mesma Esteira de Admissão de sempre: junta os PDFs do LG por pessoa, a Cimed assina primeiro e o colaborador assina na tela. Com <b>Publicar on-line</b>, o kit vai para o armazenamento privado da plataforma: a Cimed assina de qualquer aparelho e o colaborador assina pelo QR, no celular dele, depois de confirmar CPF e data de nascimento. Sem publicar, o kit fica só neste aparelho, como antes.</p></div>
-    <a class="bt" href="${(window.ESTEIRA_URL || 'esteira.html') + '?v=7'}" target="_blank" rel="noopener">Abrir em tela cheia</a></div>
+    <a class="bt" href="${(window.ESTEIRA_URL || 'esteira.html') + '?v=8'}" target="_blank" rel="noopener">Abrir em tela cheia</a></div>
+  ${faixaBlocos()}
   ${tem('admissao') && ts.length ? `<div class="faixa"><p><b>Lista de admitidos para a Esteira.</b> Copie os matriculados de uma turma e cole no passo 1 da Esteira, em "Colar da planilha". Nome, CPF, matrícula, unidade e cargo vão no formato que ela lê.</p>
     <label class="olho" for="turmaKit">Turma</label><select id="turmaKit" class="sel-doc">${ts.map((t) => `<option value="${t}" ${t === prox ? 'selected' : ''}>${dmd(t)}</option>`).join('')}</select>
     <button class="bt ama" data-act="copiarEsteira" ${prontos ? '' : 'disabled'}>Copiar ${plural(prontos, 'matriculado', 'matriculados')}</button></div>` : ''}`;
@@ -943,7 +962,14 @@ VIEWS.kit = () => {
 POS.kit = () => {
   $('#turmaKit')?.addEventListener('change', (e) => { E.turmaKit = e.target.value; render(); });
   const host = $('#esteiraHost');
-  if (!host.firstChild) host.innerHTML = `<iframe class="esteira" src="${(window.ESTEIRA_URL || 'esteira.html') + '?v=7'}" title="Esteira de Admissão"></iframe>`;
+  if (!host.firstChild) {
+    host.innerHTML = `<iframe class="esteira" src="${(window.ESTEIRA_URL || 'esteira.html') + '?v=8'}" title="Esteira de Admissão"></iframe>`;
+    // a Esteira lê os mesmos parâmetros do Supabase; mandar daqui cobre o teste sem banco e evita esperar
+    const fr = host.firstChild;
+    fr.addEventListener('load', () => {
+      try { fr.contentWindow.postMessage({ tipo: 'cimed-parametros', signatarios_cimed: E.params.signatarios_cimed, signatarios_por_area: E.params.signatarios_por_area, termo_transparencia_ativo: E.params.termo_transparencia_ativo }, '*'); } catch (e) { /* iframe sem acesso */ }
+    });
+  }
   host.hidden = false;
 };
 
