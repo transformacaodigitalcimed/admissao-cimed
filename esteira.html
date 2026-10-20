@@ -3160,6 +3160,14 @@ const BASE_PADRAO = montarBase();
    ========================================================= */
 const AREAS = [['dp','DP'], ['beneficios','Benefícios'], ['compliance','Compliance'], ['seguranca','Segurança']];
 const AREA_NOME = Object.fromEntries(AREAS);
+/* Compliance (20/10/2026): ninguém assina pela Cimed; o Termo é só do
+   colaborador. Se um dia a área cadastrar um nome em signatarios_por_area,
+   o bloco volta a pedir a assinatura da Cimed. */
+const AREAS_SO_COLABORADOR = ['compliance'];
+function cimedAssinaArea(area){
+  if(AREAS_SO_COLABORADOR.indexOf(area) < 0) return true;
+  return !!(SIG_AREAS && (SIG_AREAS[area] || []).length);
+}
 function areaValida(a){ return AREA_NOME[a] ? a : null; }
 /* base guardada antes desta versão não tem a área: deduz pelo nome */
 function areaPadrao(nome){
@@ -3179,6 +3187,8 @@ function blocosDoKit(k){
     b.docs.push(it);
     if(it.assina !== false) b.assinavel = true;
   });
+  /* assinavel = a Cimed precisa assinar este bloco; soColab = tem documento, mas só o colaborador assina */
+  Object.values(m).forEach(b=>{ b.soColab = b.assinavel && !cimedAssinaArea(b.area); if(b.soColab) b.assinavel = false; });
   const lista = AREAS.map(x=>m[x[0]]).filter(Boolean);
   /* kit retomado de um PDF, sem índice: um bloco só, como antes */
   if(!lista.length && k) lista.push({area:'dp', titulo:'Cimed', docs:[], assinavel:true, legado:true});
@@ -3224,6 +3234,7 @@ function blocosParaBanco(k, st){
 function botoesBlocos(pid, k, st){
   let h = '';
   blocosDoKit(k).forEach(b=>{
+    if(b.soColab){ h += '<span class="et n" title="Ninguém assina pela Cimed nesta área">' + esc(b.titulo) + ' · só o colaborador</span>'; return; }
     if(!b.assinavel) return;
     const s = assinaturaBloco(st, b.area);
     if(s) h += '<span class="et ok" title="' + esc(s.nome) + '">' + esc(b.titulo) + ' · Cimed assinou</span>';
@@ -3429,12 +3440,15 @@ function atualizarCampoSignatario(){
     try{ v = localStorage.getItem('cimed.assinante.' + area) || ''; }catch(e){}
     if(lista.length && !lista.some(s=>s.nome.toLowerCase() === v.toLowerCase())) v = lista.length === 1 ? lista[0].nome : '';
     c.value = v;
-    const sem = !!(SIG_AREAS && !lista.length);
-    c.placeholder = sem ? 'Sem signatário cadastrado para ' + AREA_NOME[area] : 'Quem assina pela Cimed';
+    const soColab = !cimedAssinaArea(area);
+    const sem = soColab || !!(SIG_AREAS && !lista.length);
+    c.placeholder = soColab ? 'A Cimed não assina este bloco' : sem ? 'Sem signatário cadastrado para ' + AREA_NOME[area] : 'Quem assina pela Cimed';
     c.disabled = sem;
   }
   const dica = document.getElementById('dicaArea');
-  if(dica) dica.textContent = SIG_AREAS && !lista.length
+  if(dica) dica.textContent = !cimedAssinaArea(area)
+    ? 'Bloco ' + AREA_NOME[area] + ': ninguém assina pela Cimed; só o colaborador assina. Para mudar, cadastre um nome na área em signatarios_por_area.'
+    : SIG_AREAS && !lista.length
     ? 'Bloco ' + AREA_NOME[area] + ': ninguém cadastrado com procuração. Os kits ficam pendentes neste bloco, sem travar os outros, até a Josianny informar o nome.'
     : '';
 }
@@ -5862,7 +5876,8 @@ function desenharCapa(capa, p, indice, totalPags, reg, neg, st){
   blocos.forEach(b=>{
     const s = assinaturaBloco(st, b.area);
     let txt, cor;
-    if(!b.assinavel){ txt = 'sem documento para assinar'; cor = rgb(0.5,0.48,0.4); }
+    if(b.soColab){ txt = 'A Cimed nao assina este bloco; so o colaborador.  |  Colaborador: ' + (colab ? hojeTxt(new Date(colab.em)) : 'pendente'); cor = rgb(0.11,0.106,0.07); }
+    else if(!b.assinavel){ txt = 'sem documento para assinar'; cor = rgb(0.5,0.48,0.4); }
     else if(s){ txt = 'Cimed: ' + s.nome + ', ' + hojeTxt(new Date(s.em)); cor = rgb(0.11,0.106,0.07); }
     else { txt = 'Cimed: pendente' + (SIG_AREAS && !signatariosDaArea(b.area).length ? ' (sem signatario cadastrado para a area)' : ''); cor = rgb(0.61,0.38,0.02); }
     if(b.assinavel) txt += '  |  Colaborador: ' + (colab ? hojeTxt(new Date(colab.em)) : 'pendente');
@@ -6221,6 +6236,7 @@ function nomeDaCimed(area){
 async function assinarPelaCimed(ids, botao, area){
   area = areaValida(area) || areaSelecionada();
   const titulo = AREA_NOME[area];
+  if(!cimedAssinaArea(area)){ torrada('No bloco ' + titulo + ' ninguém assina pela Cimed: só o colaborador assina.', 6000); return; }
   if(SIG_AREAS && !signatariosDaArea(area).length){
     torrada('Ninguém cadastrado com procuração para o bloco ' + titulo + '. Ele fica pendente até a Josianny informar o nome (parâmetro signatarios_por_area).', 8000);
     return;
@@ -6998,6 +7014,7 @@ async function assinar(p, k, st, quem){
     quem = Object.assign({}, quem, {area: areaValida(quem.area) || 'dp'});
     const bloco = blocosDoKit(k).find(b=>b.area === quem.area);
     if(!bloco){ torrada('Este kit não tem o bloco ' + AREA_NOME[quem.area] + '.'); return false; }
+    if(bloco.soColab){ torrada('No bloco ' + bloco.titulo + ' ninguém assina pela Cimed: só o colaborador.', 6000); return false; }
     if(assinaturaBloco(st, quem.area)){ torrada('O bloco ' + bloco.titulo + ' já está assinado pela Cimed.'); return false; }
     const lista = signatariosDaArea(quem.area);
     if(SIG_AREAS && !lista.length){
@@ -7156,6 +7173,7 @@ async function assinar(p, k, st, quem){
     todas.push(Object.assign({}, st.empresa, {rotulo: 'PELA CIMED'}));
   }else{
     blocosDoKit(k).forEach(b=>{
+      if(b.soColab){ todas.push({soColab: true, rotulo: 'BLOCO ' + b.titulo.toUpperCase() + ' (' + b.docs.length + ' doc.)'}); return; }
       if(!b.assinavel) return;
       const s = assinaturaBloco(stDepois, b.area);
       const rot = b.legado ? 'PELA CIMED' : 'PELA CIMED · BLOCO ' + b.titulo.toUpperCase() + ' (' + b.docs.length + ' doc.)';
@@ -7174,6 +7192,11 @@ async function assinar(p, k, st, quem){
     y -= 18;
     if(s.pendente){
       pg.drawText(limpoPDF('Pendente: a Cimed ainda nao assinou este bloco (' + s.motivo + ').'), {x:L,y:y,size:9.5,font:reg,color:rgb(0.61,0.38,0.02)});
+      y -= compacto ? 22 : 30;
+      continue;
+    }
+    if(s.soColab){
+      pg.drawText(limpoPDF('A Cimed nao assina este bloco: so o colaborador, abaixo.'), {x:L,y:y,size:9.5,font:reg,color:rgb(0.3,0.29,0.22)});
       y -= compacto ? 22 : 30;
       continue;
     }
