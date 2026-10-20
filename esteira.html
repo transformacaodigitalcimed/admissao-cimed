@@ -647,6 +647,7 @@ MARIA APARECIDA SOUZA	123.456.789-00	maria.souza@exemplo.com.br	14/03/1996	48219
         <li><b>Unificar sem limite.</b> Um PDF por pessoa, com capa e índice, na ordem da base. Acaba o de três em três.</li>
         <li><b>Conferir antes de enviar.</b> Cada pessoa é comparada com o que o perfil dela exige, pela matriz oficial. Falta de documento aparece em vermelho.</li>
         <li><b>Pasta por pessoa pronta.</b> O zip sai com uma pasta por colaborador, o kit unificado e os originais do LG dentro.</li>
+        <li><b>Termo de Transparência do Compliance dentro do kit.</b> A Esteira gera as duas folhas com o cabeçalho preenchido e as 11 perguntas; o colaborador responde e assina no mesmo fluxo. As respostas vão para a Plataforma de Admissão, onde só o Compliance abre, e qualquer "Sim" avisa a área por e-mail. As escolhas de benefícios também vão para a plataforma e chegam a Benefícios.</li>
         <li><b>Preencher benefício on-line.</b> Vale transporte, Unimed, odontológico, Sul América, beneficiários, restaurante, VA, Hiperlife, seguro de vida e ajuda de custo de linha móvel, com dependentes digitados.</li>
         <li><b>Leitura documento por documento.</b> Na tela do colaborador ele não responde no escuro: cada documento do kit aparece renderizado na tela, página por página, e os campos daquele documento vêm logo abaixo do que ele acabou de ler. Só depois de passar por todos é que chega a assinatura. A página de assinaturas registra quantos documentos foram abertos.</li>
         <li><b>A Cimed assina primeiro.</b> Quem tem procuração escreve o nome no passo 4 e clica em <b>Assinar todos pela Cimed</b>. Os kits descem para o tablet já assinados pela empresa, que é como a integração funciona hoje: a via do colaborador sai assinada pelos dois lados. Dá para assinar um por um pelo botão no cartão da pessoa.</li>
@@ -3148,6 +3149,32 @@ function montarBase(){
 }
 const BASE_PADRAO = montarBase();
 
+/* =========================================================
+   TERMO DE TRANSPARÊNCIA (Compliance, pedido de 15/10/2026)
+   Não vem do LG: a própria Esteira gera as duas folhas no kit, com o
+   cabeçalho preenchido, as 11 perguntas e a linha de assinatura. As
+   respostas vão para a plataforma (tabela que só o Compliance lê) e
+   são escritas na folha na hora em que o colaborador assina.
+   Parâmetro termo_transparencia_ativo desliga (lido da plataforma).
+   ========================================================= */
+const DOC_TERMO = d('Termo de Transparencia e Conflito de Interesses', {gerado:true, preenche:true, assina:true, obs:'Gerado pela Esteira. Respostas só com o Compliance.'});
+const CHAVE_TERMO = 'termo de transparencia e conflito de interesses';
+let TERMO_ATIVO = true;
+let TERMO_URL = 'https://www.canalconfidencial.com.br/atitudecimed/';
+const TERMO_PERGUNTAS = [
+  ['q1', 'Possui familiar de 1o grau (pais, filhos, irmaos, conjuge ou companheiro(a)) trabalhando na Cimed?', 'Nome, parentesco, cargo, area e turno'],
+  ['q2', 'Mantem relacionamento amoroso com alguem da mesma area ou sob a mesma gestao?', 'Nome e area'],
+  ['q3', 'Presta servico a orgao publico?', 'Tipo de servico, orgao, cargo e carga horaria'],
+  ['q4', 'Possui familiar de 1o grau que seja agente publico ou politico?', 'Nome, parentesco, orgao e cargo'],
+  ['q5', 'Possui familiar ou relacionamento em empresa concorrente da Cimed?', 'Nome, vinculo e empresa'],
+  ['q6', 'Possui familiar ou relacionamento em empresa que tem negocios ou esta em negociacao com a Cimed?', 'Nome, vinculo e empresa'],
+  ['q7', 'Possui familiar ou relacionamento com participacao em empresa em litigio contra a Cimed?', 'Nome, vinculo e empresa'],
+  ['q8', 'Tem participacao societaria em empresa que tem negocios com a Cimed?', 'Nome da empresa, CNPJ e ramo'],
+  ['q9', 'Tem participacao societaria em qualquer outra empresa?', 'Nome da empresa, CNPJ e ramo'],
+  ['q10', 'Presta servico a outra empresa?', 'Nome da empresa, CNPJ, funcao e carga horaria'],
+  ['q11', 'Ha outra situacao que possa gerar conflito de interesses?', 'Descreva']
+];
+
 /* formulários on-line, por documento */
 /* Cada campo pode ter:
    se:   {id, vale:[...]}  so aparece quando a resposta anterior pede
@@ -3234,6 +3261,15 @@ const FORMULARIOS = {
   ]}
 };
 
+FORMULARIOS[CHAVE_TERMO] = {titulo:'Termo de Transparência (Compliance)', campos:[
+  {t:'link', id:'codigo_conduta_aberto_em', l:'Leia o Código de Conduta da Cimed antes de responder'},
+  {t:'opcao', id:'codigo_conduta_ciente', l:'Li e estou ciente do Código de Conduta', op:['Sim']}
+].concat(TERMO_PERGUNTAS.flatMap(([id, l, dica], i)=>[
+  {t:'opcao', id:id, l:(i + 1) + '. ' + l.replace('1o', '1º').replace(/conjuge/g,'cônjuge').replace(/area/g,'área').replace(/orgao/g,'órgão').replace(/servico/g,'serviço').replace(/publico/g,'público').replace(/politico/g,'político').replace(/negocios/g,'negócios').replace(/negociacao/g,'negociação').replace(/participacao/g,'participação').replace(/societaria/g,'societária').replace(/litigio/g,'litígio').replace(/Mantem/,'Mantém').replace(/alguem/,'alguém').replace(/gestao/,'gestão').replace(/situacao/,'situação').replace(/Ha /,'Há ').replace(/irmaos/,'irmãos').replace(/esta em/,'está em'), op:['Sim','Não']},
+  {t:'texto', id:id + '_det', l:'Detalhe: ' + dica.replace(/area/g,'área').replace(/orgao/g,'órgão').replace(/servico/g,'serviço').replace(/horaria/g,'horária').replace(/funcao/g,'função').replace(/vinculo/g,'vínculo'), se:{id:id, vale:['Sim']}}
+]))};
+const FORM_TERMO = FORMULARIOS[CHAVE_TERMO];
+
 /* uma pergunta que nao se aplica nao aparece e nao vira pendencia */
 function condicaoOk(c, st){
   if(!c.se) return true;
@@ -3296,6 +3332,7 @@ function assinLeve(){
       resp: v.resp, vistos: v.vistos, marcas: v.marcas, marcaNome: v.marcaNome, entrega: v.entrega,
       pendAoFechar: v.pendAoFechar, assinaturasReplicadas: v.assinaturasReplicadas,
       estampadas: v.estampadas, datasPreenchidas: v.datasPreenchidas,
+      respostasEnviadas: v.respostasEnviadas, respostasPendentes: v.respostasPendentes,
       colab: v.colab ? Object.assign({}, v.colab, {imagem:undefined}) : undefined,
       empresa: v.empresa ? Object.assign({}, v.empresa, {imagem:undefined}) : undefined,
       online: v.online
@@ -3372,7 +3409,7 @@ async function guardarKit(pid){
     pid: pid, cpf: digitos(p.cpf), nome: p.nome, pessoa: p,
     pags: k.pags, hash: k.hash, indice: k.indice, em: k.em, bytes: k.bytes,
     assin: {
-      resp: st.resp || {}, vistos: st.vistos || {}, marcas: st.marcas || {},
+      resp: respSemTermo(st.resp), vistos: st.vistos || {}, marcas: st.marcas || {},
       assinatura: st.assinatura || null, rubrica: st.rubrica || null,
       marcaNome: st.marcaNome || '', colab: st.colab || null, empresa: st.empresa || null,
       pdfAssinado: st.pdfAssinado || null, pendAoFechar: st.pendAoFechar || null,
@@ -3852,6 +3889,7 @@ const COLS = [
   {k:'matricula', t:'Matrícula', alv:['matricula','chapa','registro']},
   {k:'perfil', t:'Perfil de documentos', alv:['perfil']},
   {k:'cargo', t:'Cargo', alv:['cargo','funcao','posicao']},
+  {k:'setor', t:'Setor / área', alv:['setor','area','departamento']},
   {k:'unidade', t:'Unidade', alv:['estabelecimento','unidade','centro de custo','localidade','local','filial','cd']}
 ];
 
@@ -4457,7 +4495,11 @@ function renderArqs(){
 /* =========================================================
    CONFERÊNCIA
    ========================================================= */
-function docsDe(p){ return (S.base[p.perfil] || []).map(x=>x); }
+function docsDe(p){
+  const l = (S.base[p.perfil] || []).map(x=>x);
+  if(TERMO_ATIVO) l.push(DOC_TERMO);
+  return l;
+}
 
 /* o documento pode ainda estar preso num arquivo de lote nao separado.
    Nesse caso ele nao esta faltando, esta esperando a separacao. */
@@ -4476,7 +4518,7 @@ function situacao(p){
       id:null, nome:it.nome, docKey:chaveDoc(it.nome), pessoaId:p.id, doKit:true
     }));
   }
-  const obr = docs.filter(x=>x.obrig);
+  const obr = docs.filter(x=>x.obrig && !x.gerado);
   const achados = obr.filter(x=>meus.some(a=>a.docKey===chaveDoc(x.nome)));
   const noLote = obr.filter(x=>!meus.some(a=>a.docKey===chaveDoc(x.nome)) && dentroDeLote(p, x));
   if(!meus.length && !noLote.length) return {st:'cr', achados:0, total:obr.length, noLote:0, meus:meus, docs:docs};
@@ -4750,7 +4792,10 @@ function renderCartoes(){
       const tem = !!arq;
       const emLote = !tem && dentroDeLote(p, dd);
       let cl = '', ic = '', extra = '';
-      if(tem){
+      if(dd.gerado){
+        cl = 'opc'; ic = '<span class="ic s">✓</span>';
+        extra = ' <span class="et ok" style="font-size:10.5px;padding:1px 7px">gerado no kit</span>';
+      }else if(tem){
         ic = '<span class="ic s">✓</span>';
       }else if(emLote){
         cl = 'aguarda'; ic = '<span class="ic l">◔</span>';
@@ -5502,6 +5547,143 @@ function limpoPDF(s){
     .replace(/[\u00A0\u2007\u202F]/g,' ').replace(/[^\x20-\x7E\u00C0-\u00FF]/g,'');
 }
 
+/* ---- Termo de Transparência: folhas, escrita das respostas e envio ---- */
+const T_L = 56, T_W = 595.28, T_H = 841.89, T_Q0 = 520, T_PASSO = 70, T_POR_PAGINA = 6, T_Q0_P2 = 745;
+const TXT_FINALIDADE = 'Finalidade: dar a Cimed conhecimento previo de relacoes pessoais, de parentesco e de outras situacoes que possam configurar conflito de interesses. Havendo conflito, o caso e encaminhado a Comissao de Etica e Conduta. Responda com sinceridade: a omissao e tratada pelo Codigo de Conduta.';
+const TXT_LGPD = 'Tratamento de dados: ao preencher este termo, declaro ter lido o Termo de Consentimento de Tratamento de Dados Pessoais (home.grupocimed.com.br) e o Aviso de Privacidade da admissao, e consinto com o tratamento destas informacoes pelas empresas do Grupo Cimed, como controladoras, para a finalidade acima. As respostas ficam restritas ao Compliance.';
+/* y do cabecalho (folha 1) e da linha "abertura do link" (folha 2): a mesma conta ao desenhar e ao escrever */
+function yCabecalhoTermo(reg){ return T_H - 92 - 11 * quebrar(limpoPDF(TXT_FINALIDADE), reg, 8.5, T_W - 2 * T_L).length - 10; }
+function yLinkTermo(reg){ return posicaoTermo(TERMO_PERGUNTAS.length - 1).y - 75 - 11 * quebrar(limpoPDF(TXT_LGPD), reg, 8.5, T_W - 2 * T_L).length - 10 - 26; }
+function posicaoTermo(i){   /* i = 0..10 → {pag, y} dentro das folhas do termo */
+  return i < T_POR_PAGINA ? {pag:0, y:T_Q0 - i * T_PASSO} : {pag:1, y:T_Q0_P2 - (i - T_POR_PAGINA) * T_PASSO};
+}
+function desenharTermo(doc, p, reg, neg){
+  const cor = rgb(0.09, 0.086, 0.055), cinza = rgb(0.42, 0.40, 0.32), risco = rgb(0.62, 0.60, 0.52);
+  const P = (pg, txt, x, y, tam, fonte, c)=>pg.drawText(limpoPDF(txt), {x:x, y:y, size:tam || 9, font:fonte || reg, color:c || cor});
+  const nova = ()=>{
+    const pg = doc.addPage([T_W, T_H]);
+    pg.drawRectangle({x:0, y:T_H - 61, width:T_W, height:61, color:rgb(0.984, 0.769, 0)});
+    P(pg, 'CIMED', 56, T_H - 36, 16, neg);
+    P(pg, 'TERMO DE TRANSPARENCIA E CONFLITO DE INTERESSES', 140, T_H - 36, 11, neg);
+    return pg;
+  };
+  const pergunta = (pg, i)=>{
+    const [, texto, dica] = TERMO_PERGUNTAS[i];
+    const {y} = posicaoTermo(i);
+    const linhas = quebrar(limpoPDF((i + 1) + '. ' + texto), neg, 9, T_W - 2 * T_L).slice(0, 2);
+    linhas.forEach((l, k)=>P(pg, l, T_L, y - k * 12, 9, neg));
+    P(pg, '(     ) Sim', T_L, y - 29, 9.5);
+    P(pg, '(     ) Nao', T_L + 90, y - 29, 9.5);
+    P(pg, 'Detalhe (' + dica + '):', T_L + 190, y - 29, 7.5, reg, cinza);
+    pg.drawLine({start:{x:T_L, y:y - 47}, end:{x:T_W - T_L, y:y - 47}, thickness:0.6, color:risco});
+  };
+  /* folha 1: finalidade, cabeçalho e perguntas 1 a 6 */
+  const pg1 = nova();
+  let y = T_H - 92;
+  quebrar(limpoPDF(TXT_FINALIDADE), reg, 8.5, T_W - 2 * T_L)
+    .forEach(l=>{ P(pg1, l, T_L, y, 8.5, reg, cinza); y -= 11; });
+  y = yCabecalhoTermo(reg);
+  const cab = [['Nome', p.nome], ['CPF', cpfTxt(p.cpf)], ['Area', p.setor || ''], ['Cargo', p.cargo || ''], ['Matricula', p.matricula || ''], ['Local', p.unidade || ''], ['Data', '']];
+  cab.forEach(([k, v], i)=>{
+    const col = i % 2, lin = Math.floor(i / 2);
+    const x = T_L + col * ((T_W - 2 * T_L) / 2), yy = y - lin * 22;
+    P(pg1, k + ':', x, yy, 8, neg, cinza);
+    P(pg1, String(v || ''), x + 48, yy, 9.5);
+    pg1.drawLine({start:{x:x + 46, y:yy - 3}, end:{x:x + (T_W - 2 * T_L) / 2 - 12, y:yy - 3}, thickness:0.6, color:risco});
+  });
+  P(pg1, 'Marque Sim ou Nao em cada pergunta. Quando Sim, detalhe na linha.', T_L, T_Q0 + 22, 8, reg, cinza);
+  for(let i = 0; i < T_POR_PAGINA; i++) pergunta(pg1, i);
+  P(pg1, 'Pagina 1 de 2', T_W - T_L - 60, 40, 7.5, reg, cinza);
+  /* folha 2: perguntas 7 a 11, LGPD, Codigo de Conduta e assinatura */
+  const pg2 = nova();
+  for(let i = T_POR_PAGINA; i < TERMO_PERGUNTAS.length; i++) pergunta(pg2, i);
+  y = posicaoTermo(TERMO_PERGUNTAS.length - 1).y - 75;
+  quebrar(limpoPDF(TXT_LGPD), reg, 8.5, T_W - 2 * T_L)
+    .forEach(l=>{ P(pg2, l, T_L, y, 8.5, reg, cinza); y -= 11; });
+  y -= 10;
+  P(pg2, 'Codigo de Conduta Cimed: ' + TERMO_URL, T_L, y, 8.5, neg); y -= 13;
+  P(pg2, 'Declaro que li e estou ciente do Codigo de Conduta.', T_L, y, 8.5); y -= 13;
+  P(pg2, 'Abertura do link registrada em: ', T_L, y, 8, reg, cinza);
+  P(pg2, 'Local e data: ', T_L, 215, 9, neg, cinza);
+  pg2.drawLine({start:{x:T_L + 62, y:212}, end:{x:T_W - T_L, y:212}, thickness:0.6, color:risco});
+  pg2.drawLine({start:{x:T_L, y:150}, end:{x:T_L + 260, y:150}, thickness:1, color:cor});
+  P(pg2, 'Assinatura do colaborador', T_L, 136, 8.5, reg, cinza);
+  P(pg2, p.nome, T_L, 124, 8.5, reg, cinza);
+  P(pg2, 'Pagina 2 de 2', T_W - T_L - 60, 40, 7.5, reg, cinza);
+  return 2;
+}
+/* escreve X, detalhes, data e abertura do link nas folhas do termo */
+async function estamparTermo(bytes, p, st, kit){
+  const it = (kit && kit.indice || []).find(x=>chaveDoc(x.nome) === CHAVE_TERMO);
+  if(!it) return bytes;
+  const resp = st.resp || {};
+  if(!TERMO_PERGUNTAS.some(([q])=>resp[q])) return bytes;
+  const doc = await PDFDocument.load(bytes);
+  const reg = await doc.embedFont(StandardFonts.Helvetica);
+  const neg = await doc.embedFont(StandardFonts.HelveticaBold);
+  const tinta = rgb(0.05, 0.11, 0.42);
+  const pags = [doc.getPage(it.ini), doc.getPage(it.ini + 1)];
+  TERMO_PERGUNTAS.forEach(([q], i)=>{
+    const v = String(resp[q] || '');
+    if(!v) return;
+    const {pag, y} = posicaoTermo(i);
+    const pg = pags[pag];
+    pg.drawText('X', {x:(v === 'Sim' ? T_L : T_L + 90) + 8, y:y - 28, size:10, font:neg, color:tinta});
+    const det = String(resp[q + '_det'] || '').trim();
+    if(v === 'Sim' && det) pg.drawText(cabeNaLargura(limpoPDF(det), reg, 8, T_W - 2 * T_L - 4), {x:T_L + 2, y:y - 44, size:8, font:reg, color:tinta});
+  });
+  const agora = agoraCerta();
+  const cidade = String(p.unidade || '').replace(/^(CDS?|F.BRICA|ESCRIT.RIO|UNIDADE|FILIAL|LOJA)\s+/i, '').trim();
+  pags[1].drawText(limpoPDF((cidade ? cidade + ', ' : '') + agora.getDate() + ' de ' + MESES[agora.getMonth()] + ' de ' + agora.getFullYear()), {x:T_L + 66, y:215, size:9, font:reg, color:tinta});
+  /* data do cabecalho: 7o campo, linha 3, coluna 0 */
+  pags[0].drawText(limpoPDF(agora.getDate() + '/' + String(agora.getMonth() + 1).padStart(2, '0') + '/' + agora.getFullYear()), {x:T_L + 48, y:yCabecalhoTermo(reg) - 3 * 22, size:9.5, font:reg, color:tinta});
+  if(resp.codigo_conduta_aberto_em){
+    pags[1].drawText(limpoPDF(hojeTxt(new Date(resp.codigo_conduta_aberto_em))), {x:T_L + 118, y:yLinkTermo(reg), size:8, font:reg, color:tinta});
+  }
+  return await doc.save();
+}
+function respSemTermo(resp){
+  const out = {};
+  Object.keys(resp || {}).forEach(k=>{ if(!/^q\d{1,2}(_det)?$/.test(k) && k.indexOf('codigo_conduta') !== 0) out[k] = resp[k]; });
+  return out;
+}
+function opcoesDoKit(st){ return respSemTermo(st && st.resp); }
+function termoDoKit(st, kit){
+  const resp = (st && st.resp) || {};
+  if(!(kit && kit.indice || []).some(x=>chaveDoc(x.nome) === CHAVE_TERMO)) return null;
+  if(!TERMO_PERGUNTAS.some(([q])=>resp[q])) return null;
+  const out = {};
+  Object.keys(resp).forEach(k=>{ if(/^q\d{1,2}(_det)?$/.test(k) || k.indexOf('codigo_conduta') === 0) out[k] = resp[k]; });
+  out.assinado_em = (st.colab && st.colab.em) || agoraCerta().toISOString();
+  out.codigo = (st.colab && st.colab.codigo) || '';
+  return out;
+}
+/* equipe (tablet ou Esteira logada): respostas vão pelo CPF */
+async function enviarRespostasPlataforma(p, st, k){
+  if(MODO_ONLINE || location.protocol === 'file:' || !p || !st || digitos(p.cpf).length !== 11) return;
+  const opcoes = opcoesDoKit(st), termo = termoDoKit(st, k);
+  if(!Object.keys(opcoes).length && !termo) return;
+  const sb = await nuvemEquipe(true);
+  if(!sb){ st.respostasPendentes = true; salvar(); return; }
+  try{
+    const r = await sb.rpc('kit_respostas_equipe', {p_cpf: digitos(p.cpf), p_kit: st.online ? st.online.id : null,
+      p_pessoa: {nome: p.nome, cpf: digitos(p.cpf), cargo: p.cargo || '', unidade: p.unidade || '', matricula: p.matricula || ''},
+      p_opcoes: opcoes, p_termo: termo});
+    if(r.error) throw new Error(r.error.message);
+    st.respostasEnviadas = agoraCerta().toISOString(); delete st.respostasPendentes; salvar();
+    torrada('Respostas enviadas à Plataforma de Admissão' + (termo ? ': benefícios e Termo de Transparência.' : ': benefícios.'), 5000);
+  }catch(e){
+    st.respostasPendentes = true; salvar();
+    torrada('As respostas do kit não chegaram à plataforma (' + erroLegivel(e) + '). A Esteira tenta de novo quando abrir.', 8000);
+  }
+}
+async function reenviarRespostasPendentes(){
+  for(const p of S.pessoas){
+    const st = S.assin[p.id];
+    if(st && st.colab && st.respostasPendentes && S.kits[p.id]) await enviarRespostasPlataforma(p, st, S.kits[p.id]);
+  }
+}
+
 async function gerarKit(pid, avisar){
   const p = S.pessoas.find(x=>x.id===pid);
   if(!p) return null;
@@ -5513,7 +5695,8 @@ async function gerarKit(pid, avisar){
   docs.forEach(dd=>{
     meus.filter(a=>a.docKey===chaveDoc(dd.nome)).forEach(a=>ordem.push({a, d:dd}));
   });
-  meus.filter(a=>!docs.some(dd=>chaveDoc(dd.nome)===a.docKey)).forEach(a=>ordem.push({a, d:null}));
+  /* arquivo solto com o nome de um documento gerado pela Esteira nao entra: ela mesma gera as folhas */
+  meus.filter(a=>!docs.some(dd=>chaveDoc(dd.nome)===a.docKey) && !docs.some(dd=>dd.gerado && chaveDoc(limparNomeLG(a.nome)).indexOf(chaveDoc(dd.nome)) === 0)).forEach(a=>ordem.push({a, d:null}));
   let noKit = ordem.filter(x=>!x.d || x.d.unifica !== false);
   /* O LG as vezes exporta o mesmo documento da mesma pessoa em dois lotes
      diferentes. Sem isto o contrato entrava duas vezes no kit e o
@@ -5534,6 +5717,8 @@ async function gerarKit(pid, avisar){
   saida.setTitle('Kit de Admissao - '+p.nome);
   saida.setSubject('Kit de admissao Cimed');
   const indice = [];
+  const reg = await saida.embedFont(StandardFonts.Helvetica);
+  const neg = await saida.embedFont(StandardFonts.HelveticaBold);
   for(const item of noKit){
     let ini = saida.getPageCount() + 1;
     try{
@@ -5544,10 +5729,13 @@ async function gerarKit(pid, avisar){
     }catch(e){ /* pula arquivo problemático */ }
   }
   if(!saida.getPageCount()){ if(avisar) torrada('Não foi possível ler os PDFs desta pessoa.'); return null; }
+  if(TERMO_ATIVO){
+    const ini = saida.getPageCount() + 1;
+    const qtd = desenharTermo(saida, p, reg, neg);
+    indice.push({nome: DOC_TERMO.nome, ini: ini, qtd: qtd});
+  }
 
   // capa
-  const reg = await saida.embedFont(StandardFonts.Helvetica);
-  const neg = await saida.embedFont(StandardFonts.HelveticaBold);
   const capa = saida.insertPage(0, [595.28, 841.89]);
   const L = 56, W = 595.28;
   capa.drawRectangle({x:0, y:841.89-118, width:W, height:118, color:rgb(0.984,0.769,0)});
@@ -6142,7 +6330,7 @@ function renderColab(){
 function camposEmBranco(form, st){
   const faltas = [];
   camposVisiveis(form, st).forEach(c=>{
-    if(c.opcional) return;
+    if(c.opcional || c.t === 'link') return;
     const v = (st.resp || {})[c.id];
     if(c.t === 'dependentes' || c.t === 'beneficiarios'){
       const arr = Array.isArray(v) ? v : [];
@@ -6212,6 +6400,9 @@ function blocoForm(doc, st){
       h += '<label class="campo" style="margin-bottom:9px"><span>' + esc(c.l) + '</span>'
         + '<input type="text" data-r="' + c.id + '" value="' + esc(v || '') + '"'
         + (c.dica ? ' placeholder="' + esc(c.dica) + '"' : '') + '></label>';
+    }else if(c.t === 'link'){
+      h += '<div style="margin-bottom:9px"><a class="b peq" href="' + esc(TERMO_URL) + '" target="_blank" rel="noopener" data-link="' + c.id + '">' + esc(c.l) + '</a>'
+        + (v ? '<span class="dica" style="display:block;margin-top:4px">Aberto em ' + esc(hojeTxt(new Date(v))) + '</span>' : '<span class="dica" style="display:block;margin-top:4px">Abre em outra aba. A abertura fica registrada no termo.</span>') + '</div>';
     }else if(c.t === 'dependentes' || c.t === 'beneficiarios'){
       const arr = Array.isArray(v) ? v : [];
       const cols = colsDoCampo(c);
@@ -6236,6 +6427,13 @@ function trocarForm(doc, st, p){
 
 function ligarForm(box, doc, st, p){
   if(!box) return;
+  box.querySelectorAll('[data-link]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      st.resp[el.dataset.link] = agoraCerta().toISOString();
+      salvar();
+      setTimeout(()=>trocarForm(doc, st, p), 300);
+    });
+  });
   box.querySelectorAll('[data-r]').forEach(el=>{
     el.addEventListener('change', ()=>{
       st.resp[el.dataset.r] = el.value;
@@ -6608,6 +6806,7 @@ async function assinar(p, k, st, quem){
     base = r.bytes;
     st.estampadas = r.feitas;
     st.estampaFalhou = r.faltando;
+    try{ base = await estamparTermo(base, p, st, k); }catch(e){ (st.estampaFalhou = st.estampaFalhou || []).push('Termo de Transparencia (nao escrito)'); }
   }
 
   const hash = await hashHex(k.bytes);
@@ -6655,6 +6854,7 @@ async function assinar(p, k, st, quem){
   // dentro do kit só confundia quem lê.
   const chavesDoKit = (k.indice || []).map(it=>chaveDoc(it.nome).replace(/[^a-z0-9 ]/g,'').replace(/\s+/g,' ').trim());
   const forms = formulariosDe(p).filter(o=>{
+    if(o.f === FORM_TERMO) return false;   /* as respostas do termo ficam na folha dele e com o Compliance */
     const c = chaveDoc(o.d.nome).replace(/[^a-z0-9 ]/g,'').replace(/\s+/g,' ').trim();
     return chavesDoKit.some(x=>x === c || x.indexOf(c) === 0 || c.indexOf(x) === 0);
   });
@@ -6795,6 +6995,7 @@ async function assinar(p, k, st, quem){
   st.pdfAssinado = await doc.save();
   if(quem.papel==='colaborador') st.colab = nova; else st.empresa = nova;
   salvar();
+  if(quem.papel === 'colaborador' && !MODO_ONLINE) enviarRespostasPlataforma(p, st, k);
   if(quem.papel === 'empresa' && st.online && !MODO_ONLINE) atualizarOnline(p.id);
   marcarKitNoBanco(p, st);
   guardarKit(p.id).then(()=>{
@@ -6978,6 +7179,12 @@ async function nuvemEquipe(silencioso){
   if(!NUVEM.relogio){
     NUVEM.relogio = true;
     sb.rpc('agora_servidor').then(x=>{ if(x && x.data) acertarRelogio(x.data); }).catch(()=>{});
+    sb.from('parametros').select('chave, valor').in('chave', ['termo_transparencia_ativo', 'codigo_conduta_url']).then(x=>{
+      (x && x.data || []).forEach(r=>{
+        if(r.chave === 'termo_transparencia_ativo'){ TERMO_ATIVO = String(r.valor || 'sim').trim() !== 'nao'; renderCartoes(); }
+        if(r.chave === 'codigo_conduta_url' && /^https?:\/\//.test(String(r.valor || ''))) TERMO_URL = String(r.valor).trim();
+      });
+    }).catch(()=>{});
     sb.from('parametros').select('valor').eq('chave', 'signatarios_cimed').maybeSingle().then(x=>{
       try{
         const l = JSON.parse((x && x.data && x.data.valor) || '[]');
@@ -7347,8 +7554,24 @@ function telaPronta(p, st){
   telaOnline('<h3>Pronto! Seu kit foi assinado.</h3>'
     + '<p class="dica">O RH da Cimed já recebeu os seus documentos.' + (cod ? ' Código de verificação: <b>' + esc(cod) + '</b>.' : '') + '</p>'
     + '<button class="b prim" id="btMinhaVia" style="width:100%;justify-content:center">Baixar a minha via (PDF)</button>'
-    + '<p class="dica" style="margin-top:14px">Guarde a sua via. Depois de fechar esta página, nada fica salvo neste celular.</p>');
+    + '<p class="dica" style="margin-top:14px">Guarde a sua via. Depois de fechar esta página, nada fica salvo neste aparelho.</p>'
+    + '<p class="dica" id="encerraEm" style="margin-top:10px"></p>'
+    + '<button class="b" id="btEncerrar" style="width:100%;justify-content:center">Encerrar agora</button>');
   $('#btMinhaVia').addEventListener('click', ()=>baixarKit(p.id));
+  /* num computador de apoio compartilhado a sessão não pode ficar aberta: em 2 minutos
+     (ou no botão) tudo é apagado da memória e a tela fica neutra */
+  let resta = 120;
+  const encerrar = ()=>{
+    clearInterval(rel);
+    SESSAO_ONLINE = null; S.pessoas = []; S.assin = {}; S.kits = {}; C.pid = null; C.docs = [];
+    telaOnline('<h3>Sessão encerrada</h3><p class="dica">Nada ficou salvo neste aparelho. Pode fechar esta janela.</p>');
+  };
+  const rel = setInterval(()=>{
+    resta--; const el = $('#encerraEm');
+    if(el) el.textContent = 'Por segurança, esta tela se encerra sozinha em ' + resta + ' s.';
+    if(resta <= 0) encerrar();
+  }, 1000);
+  $('#btEncerrar').addEventListener('click', encerrar);
 }
 
 /* a sessão venceu ou o link foi aberto em outra aba: confirma de novo sem perder a assinatura */
@@ -7399,6 +7622,14 @@ async function concluirOnline(p, k, st){
         new Blob([st.pdfAssinado], {type:'application/pdf'}), {contentType:'application/pdf', cacheControl:'0'});
       if(up.error) throw new Error(up.error.message);
       o.envioPronto = {caminho: e.caminho, versao: e.versao};
+    }
+    /* benefícios e termo vão pela porta do kit on-line, com a sessão ainda válida.
+       Se falhar, a assinatura segue: a equipe vê a pendência ao sincronizar. */
+    if(!o.respostasOk){
+      try{
+        const rr = await sb.rpc('kit_respostas_online', {p_id: o.id, p_sessao: o.sessao, p_opcoes: opcoesDoKit(st), p_termo: termoDoKit(st, k)});
+        if(!rr.error && rr.data && rr.data.ok) o.respostasOk = true;
+      }catch(e){ /* segue sem travar a assinatura */ }
     }
     /* repetir este passo é seguro: o servidor reconhece o mesmo envio */
     const r = await chamarKitOnline({acao: 'concluir', id: o.id, sessao: o.sessao, versao: o.envioPronto.versao,
@@ -7765,7 +7996,7 @@ async function pdfsTeste(){
   let n = 0, carimbo = 0;
 
   for(const p of S.pessoas){
-    const docs = docsDe(p).filter(dd=>dd.obrig);
+    const docs = docsDe(p).filter(dd=>dd.obrig && !dd.gerado);   /* o termo a propria Esteira gera */
     for(const dd of docs){
       /* o contrato de trabalho fica de fora: vai virar um arquivo em lote */
       if(sem(dd.nome) === 'CONTRATO DE TRABALHO') continue;
@@ -8080,7 +8311,7 @@ if(alvoOnline){
     }
     /* quem assinou pelo celular enquanto a página estava fechada */
     sincronizarOnline(true);
-    nuvemEquipe(true);
+    nuvemEquipe(true).then(()=>reenviarRespostasPendentes());
   });
   /* a aba do colaborador avisa quando alguém termina de assinar */
   if(canal) canal.onmessage = ev=>{
