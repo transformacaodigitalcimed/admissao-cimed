@@ -3969,6 +3969,11 @@ function colParaIndice(letras){
 }
 
 /* numero de data do Excel vira dd/mm/aaaa */
+/* data de admissão legível: a planilha do Excel manda número (46315 = 20/10/2026) */
+function admissaoTxt(p){
+  const v = String((p && p.admissao) || '').trim();
+  return /^\d{5}(\.\d+)?$/.test(v) ? serialParaData(parseFloat(v)) : v;
+}
 function serialParaData(n){
   const ms = (n - 25569) * 86400000;
   const d = new Date(Math.round(ms));
@@ -4086,10 +4091,12 @@ async function planilhaParaTexto(arquivo){
   /* datas e CPF que vieram como numero voltam a ser texto legivel */
   const cab = (f.linhas[0] || []).map(c => sem(c).toLowerCase());
   const ondeNasc = cab.findIndex(c => /nasc/.test(c));
+  const ondeAdm = cab.findIndex(c => /admiss|data de inicio|data inicio/.test(c));
   const ondeCpf = cab.findIndex(c => c === 'cpf' || /cpf/.test(c));
   const linhas = f.linhas.map((l, i) => l.map((v, j) => {
     if(i === 0) return v;
     if(j === ondeNasc && /^\d{5}(\.\d+)?$/.test(v)) return serialParaData(parseFloat(v));
+    if(j === ondeAdm && /^\d{5}(\.\d+)?$/.test(v)) return serialParaData(parseFloat(v));
     if(j === ondeCpf && /^\d{9,11}$/.test(v)) return v.padStart(11, '0');
     return v;
   }));
@@ -4537,11 +4544,36 @@ function todosOsDocs(){
    arquivo com várias pessoas; quando só uma delas está na lista, o arquivo inteiro caía
    no kit dela, com os documentos das outras dentro (Amanda com Thais, Palloma, Litiyelle
    e Reinaldo, 20/10/2026). Essas páginas nunca entram em kit nenhum. */
-function paginaDeOutraPessoa(txt){
+/* CPF de cada pessoa da lista, lido nas folhas que já são dela (colado ao nome). A planilha do
+   LG não traz CPF; sem isso, página de outra pessoa com nome e CPF passava como "sem dono" e
+   herdava o dono da folha anterior (kit da Amanda com 67 páginas de 5 pessoas, 20/10/2026). */
+function cpfsConhecidos(){
+  const s = new Set(S.pessoas.map(p=>digitos(p.cpf)).filter(c=>c.length === 11));
+  const re = /\b([0-9]{3})[.\s]?([0-9]{3})[.\s]?([0-9]{3})[-.\s]?([0-9]{2})\b/g;
+  S.arquivos.forEach(a=>{
+    (a.textos || []).forEach(t=>{
+      const dono = t && quemNoTexto(t);
+      if(!dono) return;
+      const nomeC = sem(dono.nome).replace(/[^A-Z]/g, '');
+      let m;
+      re.lastIndex = 0;
+      while((m = re.exec(t)) !== null){
+        const d = m[1] + m[2] + m[3] + m[4];
+        if(!cpfValido(d)) continue;
+        const jan = t.slice(Math.max(0, m.index - 90), m.index + m[0].length + 90);
+        if(sem(jan).replace(/[^A-Z]/g, '').indexOf(nomeC) >= 0) s.add(d);
+      }
+    });
+  });
+  return s;
+}
+function paginaDeOutraPessoa(txt, conhecidos){
   if(!txt) return false;
-  const cpfsLista = new Set(S.pessoas.map(p=>digitos(p.cpf)).filter(c=>c.length === 11));
+  const cpfsLista = conhecidos || new Set(S.pessoas.map(p=>digitos(p.cpf)).filter(c=>c.length === 11));
   const matsLista = S.pessoas.map(p=>digitos(p.matricula)).filter(m=>m.length >= 5);
-  if(cpfsLista.size){
+  /* um CPF válido que não é de ninguém da lista (nem aprendido nas folhas dela) é de outra pessoa;
+     com a página sem nome de ninguém da lista (só chega aqui página sem dono) */
+  {
     const re = /\b([0-9]{3})[.\s]?([0-9]{3})[.\s]?([0-9]{3})[-.\s]?([0-9]{2})\b/g;
     let m, outro = false;
     while((m = re.exec(txt)) !== null){
@@ -4561,8 +4593,35 @@ function paginaDeOutraPessoa(txt){
   return false;
 }
 
-function reconhecerTodos(){
+/* Lote = arquivo do LG com várias pessoas. A separação era automática só na hora de ler os PDFs;
+   com a lista colada ou trocada depois, os lotes ficavam parados e o kit saía só com o que é igual
+   para todos (kit da Amanda com 4 páginas, 20/10/2026). Agora separa sempre que houver lote. */
+let LENDO_PDFS = false, SEPARANDO_LOTES = null;
+function separarLotesPendentes(){
+  if(SEPARANDO_LOTES) return SEPARANDO_LOTES;
+  SEPARANDO_LOTES = (async ()=>{
+    try{
+      let n = 0;
+      for(let volta = 0; volta < 3; volta++){
+        const lotes = S.arquivos.filter(a=>a.lote && a.donos && a.bytes).map(a=>a.id);
+        if(!lotes.length || !S.pessoas.length) break;
+        for(const id of lotes){ await separarPorPessoa(id, true); n++; }
+        reconhecerTodos(true);
+      }
+      if(n){
+        const cpfs = cpfsDosDocumentos();
+        salvar(); renderPessoas(); renderArqs(); renderCartoes(); renderKits(); renderPainel();
+        torrada(n + ' arquivo(s) com várias pessoas separado(s) por pessoa.' + (cpfs.length ? ' CPF preenchido pelos documentos: ' + cpfs.join(', ') + '.' : ''), 6000);
+      }
+      return n;
+    }finally{ SEPARANDO_LOTES = null; }
+  })();
+  return SEPARANDO_LOTES;
+}
+function reconhecerTodos(semSeparar){
+  if(!semSeparar && !LENDO_PDFS) setTimeout(()=>{ if(!LENDO_PDFS && S.arquivos.some(a=>a.lote) && S.pessoas.length) separarLotesPendentes(); }, 0);
   const universo = todosOsDocs();
+  const conhecidosCpf = cpfsConhecidos();
   S.arquivos.forEach(a=>{
     a.docKey = tipoDoArquivo(a, universo);
     /* O LG imprime uma copia por pessoa de documentos que nao levam nome
@@ -4577,7 +4636,26 @@ function reconhecerTodos(){
     const donos = (a.textos||[]).map(t=>quemNoTexto(t));
     const ids = Array.from(new Set(donos.filter(Boolean).map(p=>p.id)));
     /* páginas de gente fora da lista: marcadas com '?', viram barreira na separação e não entram em kit */
-    const estranhas = (a.textos||[]).map((t,i)=>!donos[i] && paginaDeOutraPessoa(t));
+    const estranhas = (a.textos||[]).map((t,i)=>!donos[i] && paginaDeOutraPessoa(t, conhecidosCpf));
+    /* Cópia do mesmo formulário para outra pessoa, só com o nome (sem CPF nem matrícula): o LG
+       manda o Termo do crachá e o Acordo de Prorrogação assim. A folha sem dono que é quase igual
+       a uma folha de alguém da lista, e traz palavras de nome que essa folha não tem, é de fora. */
+    const palavrasMaiusc = s=>new Set(String(s || '').split(/[^A-Z]+/).filter(w=>w.length >= 3));
+    (a.textos||[]).forEach((tx, i)=>{
+      if(donos[i] || estranhas[i] || !tx) return;
+      const pi = palavrasDaFolha(tx);
+      if(pi.size < 10) return;
+      for(let j = 0; j < (a.textos||[]).length; j++){
+        if(!donos[j] || !a.textos[j]) continue;
+        const pj = palavrasDaFolha(a.textos[j]);
+        if(pj.size < 10) continue;
+        let iguais = 0; pi.forEach(w=>{ if(pj.has(w)) iguais++; });
+        if(iguais / Math.min(pi.size, pj.size) < 0.8) continue;
+        const wi = palavrasMaiusc(tx), wj = palavrasMaiusc(a.textos[j]);
+        const so = Array.from(wi).filter(w=>!wj.has(w) && !PARADAS.has(w));
+        if(so.length >= 2){ estranhas[i] = true; break; }
+      }
+    });
     const temEstranha = estranhas.some(Boolean);
     a.paginasDeOutros = estranhas.filter(Boolean).length;
 
@@ -4703,6 +4781,7 @@ async function receberArquivos(lista){
   renderArqs();
 
   let i = 0;
+  LENDO_PDFS = true;
   for(const a of novos){
     i++;
     $('#dicaLendo').textContent = 'Lendo o conteúdo: ' + i + ' de ' + novos.length + '...';
@@ -4710,6 +4789,7 @@ async function receberArquivos(lista){
     else a.textos = [];
     if(i % 4 === 0){ reconhecerTodos(); renderArqs(); await new Promise(r=>setTimeout(r,0)); }
   }
+  LENDO_PDFS = false;
   $('#dicaLendo').textContent = '';
 
   reconhecerTodos();
@@ -5898,7 +5978,7 @@ function desenharOS(doc, p, reg, neg){
   const titulo = (txt)=>{ y -= 6; texto(txt, 9.5, neg, cinza); y -= 2; };
   nova();
   /* cabecalho */
-  const cab = [['Nome', p.nome], ['CPF', cpfTxt(p.cpf)], ['Matricula', p.matricula || ''], ['Admissao', p.admissao || ''],
+  const cab = [['Nome', p.nome], ['CPF', cpfTxt(p.cpf)], ['Matricula', p.matricula || ''], ['Admissao', admissaoTxt(p)],
                ['Cargo', p.cargo || ''], ['CBO', p.cbo || ''], ['Setor / CC', p.setor || p.cc || ''], ['Unidade', p.unidade || '']];
   cab.forEach(([k, v], i)=>{
     const col = i % 2, lin = Math.floor(i / 2);
@@ -5975,7 +6055,7 @@ function desenharTermo(doc, p, reg, neg){
     .forEach(l=>{ P(pg1, l, T_L, y, 8.5, reg, cinza); y -= 11; });
   y = yCabecalhoTermo(reg);
   /* Area = centro de custo da ficha de registro; Data = data de admissao (Josianny, 20/10/2026) */
-  const cab = [['Nome', p.nome], ['CPF', cpfTxt(p.cpf)], ['Area', p.cc || p.setor || ''], ['Cargo', p.cargo || ''], ['Matricula', p.matricula || ''], ['Local', p.unidade || ''], ['Data', p.admissao || '']];
+  const cab = [['Nome', p.nome], ['CPF', cpfTxt(p.cpf)], ['Area', p.cc || p.setor || ''], ['Cargo', p.cargo || ''], ['Matricula', p.matricula || ''], ['Local', p.unidade || ''], ['Data', admissaoTxt(p) || p.admissao || '']];
   cab.forEach(([k, v], i)=>{
     const col = i % 2, lin = Math.floor(i / 2);
     const x = T_L + col * ((T_W - 2 * T_L) / 2), yy = y - lin * 22;
@@ -6329,6 +6409,7 @@ async function baixarKit(pid){
 }
 
 async function gerarTodos(){
+  if(S.arquivos.some(a=>a.lote) && S.pessoas.length) await separarLotesPendentes();
   const alvo = S.pessoas.filter(p=>S.arquivos.some(a=>a.pessoaId===p.id));
   if(!alvo.length){
     /* aconteceu na demonstração: a lista carregada era a de exemplo e
