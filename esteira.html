@@ -8166,6 +8166,8 @@ async function trazerOnline(sb, row){
      ter nascido antes de a Cimed assinar (o colaborador abriu o link antes) e vir sem ela.
      Sem isto o kit "voltava" para "Pendente: Cimed assinar" depois de o colaborador assinar. */
   const blocosBanco = row.blocos && typeof row.blocos === 'object' && !Array.isArray(row.blocos) ? row.blocos : null;
+  /* kit novo (outro id): nada do kit antigo desta pessoa guardado aqui passa para ele */
+  const mesmoKit = !!(antigo.online && antigo.online.id === row.id);
   if(blocosBanco){
     const meus = Object.assign({}, assinNuvem.blocos || {});
     Object.keys(blocosBanco).forEach(area=>{
@@ -8176,13 +8178,17 @@ async function trazerOnline(sb, row){
       }
     });
     if(Object.keys(meus).length) assinNuvem.blocos = meus;
-    /* o que ficou guardado neste aparelho (assinatura feita aqui) também não se perde */
-    const local = antigo.blocos || {};
+    /* o que ficou guardado neste aparelho (assinatura feita aqui, ainda não enviada) só vale
+       se for do MESMO kit: kit publicado de novo é outro kit, e a assinatura antiga não passa
+       para ele (a Keila via "assinado" num kit que a nuvem tinha como pendente, 20/10/2026) */
+    const local = mesmoKit && antigo.pdfAssinado ? (antigo.blocos || {}) : {};
     Object.keys(local).forEach(area=>{ if(local[area] && local[area].em && !(assinNuvem.blocos && assinNuvem.blocos[area] && assinNuvem.blocos[area].em)){ assinNuvem.blocos = Object.assign({}, assinNuvem.blocos || {}, {[area]: local[area]}); } });
   }
+  /* kit novo (outro id): nada do kit antigo desta pessoa fica, nem o PDF assinado */
   S.assin[p.id] = Object.assign({}, assinNuvem, {
-    pdfAssinado: pdf,
-    online: {id: row.id, versao: row.versao, token: row.token_hash ? tokenAntigo : null}
+    pdfAssinado: pdf || (mesmoKit ? antigo.pdfAssinado || null : null),
+    online: {id: row.id, versao: row.versao, token: row.token_hash ? tokenAntigo : null,
+             pendenteEnvio: mesmoKit && antigo.online ? antigo.online.pendenteEnvio : undefined}
   });
   await guardarKit(p.id);
   return p;
@@ -8370,6 +8376,19 @@ async function sincronizarAutomatico(){
     /* kit guardado aqui que não está mais ativo na nuvem (foi publicado de novo em outro aparelho):
        troca pelo kit ativo da mesma pessoa, para o link e a assinatura saírem do kit certo */
     const ativos = {}; (r.data || []).forEach(row=>{ ativos[row.id] = row; });
+    /* assinatura da Cimed que só existe aqui, sem PDF assinado e sem registro na nuvem: é resto
+       de outro kit (fantasma). Some, para o kit voltar a "esperando a sua assinatura". */
+    let fantasmas = 0;
+    Object.keys(local).forEach(id=>{
+      const row = ativos[id]; const st = S.assin[local[id].pid];
+      if(!row || !st || !st.blocos || st.pdfAssinado) return;
+      Object.keys(st.blocos).forEach(area=>{
+        const naNuvem = row.blocos && row.blocos[area] && row.blocos[area].assinado_empresa_em;
+        if(st.blocos[area] && st.blocos[area].em && !st.blocos[area].doBanco && !naNuvem){ delete st.blocos[area]; fantasmas++; }
+      });
+      if(!Object.keys(st.blocos).length) delete st.blocos;
+    });
+    if(fantasmas){ salvar(); renderKits(); if(MODO_SIGNATARIO) renderSignatario(); }
     /* kit guardado aqui que foi cancelado na nuvem (a Admissão zerou ou publicou de novo): marca, para sair da tela de quem assina */
     const naoAtivos = Object.keys(local).filter(id=>!ativos[id]);
     if(naoAtivos.length){
