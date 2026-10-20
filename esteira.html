@@ -4532,6 +4532,35 @@ function todosOsDocs(){
   return saida;
 }
 
+/* Página de alguém que NÃO está na lista: traz um CPF válido que não é de ninguém da lista,
+   ou uma matrícula do LG que não é de ninguém da lista. O LG manda cada documento num
+   arquivo com várias pessoas; quando só uma delas está na lista, o arquivo inteiro caía
+   no kit dela, com os documentos das outras dentro (Amanda com Thais, Palloma, Litiyelle
+   e Reinaldo, 20/10/2026). Essas páginas nunca entram em kit nenhum. */
+function paginaDeOutraPessoa(txt){
+  if(!txt) return false;
+  const cpfsLista = new Set(S.pessoas.map(p=>digitos(p.cpf)).filter(c=>c.length === 11));
+  const matsLista = S.pessoas.map(p=>digitos(p.matricula)).filter(m=>m.length >= 5);
+  if(cpfsLista.size){
+    const re = /\b([0-9]{3})[.\s]?([0-9]{3})[.\s]?([0-9]{3})[-.\s]?([0-9]{2})\b/g;
+    let m, outro = false;
+    while((m = re.exec(txt)) !== null){
+      const d = m[1] + m[2] + m[3] + m[4];
+      if(!cpfValido(d)) continue;
+      if(cpfsLista.has(d)) return false;
+      outro = true;
+    }
+    if(outro) return true;
+  }
+  const mm = txt.match(/MATR[IÍ]CULA\s*:?\s*([0-9]{5,8})\b/i) || txt.match(/\b([0-9]{6,8})\s*-\s*[A-ZÀ-Ú]{3,}/);
+  if(mm && matsLista.length){
+    const n = mm[1];
+    if(matsLista.some(x=>x === n)) return false;
+    return true;
+  }
+  return false;
+}
+
 function reconhecerTodos(){
   const universo = todosOsDocs();
   S.arquivos.forEach(a=>{
@@ -4547,12 +4576,18 @@ function reconhecerTodos(){
 
     const donos = (a.textos||[]).map(t=>quemNoTexto(t));
     const ids = Array.from(new Set(donos.filter(Boolean).map(p=>p.id)));
+    /* páginas de gente fora da lista: marcadas com '?', viram barreira na separação e não entram em kit */
+    const estranhas = (a.textos||[]).map((t,i)=>!donos[i] && paginaDeOutraPessoa(t));
+    const temEstranha = estranhas.some(Boolean);
+    a.paginasDeOutros = estranhas.filter(Boolean).length;
 
-    if(ids.length === 1){
+    if(ids.length === 1 && !temEstranha){
       a.pessoaId = ids[0];
-    }else if(ids.length > 1){
+    }else if(ids.length >= 1){
       a.lote = true;
-      a.donos = donos.map(p=>p?p.id:null);
+      a.donos = donos.map((p,i)=>p ? p.id : (estranhas[i] ? '?' : null));
+    }else if(temEstranha){
+      /* só gente de fora: ninguém da lista está neste arquivo */
     }else{
       /* nada no conteúdo: tenta pelo nome do arquivo, para o caso
          de arquivos já renomeados à mão */
