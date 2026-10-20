@@ -6428,6 +6428,14 @@ function abrirColaborador(pid){
   const p = S.pessoas.find(x=>x.id===pid), k = S.kits[pid];
   if(!p || !k) return;
   const st = S.assin[pid] || (S.assin[pid] = {resp:{}});
+  /* Ordem de assinatura (Josianny, 20/10/2026): a Cimed assina primeiro (Keila, bloco DP)
+     e o colaborador assina a versão já assinada por ela. Sem nenhum bloco assinado pela
+     Cimed a tela do colaborador não abre, no tablet nem no link. Kit retomado de um PDF
+     já assinado pelo colaborador passa, porque a assinatura dele já existe. */
+  if(!st.empresa && !st.colab && !blocosAssinados(k, st).length){
+    torrada('A Cimed assina primeiro: peça a quem tem procuração (Keila, bloco DP) para assinar este kit no passo 4. Depois disso o colaborador assina a versão já assinada.', 8000);
+    return;
+  }
   if(!st.resp) st.resp = {};
   if(!st.vistos) st.vistos = {};
   if(!st.marcas) st.marcas = {};
@@ -8449,7 +8457,7 @@ function renderPainel(){
   const linhasB = [];
   ben.forEach(([k,rot])=>{
     let sim=0, nao=0;
-    S.pessoas.forEach(p=>{ const v=(S.assin[p.id]||{resp:{}}).resp[k]; if(v==='Sim')sim++; else if(v==='Não')nao++; });
+    S.pessoas.forEach(p=>{ const v=((S.assin[p.id]||{}).resp||{})[k]; if(v==='Sim')sim++; else if(v==='Não')nao++; });
     if(sim+nao) linhasB.push([rot,sim,nao]);
   });
   let deps = 0;
