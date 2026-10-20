@@ -5832,6 +5832,33 @@ function termoDoKit(st, kit){
   out.codigo = (st.colab && st.colab.codigo) || '';
   return out;
 }
+/* A via assinada vai por e-mail (Josianny, 20/10/2026): quando o colaborador
+   escolhe e-mail ao fechar o kit, a plataforma enfileira a mensagem com o PDF.
+   No celular (kit on-line) quem faz isso é o servidor; aqui é o tablet. */
+async function enviarViaPorEmail(p, st){
+  if(MODO_ONLINE || location.protocol === 'file:' || !p || !st || !st.pdfAssinado) return;
+  const ent = st.entrega || {};
+  if(ent.canal !== 'email' || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(ent.contato || '').trim())) return;
+  if(st.viaEnviadaEm) return;
+  const sb = await nuvemEquipe(true);
+  if(!sb) return;
+  try{
+    const r = await sb.rpc('enfileirar_via_assinada', {p_cpf: digitos(p.cpf), p_email: String(ent.contato).trim(),
+      p_nome_arquivo: nomeArquivoKit(p, st), p_base64: b64(st.pdfAssinado), p_codigo: (st.colab && st.colab.codigo) || ''});
+    if(r.error) throw new Error(r.error.message);
+    st.viaEnviadaEm = agoraCerta().toISOString(); salvar();
+    torrada('A via assinada foi para a fila de e-mails da plataforma: ' + ent.contato, 5000);
+  }catch(e){
+    torrada('A via assinada não entrou na fila de e-mails: ' + erroLegivel(e) + '. Mande pelo Painel.', 8000);
+  }
+}
+function b64(u8){
+  let s = '';
+  const CH = 0x8000;
+  for(let i = 0; i < u8.length; i += CH) s += String.fromCharCode.apply(null, u8.subarray(i, i + CH));
+  return btoa(s);
+}
+
 /* equipe (tablet ou Esteira logada): respostas vão pelo CPF */
 async function enviarRespostasPlataforma(p, st, k){
   if(MODO_ONLINE || location.protocol === 'file:' || !p || !st || digitos(p.cpf).length !== 11) return;
@@ -7340,7 +7367,7 @@ async function assinar(p, k, st, quem){
     st.empresa = empresaCompleta(k, st) ? resumoEmpresa(k, st) : null;
   }
   salvar();
-  if(quem.papel === 'colaborador' && !MODO_ONLINE) enviarRespostasPlataforma(p, st, k);
+  if(quem.papel === 'colaborador' && !MODO_ONLINE){ enviarRespostasPlataforma(p, st, k); enviarViaPorEmail(p, st); }
   if(quem.papel === 'empresa' && st.online && !MODO_ONLINE) atualizarOnline(p.id);
   marcarKitNoBanco(p, st, k);
   guardarKit(p.id).then(()=>{
@@ -7386,7 +7413,7 @@ function abrirQR(pid){
     catch(e){ qr = '<div class="dica">QR indisponível</div>'; }
     h = '<div class="flex" style="align-items:flex-start;gap:22px">' + qr
       + '<div style="flex:1;min-width:250px">'
-      + '<p class="dica forte" style="margin-top:0">O colaborador aponta a câmera do celular, confirma CPF e data de admissão, lê os documentos e assina com o dedo. O kit assinado volta para a Admissão.</p>'
+      + '<p class="dica forte" style="margin-top:0">O colaborador aponta a câmera do celular, confirma CPF e data de nascimento, lê os documentos e assina com o dedo. O kit assinado volta para a Admissão.</p>'
       + (st.empresa ? '' : blocosAssinados(S.kits[pid], st).length
           ? '<div class="aviso" style="margin-bottom:10px"><div><b>Falta a Cimed assinar: ' + esc(textoPendentes(S.kits[pid], st)) + '.</b> O link já abre (a Cimed assinou ' + esc(blocosAssinados(S.kits[pid], st).map(b=>b.titulo).join(', ')) + '); o bloco pendente é assinado depois por quem tem procuração para a área.</div></div>'
           : '<div class="aviso" style="margin-bottom:10px"><div><b>Falta a assinatura da Cimed.</b> O link só abre depois que a Cimed assinar pelo menos um bloco deste kit.</div></div>')
@@ -7646,7 +7673,7 @@ async function publicarOnline(pid, botao){
     await subirNaNuvem(sb, js, JSON.stringify(dadosDoKit(pid)), 'application/json');
     const blocos = blocosParaBanco(k, st);
     const corpo = {
-      p_id: id, p_pid: p.id, p_nome: p.nome, p_cpf: digitos(p.cpf), p_nasc: p.admissao || p.nasc || null,
+      p_id: id, p_pid: p.id, p_nome: p.nome, p_cpf: digitos(p.cpf), p_nasc: p.nasc || null,
       p_token_hash: await hashTexto(token), p_dias: 7, p_hash_original: k.hash,
       p_pdf: pdf, p_json: js, p_empresa_nome: blocos ? null : (st.empresa ? st.empresa.nome : null), p_blocos: blocos
     };
@@ -7873,10 +7900,10 @@ async function modoOnline(id, token){
   $('#janelaTit').textContent = 'Kit de admissão Cimed';
   $('#janelaCorpo').innerHTML = '<div class="porta">'
     + '<h3>Seu kit de admissão</h3>'
-    + '<p class="dica">Confirme o seu CPF e a data da sua admissão (o primeiro dia de trabalho) para abrir os documentos. Eles são conferidos com o cadastro do RH, e nada fica salvo neste celular.</p>'
+    + '<p class="dica">Confirme o seu CPF e a sua data de nascimento para abrir os documentos. Eles são conferidos com o cadastro do RH, e nada fica salvo neste celular.</p>'
     + '<label class="campo"><span>Seu CPF</span>'
     + '<input type="text" id="cpfOnline" inputmode="numeric" placeholder="000.000.000-00" autocomplete="off"></label>'
-    + '<label class="campo"><span>Data de admissão (seu primeiro dia)</span>'
+    + '<label class="campo"><span>Data de nascimento</span>'
     + '<input type="text" id="nascOnline" inputmode="numeric" placeholder="dd/mm/aaaa" autocomplete="off" maxlength="10"></label>'
     + '<button class="b prim" id="btEntrarOnline" style="width:100%;justify-content:center;margin-top:6px">Abrir meus documentos</button>'
     + '<p class="dica" id="erroOnline" style="color:var(--critico);margin-top:10px" hidden></p>'
@@ -7893,7 +7920,7 @@ async function modoOnline(id, token){
   const entrar = async ()=>{
     const cpf = digitos($('#cpfOnline').value), nasc = nascEl.value.trim();
     if(cpf.length !== 11){ mostrarErro('Digite os 11 números do CPF.'); return; }
-    if(digitos(nasc).length !== 8){ mostrarErro('Digite a data de admissão completa, como 03/11/2026.'); return; }
+    if(digitos(nasc).length !== 8){ mostrarErro('Digite a data de nascimento completa, como 14/03/1996.'); return; }
     erro.hidden = true; bt.disabled = true; bt.textContent = 'Conferindo...';
     let r;
     try{
@@ -7967,9 +7994,9 @@ function telaPronta(p, st){
 /* a sessão venceu ou o link foi aberto em outra aba: confirma de novo sem perder a assinatura */
 function pedirDadosDeNovo(p, k, st, aviso){
   telaOnline('<h3>Confirme os seus dados para enviar</h3>'
-    + '<p class="dica">' + esc(aviso || 'Por segurança, confirme de novo o CPF e a data de admissão. A sua assinatura continua aqui.') + '</p>'
+    + '<p class="dica">' + esc(aviso || 'Por segurança, confirme de novo o CPF e a data de nascimento. A sua assinatura continua aqui.') + '</p>'
     + '<label class="campo"><span>Seu CPF</span><input type="text" id="cpfRenova" inputmode="numeric" placeholder="000.000.000-00" autocomplete="off"></label>'
-    + '<label class="campo"><span>Data de admissão</span><input type="text" id="nascRenova" inputmode="numeric" placeholder="dd/mm/aaaa" autocomplete="off" maxlength="10"></label>'
+    + '<label class="campo"><span>Data de nascimento</span><input type="text" id="nascRenova" inputmode="numeric" placeholder="dd/mm/aaaa" autocomplete="off" maxlength="10"></label>'
     + '<button class="b prim" id="btRenova" style="width:100%;justify-content:center;margin-top:6px">Confirmar e enviar</button>'
     + '<p class="dica" id="erroRenova" style="color:var(--critico);margin-top:10px" hidden></p>');
   const nascEl = $('#nascRenova');

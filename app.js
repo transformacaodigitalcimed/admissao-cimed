@@ -275,7 +275,23 @@ const ETAPAS = [
 ];
 const ETAPA = Object.fromEntries(ETAPAS.map((e) => [e.id, e]));
 const GATILHO = { cadastro: 'Quando o R&S cadastra', docs_ok: 'Quando a documentação fica completa', matricula: 'Quando a matrícula é gerada', termo: 'Quando o Termo de Transparência tem resposta "Sim"' };
-const TIPO_EMAIL = { cadastro: 'Novo aprovado', boasvindas: 'Boas-vindas', cobranca: 'Cobrança', docs_ok: 'Documentação completa', matricula: 'Matrícula', lg: 'Movimentar no LG', convite: 'Convite da integração', turma: 'Lista da turma', beneficios_opcoes: 'Opções de benefícios', termo: 'Termo de Transparência' };
+const TIPO_EMAIL = { cadastro: 'Novo aprovado', boasvindas: 'Boas-vindas', cobranca: 'Cobrança', docs_ok: 'Documentação completa', matricula: 'Matrícula', lg: 'Movimentar no LG', convite: 'Convite da integração', turma: 'Lista da turma', beneficios_opcoes: 'Opções de benefícios', termo: 'Termo de Transparência', via_assinada: 'Via assinada do kit' };
+// a jornada de e-mails do colaborador, na ordem (os demais e-mails vão para as áreas e a equipe)
+const JORNADA_EMAILS = [
+  ['boasvindas', 'Cadastro do aprovado pelo R&S', 'Boas-vindas: data da integração, lista de documentos, como enviar (LG), prazo do corte da turma, link do Código de Conduta e aviso de privacidade.'],
+  ['cobranca', 'Todo dia, enquanto faltar documento (até o corte da turma)', 'Cobrança dos documentos que faltam ou precisam ser reenviados; também pelo botão "Cobrar" da ficha.'],
+  ['convite', 'Matrícula registrada', 'Convite da integração: data, hora, local (ou link do Teams) e quem procurar ao chegar; gestor e recrutadora em cópia.'],
+  ['via_assinada', 'Colaborador assina o kit e escolhe e-mail', 'Via assinada do kit admissional em PDF, com o código de verificação.'],
+];
+const EMAILS_EQUIPE = [
+  ['cadastro', 'Cadastro', 'Áreas com aviso no cadastro (Saúde para agendar o ASO, Admissão, Remuneração, Sindical no Comercial, TI previsão de equipamento).'],
+  ['lg', 'ASO apto', 'Pedido à analista de R&S para movimentar a pessoa no LG.'],
+  ['docs_ok', 'Documentação completa', 'Saúde (confirmar ASO), Frotas, Facilities, R&S, BP da unidade e gestor.'],
+  ['matricula', 'Matrícula', 'Áreas da matrícula (TI para abrir o chamado, Benefícios com dependentes, Segurança, DP).'],
+  ['turma', 'Botão "Enviar por e-mail" da tela Turma e lista', 'Lista da turma (U1/U2) para os destinatários da unidade, requisitantes em cópia.'],
+  ['beneficios_opcoes', 'Kit assinado', 'Escolhas de benefícios feitas no kit, para a área de Benefícios.'],
+  ['termo', 'Kit assinado com algum "Sim" no termo', 'Aviso ao Compliance sobre o Termo de Transparência.'],
+];
 const PARENTESCOS = ['Filho(a)', 'Enteado(a)', 'Cônjuge', 'Companheiro(a)', 'Pai', 'Mãe'];
 const ESOCIAL = ['S-2200 (admissão)', 'S-2300 (estágio, sem vínculo)', 'S-2200 retificação', 'S-3000 (exclusão)'];
 const GRUPO_TURMA = { todos: 'Todas as unidades', pa_sp_comercial: 'PA / SP / Comercial', ssbv_cds: 'SSBV e CDs' };
@@ -950,8 +966,8 @@ VIEWS.kit = () => {
   const ts = turmas();
   const prox = E.turmaKit || ts.find((t) => deIso(t) >= deIso(iso(new Date()))) || ts[ts.length - 1] || '';
   const prontos = vivas().filter((a) => a.matricula && a.data_inicio === prox).length;
-  return `<div class="cab"><div class="t"><span class="olho">Kit admissional</span><h1>Esteira de assinatura</h1><p class="apoio">A mesma Esteira de Admissão de sempre: junta os PDFs do LG por pessoa, a Cimed assina primeiro e o colaborador assina na tela. Com <b>Publicar on-line</b>, o kit vai para o armazenamento privado da plataforma: a Cimed assina de qualquer aparelho e o colaborador assina pelo QR, no celular dele, depois de confirmar CPF e data de admissão. Sem publicar, o kit fica só neste aparelho, como antes.</p></div>
-    <a class="bt" href="${(window.ESTEIRA_URL || 'esteira.html') + '?v=11'}" target="_blank" rel="noopener">Abrir em tela cheia</a></div>
+  return `<div class="cab"><div class="t"><span class="olho">Kit admissional</span><h1>Esteira de assinatura</h1><p class="apoio">A mesma Esteira de Admissão de sempre: junta os PDFs do LG por pessoa, a Cimed assina primeiro e o colaborador assina na tela. Com <b>Publicar on-line</b>, o kit vai para o armazenamento privado da plataforma: a Cimed assina de qualquer aparelho e o colaborador assina pelo QR, no celular dele, depois de confirmar CPF e data de nascimento. Sem publicar, o kit fica só neste aparelho, como antes.</p></div>
+    <a class="bt" href="${(window.ESTEIRA_URL || 'esteira.html') + '?v=12'}" target="_blank" rel="noopener">Abrir em tela cheia</a></div>
   ${faixaBlocos()}
   ${tem('admissao') && ts.length ? `<div class="faixa"><p><b>Lista de admitidos para a Esteira.</b> Copie os matriculados de uma turma e cole no passo 1 da Esteira, em "Colar da planilha". Nome, CPF, matrícula, unidade e cargo vão no formato que ela lê.</p>
     <label class="olho" for="turmaKit">Turma</label><select id="turmaKit" class="sel-doc">${ts.map((t) => `<option value="${t}" ${t === prox ? 'selected' : ''}>${dmd(t)}</option>`).join('')}</select>
@@ -963,7 +979,7 @@ POS.kit = () => {
   $('#turmaKit')?.addEventListener('change', (e) => { E.turmaKit = e.target.value; render(); });
   const host = $('#esteiraHost');
   if (!host.firstChild) {
-    host.innerHTML = `<iframe class="esteira" src="${(window.ESTEIRA_URL || 'esteira.html') + '?v=11'}" title="Esteira de Admissão"></iframe>`;
+    host.innerHTML = `<iframe class="esteira" src="${(window.ESTEIRA_URL || 'esteira.html') + '?v=12'}" title="Esteira de Admissão"></iframe>`;
     // a Esteira lê os mesmos parâmetros do Supabase; mandar daqui cobre o teste sem banco e evita esperar
     const fr = host.firstChild;
     fr.addEventListener('load', () => {
@@ -979,9 +995,8 @@ function listaParaEsteira(turma) {
   const unidade = (l) => ({ 'Fernão Dias': 'Pouso Alegre (Fernão Dias)', 'Gráfica SSBV': 'SSBV', 'Angélica': 'Escritório SP', 'Faria Lima': 'Escritório SP' }[l] || l);
   const fmtN = (d) => (d ? d.slice(8, 10) + '/' + d.slice(5, 7) + '/' + d.slice(0, 4) : '');
   const linhas = vivas().filter((a) => a.matricula && a.data_inicio === turma)
-    .map((a) => [a.nome, fmtCpf(a.cpf), a.email || '', fmtN(a.nasc), a.matricula, unidade(a.local), a.cargo, a.setor || '', [a.cc_codigo, a.cc_nome].filter(Boolean).join(' - '), fmtN(a.data_inicio)].map((x) => String(x).replace(/	/g, ' ')).join('	'));
-  return ['NOME	CPF	E-MAIL	NASCIMENTO	MATRICULA	UNIDADE	CARGO	SETOR	CC	ADMISSAO', ...linhas].join('
-');
+    .map((a) => [a.nome, fmtCpf(a.cpf), a.email || '', fmtN(a.nasc), a.matricula, unidade(a.local), a.cargo, a.setor || '', [a.cc_codigo, a.cc_nome].filter(Boolean).join(' - '), fmtN(a.data_inicio)].map((x) => String(x).replace(/\t/g, ' ')).join('\t'));
+  return ['NOME\tCPF\tE-MAIL\tNASCIMENTO\tMATRICULA\tUNIDADE\tCARGO\tSETOR\tCC\tADMISSAO', ...linhas].join('\n');
 }
 
 // ------------------------------------------------------------- entregas
@@ -1122,6 +1137,12 @@ VIEWS.emails = () => {
   return `<div class="cab"><div class="t"><span class="olho">Comunicação</span><h1>Fila de e-mails</h1><p class="apoio">Tudo o que a plataforma manda sozinha, com o texto exato. Os e-mails saem da caixa ${esc(E.params.remetente || '')}.</p></div></div>
   ${E.params.envio_ativo !== 'sim' ? `<div class="aviso-faixa">${ICO.at.replace('<svg', '<svg width="16" height="16"')}Modo homologação: os e-mails ficam na fila e nada é enviado. Para ligar, mude o parâmetro envio_ativo para "sim" no Supabase.</div>` : ''}
   ${E.params.redirecionar_para ? `<div class="aviso-faixa info">${ICO.info.replace('<svg', '<svg width="16" height="16"')}Modo teste: todos os e-mails vão só para ${esc(E.params.redirecionar_para)}.</div>` : ''}
+  <details class="caixa" style="margin-bottom:12px"><summary style="cursor:pointer;font-weight:700">Jornada de e-mails do colaborador (da aprovação em diante)</summary>
+   <div class="docs" style="margin-top:10px">${JORNADA_EMAILS.map(([t, q, d], i) => `<div class="doc"><div><div class="dn">${i + 1}. ${esc(TIPO_EMAIL[t] || t)} <span class="apoio" style="font-weight:400">· quando: ${esc(q)}</span></div><div class="dm">${esc(d)}</div></div><div class="acoes">${chip(E.emails.some((m) => m.tipo === t) ? 'c-ok' : 'c-ag', E.emails.some((m) => m.tipo === t) ? 'ok' : '', plural(E.emails.filter((m) => m.tipo === t).length, 'na fila ou enviado', 'na fila ou enviados'))}</div></div>`).join('')}</div>
+   <p class="apoio" style="font-size:12.5px;margin:10px 0 4px">Para a equipe e as áreas (não vão ao colaborador):</p>
+   <div class="docs">${EMAILS_EQUIPE.map(([t, q, d]) => `<div class="doc"><div><div class="dn">${esc(TIPO_EMAIL[t] || t)} <span class="apoio" style="font-weight:400">· ${esc(q)}</span></div><div class="dm">${esc(d)}</div></div></div>`).join('')}</div>
+   <p class="apoio" style="font-size:12.5px;margin-top:8px">WhatsApp: a plataforma não envia mensagens pelo WhatsApp; isso exige a API oficial do WhatsApp Business. O número do time (${esc(E.params.whatsapp_admissao || '')}) aparece nos e-mails, e a Esteira abre a conversa com o texto pronto para anexar o PDF.</p>
+  </details>
   <div class="grade" style="grid-template-columns:minmax(0,360px) minmax(0,1fr)">
    <div class="mail-lista">${l.map((x) => `<button class="mail" data-act="selMail" data-id="${x.id}" aria-current="${x.id === E.selMail}"><span class="linha-flex" style="gap:6px">${stc[x.status] || ''}${chip('c-info', '', tipo[x.tipo] || x.tipo)}<small class="num">${quando(x.criado_em)}</small></span><span class="as">${esc(x.assunto)}</span><small>Para: ${esc(x.para_nome || (x.para || []).join(', '))}</small></button>`).join('') || '<div class="vazio">Nenhum e-mail ainda.</div>'}</div>
    ${m ? `<article class="carta"><div class="faixa-mail"></div><div class="hdr"><b>Para</b><span>${esc((m.para || []).join(', '))}</span><b>Assunto</b><span><b style="color:var(--tx)">${esc(m.assunto)}</b></span><b>Situação</b><span>${stc[m.status] || ''} ${m.enviado_em ? 'em ' + quando(m.enviado_em) : ''}${m.erro ? '<br><span style="color:var(--cr)">' + esc(m.erro) + '</span>' : ''}</span>${Array.isArray(m.anexos) && m.anexos.length ? `<b>Anexo</b><span>${esc(m.anexos.map((x) => x.nome).join(', '))}</span>` : ''}</div><div class="corpo">${esc(m.corpo)}</div>${['erro', 'descartado'].includes(m.status) ? `<div style="padding:0 18px 18px"><button class="bt" data-act="reenviar" data-id="${m.id}">Tentar de novo</button></div>` : ''}</article>` : ''}
