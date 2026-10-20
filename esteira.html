@@ -8061,7 +8061,18 @@ async function novoLinkOnline(pid){
   if(!sb) return;
   const token = b64url(crypto.getRandomValues(new Uint8Array(24)));
   const r = await sb.rpc('kit_novo_link', {p_id: st.online.id, p_token_hash: await hashTexto(token), p_dias: 7});
-  if(r.error){ torrada('Não foi possível gerar o link: ' + erroLegivel(r.error), 8000); return; }
+  if(r.error){
+    if(/já foi assinado ou foi cancelado/i.test(String(r.error.message || ''))){
+      torrada('Este kit foi substituído por uma publicação mais nova ou já foi assinado. Buscando a versão atual...', 7000);
+      try{ await sincronizarAutomatico(); }catch(e){}
+      const o2 = S.assin[pid] && S.assin[pid].online;
+      if(o2 && o2.id !== st.online.id){ abrirQR(pid); return; }
+      if(S.assin[pid] && S.assin[pid].colab){ torrada('Esta pessoa já assinou o kit: não precisa de link novo.', 7000); abrirQR(pid); return; }
+      torrada('Não achei um kit ativo desta pessoa na nuvem. Publique on-line de novo.', 9000);
+      return;
+    }
+    torrada('Não foi possível gerar o link: ' + erroLegivel(r.error), 8000); return;
+  }
   st.online.token = token;
   salvar(); guardarKit(pid);
   torrada('Link novo gerado. O anterior parou de funcionar.', 4500);
@@ -8204,6 +8215,8 @@ async function abrirKitsOnline(){
 async function sincronizarOnline(silencioso){
   const pids = Object.keys(S.assin).filter(pid=>S.assin[pid] && S.assin[pid].online && S.kits[pid]);
   if(!pids.length){ if(!silencioso) torrada('Nenhum kit deste aparelho está on-line.'); return; }
+  /* a sincronização completa também troca kit cancelado pelo ativo e reenvia assinatura pendente */
+  if(!silencioso){ try{ await sincronizarAutomatico(); }catch(e){} }
   const sb = await nuvemEquipe(silencioso);
   if(!sb) return;
   const ids = pids.map(pid=>S.assin[pid].online.id);
@@ -8305,6 +8318,17 @@ async function sincronizarAutomatico(){
     Object.keys(S.assin).forEach(pid=>{ const o = S.assin[pid] && S.assin[pid].online; if(o && S.kits[pid]) local[o.id] = {versao: o.versao, pid: pid}; });
     const minhas = minhasAreas();
     const mudados = [], novos = [];
+    /* kit guardado aqui que não está mais ativo na nuvem (foi publicado de novo em outro aparelho):
+       troca pelo kit ativo da mesma pessoa, para o link e a assinatura saírem do kit certo */
+    const ativos = {}; (r.data || []).forEach(row=>{ ativos[row.id] = row; });
+    const norm = s=>sem(String(s || '')).toLowerCase().replace(/\s+/g, ' ').trim();
+    Object.keys(local).forEach(id=>{
+      if(ativos[id]) return;
+      const pid = local[id].pid, p = S.pessoas.find(x=>x.id === pid);
+      if(!p) return;
+      const subst = (r.data || []).find(row=>!local[row.id] && (row.pid === pid || norm(row.nome) === norm(p.nome)));
+      if(subst && !mudados.some(x=>x.id === subst.id)){ subst._substitui = pid; mudados.push(subst); }
+    });
     (r.data || []).forEach(row=>{
       const l = local[row.id];
       if(l){ if(l.versao < row.versao) mudados.push(row); return; }
@@ -8330,6 +8354,8 @@ async function sincronizarAutomatico(){
     }
     if(n){
       salvar(); renderPessoas(); renderCartoes(); renderKits(); renderPainel(); atualizarPlacar();
+      const trocados = mudados.filter(x=>x._substitui).map(x=>x.nome.split(' ')[0]);
+      if(trocados.length) torrada('Kit atualizado para a versão publicada mais recente: ' + trocados.join(', ') + '.', 8000);
       if(novos.length) torrada(novos.length + ' kit(s) chegaram para você assinar pela Cimed. Veja o passo 4.', 8000);
       if(assinouCimed.length) torrada('A Cimed assinou: ' + assinouCimed.join(', ') + '. Os kits já voltaram para cá.', 8000);
       if(assinouColab.length) torrada('Assinaram pelo celular: ' + assinouColab.join(', ') + '. Os kits já estão aqui.', 8000);
