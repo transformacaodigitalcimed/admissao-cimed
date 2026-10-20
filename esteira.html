@@ -3170,7 +3170,7 @@ const AREA_NOME = Object.fromEntries(AREAS);
    só o bloco DP leva a assinatura da Cimed (Keila). Se um dia uma dessas
    áreas cadastrar um nome em signatarios_por_area, o bloco dela volta a
    pedir a assinatura da Cimed. */
-const AREAS_SO_COLABORADOR = ['beneficios', 'compliance'];
+const AREAS_SO_COLABORADOR = ['beneficios', 'compliance', 'seguranca'];
 function cimedAssinaArea(area){
   if(AREAS_SO_COLABORADOR.indexOf(area) < 0) return true;
   return !!(SIG_AREAS && (SIG_AREAS[area] || []).length);
@@ -3213,7 +3213,7 @@ function blocosAssinados(k, st){ return blocosDoKit(k).filter(b=>assinaturaBloco
 function textoPendentes(k, st){ return blocosPendentes(k, st).map(b=>b.titulo).join(', '); }
 function empresaCompleta(k, st){
   const bs = blocosDoKit(k);
-  if(!bs.some(b=>b.assinavel)) return blocosAssinados(k, st).length > 0;
+  if(!bs.some(b=>b.assinavel)) return true;
   return !blocosPendentes(k, st).length;
 }
 /* resumo da Cimed para o resto da ferramenta: st.empresa só existe quando todos os blocos estão assinados */
@@ -3229,7 +3229,7 @@ function blocosParaBanco(k, st){
   const o = {};
   blocosDoKit(k).forEach(b=>{
     if(b.legado) return;
-    const s = assinaturaBloco(st, b.area);
+    const s = b.soColab ? null : assinaturaBloco(st, b.area);
     o[b.area] = {titulo: b.titulo, docs: b.docs.length, assinavel: b.assinavel,
       assinado_empresa_em: s ? s.em : null, empresa_nome: s ? s.nome : null,
       procuracao: s && s.procuracao ? s.procuracao : null,
@@ -3262,6 +3262,16 @@ function botoesBlocos(pid, k, st){
 const DOC_TERMO = d('Termo de Transparencia e Conflito de Interesses', {area:'compliance', gerado:true, preenche:true, assina:true, obs:'Gerado pela Esteira. Respostas só com o Compliance.'});
 const CHAVE_TERMO = 'termo de transparencia e conflito de interesses';
 let TERMO_ATIVO = true;
+/* Ordem de Serviço da Segurança do Trabalho (reunião de 15/10/2026): uma por
+   pessoa, para fábricas e CDs. A parte fixa está aqui; a parte que muda por
+   função (atividades, riscos, EPI, EPC, NRs) vem da plataforma, validada pela
+   Segurança, pelas colunas OS_* da lista "Copiar matriculados". Sem validação
+   a OS não entra no kit. Parâmetro os_ativa desliga. */
+const DOC_OS = d('Ordem de Servico de Seguranca do Trabalho', {area:'seguranca', gerado:true, assina:true, obs:'Gerada pela Esteira com os dados validados pela Segurança (tela Segurança do Trabalho).'});
+const CHAVE_OS = 'ordem de servico de seguranca do trabalho';
+let OS_ATIVA = true;
+function temOS(p){ return OS_ATIVA && p && String(p.os_status || '').toLowerCase() === 'validada' && !!(p.os_atividades || p.os_riscos || p.os_epi); }
+function osPendente(p){ return OS_ATIVA && p && /pendente/i.test(String(p.os_status || '')); }
 let TERMO_URL = 'https://www.canalconfidencial.com.br/atitudecimed/';
 const TERMO_PERGUNTAS = [
   ['q1', 'Possui familiar de 1o grau (pais, filhos, irmaos, conjuge ou companheiro(a)) trabalhando na Cimed?', 'Nome, parentesco, cargo, area e turno'],
@@ -3563,6 +3573,7 @@ async function guardarKit(pid){
       resp: respSemTermo(st.resp), vistos: st.vistos || {}, marcas: st.marcas || {},
       assinatura: st.assinatura || null, rubrica: st.rubrica || null,
       marcaNome: st.marcaNome || '', colab: st.colab || null, empresa: st.empresa || null,
+      blocos: st.blocos || null,
       pdfAssinado: st.pdfAssinado || null, pendAoFechar: st.pendAoFechar || null,
       entrega: st.entrega || null,
       assinaturasReplicadas: st.assinaturasReplicadas || 0, estampadas: st.estampadas || 0,
@@ -4043,7 +4054,16 @@ const COLS = [
   {k:'setor', t:'Setor / área', alv:['setor','area','departamento']},
   {k:'unidade', t:'Unidade', alv:['estabelecimento','unidade','localidade','local','filial','cd']},
   {k:'cc', t:'Centro de custo', alv:['centro de custo','cc','c custo','ccusto']},
-  {k:'admissao', t:'Data de admissão', alv:['data de admissao','admissao','data de inicio','data inicio','inicio']}
+  {k:'admissao', t:'Data de admissão', alv:['data de admissao','admissao','data de inicio','data inicio','inicio']},
+  {k:'cbo', t:'CBO', alv:['cbo']},
+  {k:'os_status', t:'OS (status)', alv:['os status','os_status']},
+  {k:'os_atividades', t:'OS · atividades', alv:['os atividades','os_atividades']},
+  {k:'os_riscos', t:'OS · riscos', alv:['os riscos','os_riscos']},
+  {k:'os_epi', t:'OS · EPI', alv:['os epi','os_epi']},
+  {k:'os_epc', t:'OS · EPC', alv:['os epc','os_epc']},
+  {k:'os_nrs', t:'OS · NRs', alv:['os nrs','os_nrs']},
+  {k:'os_validada_por', t:'OS · validada por', alv:['os validada por','os_validada_por']},
+  {k:'os_matriz_versao', t:'OS · versão da matriz', alv:['os matriz versao','os_matriz_versao']}
 ];
 
 /* A planilha real de admitidos tem "Empresa", "Estabelecimento",
@@ -4650,6 +4670,7 @@ function renderArqs(){
    ========================================================= */
 function docsDe(p){
   const l = (S.base[p.perfil] || []).map(x=>x);
+  if(temOS(p)) l.push(DOC_OS);
   if(TERMO_ATIVO) l.push(DOC_TERMO);
   return l;
 }
@@ -4964,6 +4985,7 @@ function renderCartoes(){
     const extras = s.meus.filter(a=>!s.docs.some(dd=>chaveDoc(dd.nome)===a.docKey));
     extras.forEach(a=>{ h += '<li class="opc"><span class="ic o">+</span><span>'+esc(limparNomeLG(a.nome))+' <span class="dica">(fora da base)</span></span></li>'; });
     h += '</ul><div class="cartao-pe">';
+    if(osPendente(p)) h += '<span class="et at" title="A Ordem de Serviço da Segurança ainda não foi validada na plataforma; o kit sai sem ela">OS da Segurança pendente</span>';
     if(S.kits[p.id]){
       h += '<span class="et ok">Kit pronto · '+esc(S.kits[p.id].pags)+' pág</span>';
       /* "Assinado" so quando os dois assinaram: com a Cimed sozinha o cartao
@@ -5618,7 +5640,6 @@ async function estamparAssinaturas(bytes, p, st, quem, kit){
     };
 
     /* percorre documento por documento do kit */
-    kit.indice.forEach(function(){});
     /* A pessoa escolheu campo por campo: rubrica ou assinatura. Aqui
        cada marca registrada é impressa no ponto exato onde ela tocou.
        Sem marcas, vale o comportamento antigo de assinar tudo. */
@@ -5715,6 +5736,69 @@ function limpoPDF(s){
   return String(s==null?'':s).replace(/[\u2010-\u2015\u2212]/g,'-')
     .replace(/[\u2018\u2019]/g,"'").replace(/[\u201C\u201D]/g,'"')
     .replace(/[\u00A0\u2007\u202F]/g,' ').replace(/[^\x20-\x7E\u00C0-\u00FF]/g,'');
+}
+
+/* ---- Ordem de Serviço (Segurança do Trabalho): parte fixa + campos por função ---- */
+const OS_TXT = {
+  objetivo: 'Esta Ordem de Servico tem por objetivo informar ao empregado, por escrito, os riscos ocupacionais existentes no seu ambiente de trabalho e na sua funcao, as medidas de prevencao e controle adotadas pela empresa, os equipamentos de protecao e as suas obrigacoes, conforme a NR-1 e o Capitulo V da CLT (art. 157 e 158).',
+  obrigacoes: 'Obrigacoes do empregado (NR-1 e CLT art. 158): cumprir as normas de seguranca e saude no trabalho e as ordens de servico; usar, guardar e conservar os EPIs fornecidos; comunicar ao superior imediato qualquer situacao de risco, acidente ou doenca; participar dos treinamentos; submeter-se aos exames medicos previstos; nao executar atividade para a qual nao esteja treinado e autorizado. A recusa injustificada ao cumprimento destas normas constitui ato faltoso.',
+  orientacoes: 'Orientacoes gerais: mantenha o local de trabalho limpo e organizado; respeite a sinalizacao e os bloqueios; nao improvise ferramentas nem remova protecoes de maquinas; em caso de acidente ou mal-estar, procure o ambulatorio ou a Seguranca do Trabalho; em emergencia, siga o plano de abandono da unidade. Siga tambem as recomendacoes da Medicina do Trabalho registradas no seu exame admissional.'
+};
+function desenharOS(doc, p, reg, neg){
+  const cor = rgb(0.09, 0.086, 0.055), cinza = rgb(0.42, 0.40, 0.32), risco = rgb(0.62, 0.60, 0.52);
+  const L = 56, W = 595.28, H = 841.89, LARG = W - 2 * L;
+  let pg, y, paginas = 0;
+  const nova = ()=>{
+    pg = doc.addPage([W, H]); paginas++;
+    pg.drawRectangle({x:0, y:H - 61, width:W, height:61, color:rgb(0.984, 0.769, 0)});
+    pg.drawText('CIMED', {x:L, y:H - 36, size:16, font:neg, color:cor});
+    pg.drawText('ORDEM DE SERVICO - SEGURANCA E SAUDE NO TRABALHO (NR-1)', {x:140, y:H - 36, size:10.5, font:neg, color:cor});
+    y = H - 90;
+  };
+  const texto = (txt, tam, fonte, c)=>{
+    quebrar(limpoPDF(txt), fonte || reg, tam || 9, LARG).forEach(l=>{
+      if(y < 150){ pg.drawText('continua na proxima folha', {x:L, y:40, size:7.5, font:reg, color:cinza}); nova(); }
+      pg.drawText(l, {x:L, y:y, size:tam || 9, font:fonte || reg, color:c || cor}); y -= (tam || 9) + 3.5;
+    });
+  };
+  const titulo = (txt)=>{ y -= 6; texto(txt, 9.5, neg, cinza); y -= 2; };
+  nova();
+  /* cabecalho */
+  const cab = [['Nome', p.nome], ['CPF', cpfTxt(p.cpf)], ['Matricula', p.matricula || ''], ['Admissao', p.admissao || ''],
+               ['Cargo', p.cargo || ''], ['CBO', p.cbo || ''], ['Setor / CC', p.setor || p.cc || ''], ['Unidade', p.unidade || '']];
+  cab.forEach(([k, v], i)=>{
+    const col = i % 2, lin = Math.floor(i / 2);
+    const x = L + col * (LARG / 2), yy = y - lin * 20;
+    pg.drawText(limpoPDF(k + ':'), {x:x, y:yy, size:8, font:neg, color:cinza});
+    pg.drawText(cabeNaLargura(limpoPDF(String(v || '')), reg, 9.5, LARG / 2 - 60), {x:x + 52, y:yy, size:9.5, font:reg, color:cor});
+    pg.drawLine({start:{x:x + 50, y:yy - 3}, end:{x:x + LARG / 2 - 12, y:yy - 3}, thickness:0.5, color:risco});
+  });
+  y -= 4 * 20 + 6;
+  titulo('1. OBJETIVO'); texto(OS_TXT.objetivo, 8.5);
+  titulo('2. OBRIGACOES DO EMPREGADO'); texto(OS_TXT.obrigacoes, 8.5);
+  titulo('3. DESCRICAO DAS ATIVIDADES'); texto(p.os_atividades || '(nao informado)', 9);
+  titulo('4. RISCOS DA FUNCAO (conforme PGR da unidade)'); texto(p.os_riscos || '(nao informado)', 9);
+  titulo('5. EQUIPAMENTOS DE PROTECAO INDIVIDUAL (EPI)'); texto(p.os_epi || '(nao informado)', 9);
+  titulo('6. EQUIPAMENTOS DE PROTECAO COLETIVA (EPC) E MEDIDAS DE CONTROLE'); texto(p.os_epc || '(nao informado)', 9);
+  titulo('7. TREINAMENTOS E NORMAS APLICAVEIS'); texto(p.os_nrs || 'NR-6 (EPI) e integracao de seguranca', 9);
+  titulo('8. ORIENTACOES GERAIS E RECOMENDACOES DA MEDICINA DO TRABALHO'); texto(OS_TXT.orientacoes, 8.5);
+  y -= 8;
+  texto('Declaro que recebi esta Ordem de Servico, que fui informado(a) dos riscos da minha funcao e das medidas de protecao, e que me comprometo a cumpri-la.', 9, neg);
+  /* assinatura: sempre na ultima folha, com espaco garantido */
+  if(y < 200){ nova(); }
+  const yA = 150;
+  pg.drawLine({start:{x:L, y:yA}, end:{x:L + 240, y:yA}, thickness:1, color:cor});
+  pg.drawText('Assinatura do colaborador', {x:L, y:yA - 14, size:8.5, font:reg, color:cinza});
+  pg.drawText(limpoPDF(p.nome), {x:L, y:yA - 26, size:8.5, font:reg, color:cinza});
+  pg.drawText('Local e data: ', {x:L + 270, y:yA + 20, size:9, font:neg, color:cinza});
+  pg.drawText('_______ de __________ de ______', {x:L + 332, y:yA + 20, size:9, font:reg, color:risco});
+  pg.drawText('Elaborada e validada pela Seguranca do Trabalho', {x:L + 270, y:yA - 14, size:8.5, font:reg, color:cinza});
+  pg.drawText(limpoPDF((p.os_validada_por || 'Seguranca do Trabalho') + (p.os_matriz_versao ? '  |  matriz v' + p.os_matriz_versao : '')), {x:L + 270, y:yA - 26, size:8.5, font:reg, color:cinza});
+  pg.drawText(limpoPDF('OS gerada pela Plataforma de Admissao em ' + hojeTxt() + '. A parte variavel (itens 3 a 7) vem da matriz da Seguranca por unidade e cargo.'), {x:L, y:56, size:7.5, font:reg, color:cinza});
+  for(let i = 0; i < paginas; i++){
+    doc.getPage(doc.getPageCount() - paginas + i).drawText('Pagina ' + (i + 1) + ' de ' + paginas, {x:W - L - 60, y:40, size:7.5, font:reg, color:cinza});
+  }
+  return paginas;
 }
 
 /* ---- Termo de Transparência: folhas, escrita das respostas e envio ---- */
@@ -5836,7 +5920,7 @@ function termoDoKit(st, kit){
    escolhe e-mail ao fechar o kit, a plataforma enfileira a mensagem com o PDF.
    No celular (kit on-line) quem faz isso é o servidor; aqui é o tablet. */
 async function enviarViaPorEmail(p, st){
-  if(MODO_ONLINE || location.protocol === 'file:' || !p || !st || !st.pdfAssinado) return;
+  if(MODO_ONLINE || location.protocol === 'file:' || !p || !st || !st.pdfAssinado || !st.colab || digitos(p.cpf).length !== 11) return;
   const ent = st.entrega || {};
   if(ent.canal !== 'email' || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(ent.contato || '').trim())) return;
   if(st.viaEnviadaEm) return;
@@ -5889,7 +5973,7 @@ async function reenviarRespostasPendentes(){
    índice dos documentos. É desenhada ao gerar e refeita a cada assinatura
    (por cima de um fundo branco), para a via final dizer o que já foi
    assinado e o que ainda falta. */
-function desenharCapa(capa, p, indice, totalPags, reg, neg, st){
+function desenharCapa(capa, p, indice, totalPags, reg, neg, st, geradoEm){
   const L = 56, W = 595.28, H = 841.89;
   capa.drawRectangle({x:0, y:0, width:W, height:H, color:rgb(1,1,1)});
   capa.drawRectangle({x:0, y:H-118, width:W, height:118, color:rgb(0.984,0.769,0)});
@@ -5907,7 +5991,7 @@ function desenharCapa(capa, p, indice, totalPags, reg, neg, st){
     ['Matricula', p.matricula],
     ['CPF', cpfTxt(p.cpf)],
     ['E-mail', p.email],
-    ['Kit gerado em', hojeTxt()]
+    ['Kit gerado em', hojeTxt(geradoEm ? new Date(geradoEm) : new Date())]
   ].filter(function(l){ return String(l[1] == null ? '' : l[1]).trim(); });
   linhas.forEach(([k,v])=>{
     capa.drawText(limpoPDF(k), {x:L, y:y, size:9, font:neg, color:rgb(0.42,0.4,0.32)});
@@ -6001,6 +6085,11 @@ async function gerarKit(pid, avisar){
     }catch(e){ /* pula arquivo problemático */ }
   }
   if(!saida.getPageCount()){ if(avisar) torrada('Não foi possível ler os PDFs desta pessoa.'); return null; }
+  if(temOS(p)){
+    const ini = saida.getPageCount() + 1;
+    const qtd = desenharOS(saida, p, reg, neg);
+    indice.push({nome: DOC_OS.nome, ini: ini, qtd: qtd, area: 'seguranca', assina: true});
+  }
   if(TERMO_ATIVO){
     const ini = saida.getPageCount() + 1;
     const qtd = desenharTermo(saida, p, reg, neg);
@@ -6054,6 +6143,7 @@ function nomeArquivoKit(p, st){
   const base = 'KIT ADMISSAO - ' + sem(p.nome).replace(/ /g,' ') + (p.matricula?' - '+digitos(p.matricula):'');
   const a = st || {};
   const sufixo = (a.empresa && a.colab) ? ' - ASSINADO'
+    : (a.colab && a.blocos && Object.keys(a.blocos).length) ? ' - COLABORADOR ASSINOU - CIMED EM PARTE'
     : a.colab ? ' - SO O COLABORADOR ASSINOU'
     : a.empresa ? ' - SO A CIMED ASSINOU'
     : (a.blocos && Object.keys(a.blocos).length) ? ' - CIMED ASSINOU EM PARTE'
@@ -6767,7 +6857,7 @@ function blocoDoPonto(ponto, st, p){
       + (feita.tipo === 'rubrica' ? 'Rubricado' : 'Assinado') + '</span>'
       + '<span class="dica">' + esc(hojeTxt(new Date(feita.em)).split(' às ')[1] || '') + '</span>'
       + '<button class="b peq fant" data-tirar="' + ponto.id + '">Tirar</button></div>';
-    if(img) h += '<div class="rubrica-previa"><img src="' + img + '" alt=""></div>';
+    if(img && /^data:image\/png;base64,[A-Za-z0-9+\/=]+$/.test(img)) h += '<div class="rubrica-previa"><img src="' + esc(img) + '" alt=""></div>';
     else h += '<div class="dica" style="text-align:center">' + esc(st.marcaNome || p.nome) + '</div>';
   }else if(capturando){
     const tipo = C.captura.tipo;
@@ -7008,8 +7098,11 @@ function ligarColaborador(p, k, st){
   const bte = corpo.querySelector('#cbTermoEditar');
   if(bte) bte.addEventListener('click', ()=>{ st.resp.termo_etapa = 'perguntas'; salvar(); renderColab(); aoTopo(); });
   /* o botao "ver o termo" acompanha as respostas sem redesenhar a tela */
-  corpo.addEventListener('change', ()=>{ const b = corpo.querySelector('#cbTermoRevisar'); if(b) b.disabled = !termoRespondido(st); });
-  corpo.addEventListener('input', ()=>{ const b = corpo.querySelector('#cbTermoRevisar'); if(b) b.disabled = !termoRespondido(st); });
+  if(!corpo._termoLigado){
+    corpo._termoLigado = true;
+    const liga = ()=>{ const b = corpo.querySelector('#cbTermoRevisar'); const s2 = S.assin[C.pid]; if(b && s2) b.disabled = !termoRespondido(s2); };
+    corpo.addEventListener('change', liga); corpo.addEventListener('input', liga);
+  }
   const bc = corpo.querySelector('#cbConcluir');
   if(bc) bc.addEventListener('click', ()=>{
     C.passo = C.docs.length; C.doFecho = false; C.captura = null; salvar(); renderColab(); aoTopo();
@@ -7260,7 +7353,7 @@ async function assinar(p, k, st, quem){
 
   /* a capa é refeita com o status de cada bloco (não num kit retomado de PDF, que não tem capa nossa) */
   if((k.indice || []).length && !k.retomado){
-    try{ desenharCapa(doc.getPage(0), p, k.indice, k.pags, reg, neg, stDepois); }catch(e){}
+    try{ doc.removePage(0); desenharCapa(doc.insertPage(0, [595.28, 841.89]), p, k.indice, k.pags, reg, neg, stDepois, k.em); }catch(e){}
   }
   /* empresa em cima, bloco por bloco, colaborador embaixo, que é a ordem do processo */
   const todas = [];
@@ -7369,6 +7462,7 @@ async function assinar(p, k, st, quem){
   salvar();
   if(quem.papel === 'colaborador' && !MODO_ONLINE){ enviarRespostasPlataforma(p, st, k); enviarViaPorEmail(p, st); }
   if(quem.papel === 'empresa' && st.online && !MODO_ONLINE) atualizarOnline(p.id);
+  if(quem.papel === 'empresa' && st.empresa && st.colab && !MODO_ONLINE){ st.viaEnviadaEm = null; enviarViaPorEmail(p, st); }
   marcarKitNoBanco(p, st, k);
   guardarKit(p.id).then(()=>{
     try{ if(canal) canal.postMessage({tipo:'assinado', pid:p.id, papel:quem.papel, nome:quem.nome}); }catch(e){}
@@ -7555,8 +7649,9 @@ async function nuvemEquipe(silencioso){
   if(!NUVEM.relogio){
     NUVEM.relogio = true;
     sb.rpc('agora_servidor').then(x=>{ if(x && x.data) acertarRelogio(x.data); }).catch(()=>{});
-    sb.from('parametros').select('chave, valor').in('chave', ['termo_transparencia_ativo', 'codigo_conduta_url']).then(x=>{
+    sb.from('parametros').select('chave, valor').in('chave', ['termo_transparencia_ativo', 'codigo_conduta_url', 'os_ativa']).then(x=>{
       (x && x.data || []).forEach(r=>{
+        if(r.chave === 'os_ativa'){ OS_ATIVA = String(r.valor || 'sim').trim() !== 'nao'; renderCartoes(); }
         if(r.chave === 'termo_transparencia_ativo'){ TERMO_ATIVO = String(r.valor || 'sim').trim() !== 'nao'; renderCartoes(); }
         if(r.chave === 'codigo_conduta_url' && /^https?:\/\//.test(String(r.valor || ''))) TERMO_URL = String(r.valor).trim();
       });
@@ -7583,6 +7678,8 @@ async function marcarKitNoBanco(p, st, k){
     const r = await sb.rpc('kit_marcar', {p_cpf: digitos(p.cpf), p_status: status, p_blocos: blocos});
     if(r && r.error && blocos && bancoSemBlocos(r.error) && status !== 'gerado'){
       await sb.rpc('kit_marcar', {p_cpf: digitos(p.cpf), p_status: status});
+    }else if(r && r.error && !bancoSemBlocos(r.error)){
+      torrada('A plataforma não registrou a situação do kit: ' + erroLegivel(r.error), 7000);
     }
   }catch(e){}
 }
@@ -7627,7 +7724,7 @@ function dadosDoKit(pid){
 let AVISOU_SEM_BLOCOS = false;
 function bancoSemBlocos(err){
   const m = String((err && err.message) || err || '');
-  const sem = /p_blocos|column .*blocos|kit_blocos|does not exist|PGRST202|PGRST204|schema cache/i.test(m);
+  const sem = /p_blocos|column .*blocos|kit_blocos|PGRST202|PGRST204|schema cache/i.test(m);
   if(sem && !AVISOU_SEM_BLOCOS){
     AVISOU_SEM_BLOCOS = true;
     torrada('O banco ainda não tem o kit em blocos (SQL 17). O kit on-line segue com um signatário só até ele ser instalado.', 9000);
@@ -7762,7 +7859,7 @@ function pessoaSegura(pe){
   Object.keys(pe || {}).forEach(c=>{
     if(!/^[A-Za-z_]{1,30}$/.test(c)) return;
     const v = pe[c];
-    if(typeof v === 'string') p[c] = v.slice(0, 300);
+    if(typeof v === 'string') p[c] = v.slice(0, /^os_/.test(c) ? 2000 : 300);
     else if(typeof v === 'number' || typeof v === 'boolean') p[c] = v;
   });
   p.id = idSeguro(pe && pe.id) || novoId();
@@ -7940,11 +8037,11 @@ async function modoOnline(id, token){
       const dados = JSON.parse(new TextDecoder().decode(partes[2]));
       SESSAO_ONLINE = {id: id, token: token, sessao: r.sessao, versao: r.versao, envioPronto: null};
       acertarRelogio(r.agora);
-      const pe = dados.pessoa;
+      const pe = pessoaSegura(dados.pessoa);
       abrirKitDoLink({
         pid: pe.id, cpf: digitos(pe.cpf), nome: pe.nome, pessoa: pe,
-        pags: dados.pags, hash: dados.hash, indice: dados.indice, em: dados.em, bytes: partes[0],
-        assin: Object.assign({}, dados.assin || {}, {pdfAssinado: partes[1]})
+        pags: Math.max(1, Math.trunc(+dados.pags) || 1), hash: String(dados.hash || '').slice(0, 64), indice: indiceSeguro(dados.indice), em: String(dados.em || '').slice(0, 40), bytes: partes[0],
+        assin: Object.assign({}, (dados.assin && typeof dados.assin === 'object' && !Array.isArray(dados.assin)) ? dados.assin : {}, {pdfAssinado: partes[1]})
       });
     }catch(e){
       $('#janelaCorpo').innerHTML = '<div class="porta"><h3>Não foi possível baixar</h3><p class="dica">Confira a internet e abra o link de novo.</p></div>';
@@ -8587,8 +8684,11 @@ $('#assinanteCimed').addEventListener('change', ()=>{
 window.addEventListener('message', ev=>{
   const d = ev.data;
   if(!d || d.tipo !== 'cimed-parametros' || ev.source !== window.parent || window.parent === window) return;
+  const origens = [location.origin]; try{ origens.push(new URL((NUVEM.cfg && NUVEM.cfg.SITE_PUBLICO) || location.href).origin); }catch(e){}
+  if(ev.origin && ev.origin !== 'null' && origens.indexOf(ev.origin) < 0) return;
   if(d.signatarios_cimed !== undefined || d.signatarios_por_area !== undefined) aplicarSignatarios(d.signatarios_cimed, d.signatarios_por_area);
   if(d.termo_transparencia_ativo !== undefined){ TERMO_ATIVO = String(d.termo_transparencia_ativo || 'sim').trim() !== 'nao'; if(S.pessoas.length) renderCartoes(); }
+  if(d.os_ativa !== undefined){ OS_ATIVA = String(d.os_ativa || 'sim').trim() !== 'nao'; if(S.pessoas.length) renderCartoes(); }
 });
 $('#btBaixarTodos').addEventListener('click', baixarZip);
 $('#btCsvAssin').addEventListener('click', csvAssinatura);
@@ -8753,7 +8853,7 @@ if(alvoOnline){
       const st = S.assin[r.pid] || (S.assin[r.pid] = {});
       /* binário só existe aqui, então sempre vale o guardado */
       ['pdfAssinado','assinatura','rubrica'].forEach(c=>{ if(a[c]) st[c] = a[c]; });
-      ['resp','vistos','marcas','marcaNome','colab','empresa',
+      ['resp','vistos','marcas','marcaNome','colab','empresa','blocos',
        'pendAoFechar','assinaturasReplicadas','estampadas','datasPreenchidas','online'].forEach(c=>{
         if(st[c] === undefined || st[c] === null || (typeof st[c] === 'object' && !Object.keys(st[c]).length)){
           if(a[c] !== undefined && a[c] !== null) st[c] = a[c];
