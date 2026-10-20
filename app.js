@@ -125,6 +125,7 @@ async function criarApi() {
     async apagarMatrizOs(id) { return ok(await sb.from('matriz_os').delete().eq('id', id)); },
     async osSalvar(adm, p, validar) { return ok(await sb.rpc('os_salvar', { adm, p, p_validar: !!validar })); },
     async osSugerir(adm) { return ok(await sb.rpc('os_sugerir', { adm })); },
+    async asoDecidir(adm, decisao, p = {}) { return ok(await sb.rpc('aso_decidir', { adm, p_decisao: decisao, p_data: p.data || null, p_hora: p.hora || null, p_local: p.local || null })); },
     async salvarBp(o) { return ok(await sb.from('bps').upsert(o).select('id')); },
     async apagarBp(id) { return ok(await sb.from('bps').delete().eq('id', id)); },
     async destinatariosTurma() { return ok(await sb.from('destinatarios_turma').select('*').order('unidade')); },
@@ -346,6 +347,7 @@ const NAV = [
   ['remuneracao', 'Remuneração', 'remun', () => tem('remuneracao', 'admissao'), 1],
   ['saude', 'Saúde ocupacional', 'saude', () => tem('saude'), 1],
   ['seguranca', 'Segurança do Trabalho', 'esp', () => souSeguranca(), 1],
+  ['ti', 'TI · equipamentos e acessos', 'esp', () => souTi(), 1],
   ['entregas', 'Minhas entregas', 'esp', () => tem('especialista', 'admissao'), 1],
   ['especialistas', 'Especialistas e avisos', 'esp', () => tem('admissao'), 2],
   ['emails', 'Fila de e-mails', 'mail', () => tem('admissao'), 2],
@@ -416,7 +418,7 @@ async function limparExpurgo() {
 
 async function carregar() {
   const tarefas = [];
-  if (tem('rs', 'admissao', 'saude', 'remuneracao', 'signatario') || souSeguranca()) {
+  if (tem('rs', 'admissao', 'saude', 'remuneracao', 'signatario') || souSeguranca() || souTi()) {
     tarefas.push(api.admissoes().then((r) => (E.admissoes = r || [])));
     if (tem('rs', 'admissao', 'saude', 'remuneracao', 'signatario')) tarefas.push(api.resumoDocs().then((r) => (E.resumo = Object.fromEntries((r || []).map((x) => [x.admissao_id, x])))));
   }
@@ -560,10 +562,11 @@ function chipEtapa(a) {
 function chipDocs(a) { const r = resumo(a); const cls = r.ok === r.total ? ['c-ok', 'ok'] : r.reenviar || r.total - r.ok - r.analise ? ['c-at', 'at'] : ['c-info', 'info']; return chip(cls[0], cls[1], `Docs ${r.ok}/${r.total}`); }
 function chipAso(a) { const s = a.aso_status; if (s === 'apto') return chip('c-ok', 'ok', 'ASO apto' + (a.aso_data ? ' ' + dm(a.aso_data) : '')); if (s === 'apto_restricao') return chip('c-ok', 'ok', 'ASO apto com restrição' + (a.aso_data ? ' ' + dm(a.aso_data) : '')); if (s === 'agendado') return chip('c-ag', 'ag', 'ASO ' + (a.aso_data ? dm(a.aso_data) + (a.aso_hora ? ' ' + a.aso_hora : '') : 'agendado') + (a.aso_local ? ' · ' + a.aso_local : '')); if (s === 'inapto') return chip('c-cr', 'cr', 'ASO inapto'); return chip('c-at', 'at', 'ASO a agendar'); }
 const asoOk = (a) => a.aso_status === 'apto' || a.aso_status === 'apto_restricao';
-// Segurança do Trabalho: a Ordem de Serviço vale para fábricas e CDs
-const temOs = (a) => ['fabrica', 'cd'].includes(localDe(a.local).tipo) && a.os_status !== 'nao_aplica';
+// Segurança do Trabalho: a Ordem de Serviço vale para todas as unidades (Josianny, 20/10/2026)
+const temOs = (a) => a.os_status !== 'nao_aplica';
 const minhaArea = () => (E.perfil && E.perfil.area_id) || '';
 const souSeguranca = () => tem('admissao') || (tem('especialista') && ['seguranca', 'seguranca_prev'].includes(minhaArea()));
+const souTi = () => tem('admissao') || (tem('especialista') && ['ti', 'tiprev', 'ti_cancela'].includes(minhaArea()));
 function chipOs(a) { if (!temOs(a)) return ''; return a.os_status === 'validada' ? chip('c-ok', 'ok', 'OS validada' + (a.os_validada_em ? ' ' + dm(new Date(a.os_validada_em)) : '')) : (a.os_atividades || a.os_riscos || a.os_epi) ? chip('c-ag', 'ag', 'OS pré-preenchida, falta validar') : chip('c-at', 'at', 'OS sem dados'); }
 // TI: o chamado precisa sair com antecedência (prazo_ti_horas do local; 48 h, CDs 72 h), em dias úteis
 function prazoChamadoTi(a) {
@@ -600,7 +603,7 @@ VIEWS.inicio = () => {
   v.forEach((a) => {
     if (risco(a)) atencao.push([0, a, 'Integração ' + dmd(a.data_inicio) + ' e documentação incompleta']);
     if (a.etapa === 'docs_ok' && a.remuneracao !== 'ok') atencao.push([1, a, 'Falta a Remuneração validar a posição ' + (a.posicao || '')]);
-    if (a.aso_status === 'inapto' && !a.declinou_em && !a.matricula) atencao.push([0, a, 'ASO inapto: decidir com a Saúde se refaz o exame ou cancela a admissão']);
+    if (a.aso_status === 'inapto' && !a.declinou_em && !a.matricula) atencao.push([0, a, 'ASO inapto: a Saúde decide na ficha se remarca o exame ou cancela a admissão']);
     if (a.etapa === 'docs_ok' && !asoOk(a) && a.aso_status !== 'inapto') atencao.push([1, a, 'Documentação completa, falta o ASO']);
     if (tem('admissao') && chamadoTiAtrasado(a)) atencao.push([1, a, 'Chamado de TI ainda não aberto: o prazo da TI é até ' + dm(prazoChamadoTi(a))]);
     if (souSeguranca() && temOs(a) && a.os_status !== 'validada' && !a.declinou_em && a.etapa !== 'pronto') atencao.push([2, a, 'Ordem de Serviço da Segurança ainda não validada']);
@@ -866,7 +869,7 @@ function desenharFicha(a, docs, evs, arqs = []) {
    <div class="linha-flex" style="align-items:flex-start"><div class="pilha" style="flex:1;gap:6px"><span class="olho">Ficha do candidato</span><h2 style="font-size:24px">${esc(titulo(a.nome))}</h2><span class="apoio">${esc(a.cargo)}${a.setor ? ' · ' + esc(a.setor) : ''} · ${esc(a.local)}${a.cc_codigo ? ' · CC ' + esc(a.cc_codigo) : ''}</span>
     <div class="linha-flex">${chipEtapa(a)}${foraCorte(a) ? chip('c-cr', 'cr', 'Fora do corte') : ''}${a.pcd !== 'Não' ? chip('c-info', 'info', 'PCD') : ''}${a.tipo_contrato !== 'CLT' ? chip('c-info', 'info', a.tipo_contrato + (a.agencia ? ' · ' + a.agencia : '')) : ''}${a.nasc && idade(a.nasc) < 18 ? chip('c-at', 'at', 'Menor de idade' + (l.tipo === 'fabrica' ? ' em fábrica' : '')) : ''}${a.motorista_profissional ? chip('c-info', 'info', 'Motorista profissional') : ''}${a.formato_integ === 'online' ? chip('c-ag', '', 'Integração on-line') : ''}${a.nr12 ? chip('c-ag', '', 'NR-12') : ''}${a.arquivado_em ? chip('c-ok', 'ok', 'Dossiê arquivado') : ''}${a.origem === 'importacao' ? chip('c-ag', '', 'Veio da planilha') : ''}</div></div>
     <button class="bt" data-act="fechar">Fechar</button></div>
-   ${a.declinou_em ? `<div class="faixa"><p><b>Declinou</b> em ${quando(a.declinou_em)}: ${esc(a.declinou_motivo || '')}.</p></div>` : ''}
+   ${a.declinou_em ? `<div class="faixa"><p><b>Declinou</b> em ${quando(a.declinou_em)}: ${esc(a.declinou_motivo || '')}.${a.declinou_sensivel ? ' <span class="apoio">Motivo sensível: as áreas receberam só o aviso de cancelamento.</span>' : ''}</p></div>` : ''}
    <div class="grade g2">
     <div class="caixa pilha" style="gap:8px"><h3>Integração</h3><span class="num">${dmd(a.data_inicio)} às ${esc(a.hora_integ || '')}</span><span class="apoio">${esc(a.integ || '')} · ${plural(a.dias_integ || 1, 'dia', 'dias')} · ${a.formato_integ === 'online' ? 'on-line (Teams)' : 'presencial'}${a.nr12 ? ' · NR-12' : ''}</span>
      ${a.link_ou_endereco ? `<span class="apoio">${a.formato_integ === 'online' ? 'Link' : 'Endereço'}: ${esc(a.link_ou_endereco)}</span>` : ''}${a.contato_chegada ? `<span class="apoio">Ao chegar, procurar: ${esc(a.contato_chegada)}</span>` : ''}
@@ -875,7 +878,7 @@ function desenharFicha(a, docs, evs, arqs = []) {
     <div class="caixa pilha" style="gap:8px"><h3>Contato</h3><span>${esc(a.telefone || '—')}</span><span>${esc(a.email || 'sem e-mail')}</span>${tem('saude', 'admissao', 'remuneracao') && a.cpf ? `<span class="apoio num">CPF ${fmtCpf(a.cpf)}${a.nasc ? ' · ' + idade(a.nasc) + ' anos' : ''}</span>` : ''}<span class="apoio">Gestor: ${esc(a.requisitante || '—')}${a.requisitante_email ? ' · ' + esc(a.requisitante_email) : ' · <b>sem e-mail</b> (o aviso ao gestor não sai)'}</span></div>
    </div>
    <div class="caixa pilha"><h3>Checklist da admissão</h3><div class="docs">
-    <div class="doc"><div><div class="dn">Exame admissional (ASO)</div><div class="dm">${chipAso(a)}${a.aso_restricao ? ` <span class="apoio" style="font-size:12px">Restrição: ${esc(a.aso_restricao)}</span>` : ''}${a.aso_status === 'inapto' ? '<div class="motivo">Inapto: R&S e Admissão decidem com a Saúde se o exame é refeito ou se a admissão é cancelada. A matrícula fica bloqueada.</div>' : ''}</div></div><div class="acoes">${podeAso && !a.declinou_em ? `<select class="sel-doc" id="asoSel"><option value="aguardando" ${a.aso_status === 'aguardando' ? 'selected' : ''}>A agendar</option><option value="agendado" ${a.aso_status === 'agendado' ? 'selected' : ''}>Agendado</option><option value="apto" ${a.aso_status === 'apto' ? 'selected' : ''}>Apto</option><option value="apto_restricao" ${a.aso_status === 'apto_restricao' ? 'selected' : ''}>Apto com restrição</option><option value="inapto" ${a.aso_status === 'inapto' ? 'selected' : ''}>Inapto</option></select><input type="date" id="asoData" class="sel-doc" value="${a.aso_data || ''}" aria-label="Data do ASO"><input id="asoHora" class="sel-doc" style="width:70px" value="${esc(a.aso_hora || '')}" placeholder="hora" aria-label="Hora do exame"><input id="asoLocal" class="sel-doc" style="width:150px" value="${esc(a.aso_local || '')}" placeholder="ambulatório ou clínica" aria-label="Local do exame"><input id="asoRestr" class="sel-doc" style="width:150px" value="${esc(a.aso_restricao || '')}" placeholder="restrição, se houver" aria-label="Restrição"><button class="bt peq" data-act="salvarAso" data-id="${a.id}">Salvar</button>` : ''}</div></div>
+    <div class="doc"><div><div class="dn">Exame admissional (ASO)</div><div class="dm">${chipAso(a)}${a.aso_restricao ? ` <span class="apoio" style="font-size:12px">Restrição: ${esc(a.aso_restricao)}</span>` : ''}${a.aso_status === 'inapto' && !a.declinou_em ? '<div class="motivo">Inapto: a Saúde decide aqui se o exame é refeito (preencha data, hora e local e clique em Remarcar) ou se a admissão é cancelada. A matrícula fica bloqueada. R&S e Admissão já foram avisados.</div>' : ''}</div></div><div class="acoes">${podeAso && !a.declinou_em ? `<select class="sel-doc" id="asoSel"><option value="aguardando" ${a.aso_status === 'aguardando' ? 'selected' : ''}>A agendar</option><option value="agendado" ${a.aso_status === 'agendado' ? 'selected' : ''}>Agendado</option><option value="apto" ${a.aso_status === 'apto' ? 'selected' : ''}>Apto</option><option value="apto_restricao" ${a.aso_status === 'apto_restricao' ? 'selected' : ''}>Apto com restrição</option><option value="inapto" ${a.aso_status === 'inapto' ? 'selected' : ''}>Inapto</option></select><input type="date" id="asoData" class="sel-doc" value="${a.aso_data || ''}" aria-label="Data do ASO"><input id="asoHora" class="sel-doc" style="width:70px" value="${esc(a.aso_hora || '')}" placeholder="hora" aria-label="Hora do exame"><input id="asoLocal" class="sel-doc" style="width:150px" value="${esc(a.aso_local || '')}" placeholder="ambulatório ou clínica" aria-label="Local do exame"><input id="asoRestr" class="sel-doc" style="width:150px" value="${esc(a.aso_restricao || '')}" placeholder="restrição, se houver" aria-label="Restrição"><button class="bt peq" data-act="salvarAso" data-id="${a.id}">Salvar</button>${a.aso_status === 'inapto' ? `<button class="bt peq pri" data-act="asoRemarcar" data-id="${a.id}" title="Exame refeito: volta para agendado com a data informada">Remarcar exame</button><button class="bt peq fan" data-act="asoCancelar" data-id="${a.id}" title="Cancela a admissão por ASO inapto; as áreas recebem só o aviso de cancelamento">Cancelar admissão</button>` : ''}` : ''}</div></div>
     ${temOs(a) ? `<div class="doc"><div><div class="dn">Ordem de Serviço · Segurança do Trabalho</div><div class="dm">${chipOs(a)}${a.cbo ? ' ' + chip('c-ag', '', 'CBO ' + a.cbo) : ''}${a.os_validada_por ? ` <span class="apoio" style="font-size:12px">validada por ${esc(a.os_validada_por)}</span>` : ''}${a.os_status !== 'validada' ? '<div class="motivo">A Esteira só gera a OS no kit com os campos preenchidos. A Segurança valida na tela Segurança do Trabalho.</div>' : ''}</div></div><div class="acoes">${souSeguranca() && !a.declinou_em ? `<button class="bt peq" data-act="osAbrir" data-id="${a.id}">Editar OS</button>` : ''}</div></div>` : ''}
     ${exigeLg || a.lg_movimentado_em ? `<div class="doc"><div><div class="dn">Movimentado no LG (recrutadora)</div><div class="dm">${chipLg}${a.lg_movimentado_por ? ` <span class="apoio" style="font-size:12px">por ${esc(a.lg_movimentado_por)}</span>` : ''}${!a.lg_movimentado_em && a.lg_avisado_em ? ` <span class="apoio" style="font-size:12px">aviso à analista em ${quando(a.lg_avisado_em)}</span>` : ''}${!a.lg_movimentado_em && exigeLg ? '<div class="motivo">Sem a movimentação para a etapa "Admissão" no LG, o DP não registra.</div>' : ''}</div></div><div class="acoes">${podeRs && !a.declinou_em && !a.matricula ? (a.lg_movimentado_em ? `<button class="bt peq fan" data-act="lgDesfazer" data-id="${a.id}">Desfazer</button>` : `<button class="bt peq pri" data-act="lgMovimentado" data-id="${a.id}">Movimentei no LG</button>`) : ''}</div></div>` : ''}
     <div class="doc"><div><div class="dn">Remuneração · posição ${esc(a.posicao || '—')}</div><div class="dm">${chipRemun(a)}</div></div><div class="acoes">${podeRem && !a.declinou_em && a.remuneracao !== 'ok' ? `<button class="bt peq" data-act="remun" data-id="${a.id}" data-v="ok">Validada</button><button class="bt peq" data-act="remun" data-id="${a.id}" data-v="ocupada">Posição ocupada</button>` : ''}</div></div>
@@ -895,7 +898,7 @@ function desenharFicha(a, docs, evs, arqs = []) {
    <div class="caixa pilha"><h3>Linha do tempo</h3><div class="tempo">${evs.map((h) => `<div class="ev"><span class="pt"></span><div>${esc(textoEvento(h.texto))}<small>${quando(h.em)} · ${esc(h.quem)}</small></div></div>`).join('') || '<span class="apoio">Sem registros.</span>'}</div>
     ${tem('rs', 'admissao', 'saude', 'remuneracao') ? `<form id="fObs" class="linha-flex"><input id="obsTx" maxlength="1000" placeholder="Escrever uma observação (fica com seu nome e a hora)" style="flex:1;min-width:200px;border:1px solid var(--linha);border-radius:10px;padding:9px 12px;background:var(--sup)"><button class="bt" type="submit">Anotar</button></form>` : ''}</div>
    <div class="caixa pilha"><h3>Dados da vaga</h3><div class="grade g2" style="gap:6px 16px;font-size:13px">${[['Escala', a.escala], ['Turno', a.turno], ['Posição', a.posicao], ['Processo seletivo', a.processo], ['Centro de custo', [a.cc_codigo, a.cc_nome].filter(Boolean).join(' · ')], ['Vaga', a.substituicao ? 'Substituição de ' + (a.pessoa_substituida || '?') : 'Aumento de quadro'], ['Requisitante', a.requisitante], ['E-mail do requisitante', a.requisitante_email], ['Analista R&S', a.analista_rs], ['Analista DP', a.analista_dp], ['CBO', a.cbo], ['Estado civil', a.estado_civil], ['Filhos', a.filhos], ['Formato da integração', a.formato_integ === 'online' ? 'On-line' : 'Presencial'], ['Chamado de TI', a.chamado_ti]].map(([k, v]) => `<div><span class="apoio">${esc(k)}:</span> <b>${esc(v || '—')}</b></div>`).join('')}</div>
-    ${podeRs && !a.declinou_em && !a.matricula ? `<form id="fDecl" class="linha-flex"><input id="declTx" placeholder="Motivo do declínio" style="flex:1;min-width:200px;border:1px solid var(--linha);border-radius:10px;padding:9px 12px;background:var(--sup)"><button class="bt" type="submit">Registrar declínio</button></form>` : ''}
+    ${podeRs && !a.declinou_em && !a.matricula ? `<form id="fDecl" class="linha-flex"><input id="declTx" placeholder="Motivo do declínio" style="flex:1;min-width:200px;border:1px solid var(--linha);border-radius:10px;padding:9px 12px;background:var(--sup)"><label class="apoio" style="font-size:12.5px;display:flex;align-items:center;gap:6px"><input type="checkbox" id="declSens"> Motivo sensível: as áreas recebem só "cancelada"</label><button class="bt" type="submit">Registrar declínio</button></form>` : ''}
     ${tem('admissao') && !a.declinou_em && a.matricula ? `<form id="fNaoVeio" class="linha-flex"><input id="naoVeioTx" placeholder="Não compareceu ou desistiu depois da matrícula: o que aconteceu?" style="flex:1;min-width:200px;border:1px solid var(--linha);border-radius:10px;padding:9px 12px;background:var(--sup)"><button class="bt" type="submit">Registrar não comparecimento</button></form>` : ''}</div>
   </aside></div>`;
 
@@ -919,7 +922,7 @@ function desenharFicha(a, docs, evs, arqs = []) {
   });
   $('#fDecl')?.addEventListener('submit', async (e) => {
     e.preventDefault(); const t = $('#declTx').value.trim(); if (!t) { toast('Escreva o motivo do declínio.', true); return; }
-    if (await tentar(() => api.atualizar(a.id, { declinou_motivo: t, declinou_em: new Date().toISOString() }), 'Declínio registrado')) { await recarregar(); abrirFicha(a.id); }
+    if (await tentar(() => api.atualizar(a.id, { declinou_motivo: t, declinou_em: new Date().toISOString(), declinou_sensivel: !!$('#declSens')?.checked }), 'Declínio registrado')) { await recarregar(); abrirFicha(a.id); }
   });
 }
 
@@ -1002,7 +1005,7 @@ function filaSaude() {
   ${l.map((a) => `<tr class="clic" data-act="ficha" data-id="${a.id}"><td><b>${esc(titulo(a.nome))}</b>${a.pcd !== 'Não' ? ' ' + chip('c-info', 'info', 'PCD') : ''}<br><span class="apoio num" style="font-size:12px">${a.cpf ? 'CPF ' + fmtCpf(a.cpf) : ''}</span></td><td>${esc(a.cargo)}<br><span class="apoio" style="font-size:12px">${esc(a.local)}${a.setor ? ' · ' + esc(a.setor) : ''}</span></td><td class="num">${dmd(a.data_inicio)}</td><td>${esc(a.telefone || '—')}<br><span class="apoio" style="font-size:12px">${esc(a.email || '')}</span></td><td>${chipAso(a)}${a.aso_restricao ? '<br><span class="apoio" style="font-size:12px">' + esc(a.aso_restricao) + '</span>' : ''}</td><td class="num">${corte(a) == null ? '—' : corte(a) < 0 ? chip('c-cr', 'cr', 'corte passou') : corte(a) <= 2 && !asoOk(a) ? chip('c-at', 'at', corte(a) + ' d') : corte(a) + ' d'}</td><td>${asoOk(a) ? (a.lg_movimentado_em ? chip('c-ok', 'ok', 'LG ' + dm(a.lg_movimentado_em)) : chip('c-ag', 'ag', 'LG pendente')) : '—'}</td></tr>`).join('')}
   </tbody></table></div>`;
 }
-VIEWS.saude = () => `<div class="cab"><div class="t"><span class="olho">Saúde ocupacional</span><h1>Exame admissional</h1><p class="apoio">Quem precisa de exame, por turma. Clique na pessoa para agendar (data, hora e local: o candidato recebe o e-mail), registrar apto, apto com restrição ou inapto. Apto libera a matrícula e pede à recrutadora a movimentação no LG; inapto avisa o R&S e a Admissão. O ASO oficial continua no SOC.</p></div></div>
+VIEWS.saude = () => `<div class="cab"><div class="t"><span class="olho">Saúde ocupacional</span><h1>Exame admissional</h1><p class="apoio">Quem precisa de exame, por turma. Clique na pessoa para agendar (data, hora e local: o candidato recebe o e-mail), registrar apto, apto com restrição ou inapto. Apto libera a matrícula e pede à recrutadora a movimentação no LG; inapto avisa o R&S e a Admissão, e a Saúde decide na ficha se remarca o exame ou cancela a admissão. O ASO oficial continua no SOC.</p></div></div>
  <div class="caixa pilha"><h2>Fila de agendamento</h2>${filaSaude()}</div>
  <div class="caixa pilha"><h2>Laudos PCD</h2><p class="apoio">Só a Saúde abre o laudo médico e decide a situação dele. A Admissão vê apenas se foi entregue.</p>${laudosParaSaude()}</div>`;
 // ----------------------------------------------------------- Segurança do Trabalho
@@ -1022,12 +1025,12 @@ function abrirOs(id) {
 }
 VIEWS.seguranca = () => {
   const l = vivas().filter((a) => temOs(a)).sort((x, y) => (x.data_inicio + (x.os_status === 'validada' ? '1' : '0') + x.local).localeCompare(y.data_inicio + (y.os_status === 'validada' ? '1' : '0') + y.local));
-  const unidades = E.locais.filter((x) => ['fabrica', 'cd'].includes(x.tipo)).map((x) => x.nome);
+  const unidades = E.locais.map((x) => x.nome);
   const optU = (sel) => unidades.map((u) => `<option ${u === sel ? 'selected' : ''}>${esc(u)}</option>`).join('');
   const linha = (m, i) => `<div class="area" data-mos="${i}"><div class="ac"><label class="olho">Unidade</label><select class="sel-doc" data-f="unidade">${optU(m.unidade)}</select></div><div class="ac"><label class="olho">Setor (opcional)</label><input class="sel-doc" data-f="setor" value="${esc(m.setor || '')}"></div><div class="ac"><label class="olho">Cargo</label><input class="sel-doc" data-f="cargo" value="${esc(m.cargo || '')}" placeholder="como no cadastro"></div><div class="ac"><label class="olho">GHE</label><input class="sel-doc" data-f="ghe" value="${esc(m.ghe || '')}" style="width:90px"></div>
     ${[['atividades', 'Atividades'], ['riscos', 'Riscos'], ['epi', 'EPI'], ['epc', 'EPC'], ['nrs', 'NRs']].map(([k, t]) => `<div class="ac" style="flex-basis:100%"><label class="olho">${t}</label><textarea class="sel-doc" data-f="${k}" rows="2" style="width:100%;font:inherit">${esc(m[k] || '')}</textarea></div>`).join('')}
     <div class="ac"><span class="apoio" style="font-size:12px">${m.id ? 'v' + (m.versao || 1) + (m.atualizado_por ? ' · ' + esc(m.atualizado_por) : '') : 'nova linha'}</span></div><div class="ac"><button class="bt peq pri" data-act="mosSalvar" data-i="${i}">Salvar</button>${m.id ? `<button class="bt peq fan" data-act="mosApagar" data-id="${m.id}">Remover</button>` : ''}</div></div>`;
-  return `<div class="cab"><div class="t"><span class="olho">Segurança do Trabalho</span><h1>Ordem de Serviço</h1><p class="apoio">Uma OS por pessoa, para fábricas e CDs. A matriz abaixo (cargo → atividades, riscos, EPI, EPC, NRs, por unidade e setor) pré-preenche a OS no cadastro; a Segurança confere, ajusta o que for diferente e valida. A OS validada entra no kit admissional, no bloco Segurança, e o colaborador assina na integração. A Segurança recebe o aviso no cadastro (previsão) e na matrícula (confirmação).</p></div></div>
+  return `<div class="cab"><div class="t"><span class="olho">Segurança do Trabalho</span><h1>Ordem de Serviço</h1><p class="apoio">Uma OS por pessoa, em todas as unidades do Brasil (decisão de 20/10/2026). A matriz abaixo (cargo → atividades, riscos, EPI, EPC, NRs, por unidade e setor) pré-preenche a OS no cadastro; a Segurança confere, ajusta o que for diferente e valida. A OS validada entra no kit admissional, no bloco Segurança, e o colaborador assina na integração. A Segurança recebe o aviso no cadastro (previsão) e na matrícula (confirmação).</p></div></div>
   <div class="caixa pilha"><h2>Quem precisa de OS</h2>${l.length ? `<div class="tab-wrap"><table><thead><tr><th>Pessoa</th><th>Cargo · setor</th><th>Unidade</th><th>Integração</th><th>CBO</th><th>OS</th><th></th></tr></thead><tbody>
    ${l.map((a) => `<tr><td><b>${esc(titulo(a.nome))}</b>${a.nr12 ? ' ' + chip('c-ag', '', 'NR-12') : ''}</td><td>${esc(a.cargo)}<br><span class="apoio" style="font-size:12px">${esc(a.setor || '')}</span></td><td>${esc(a.local)}</td><td class="num">${dmd(a.data_inicio)}</td><td class="num">${esc(a.cbo || '—')}</td><td>${chipOs(a)}</td><td><button class="bt peq ${a.os_status === 'validada' ? '' : 'pri'}" data-act="osAbrir" data-id="${a.id}">${a.os_status === 'validada' ? 'Ver OS' : 'Preencher e validar'}</button></td></tr>`).join('')}
    </tbody></table></div>` : '<div class="vazio">Ninguém de fábrica ou CD em admissão.</div>'}</div>
@@ -1077,6 +1080,24 @@ function listaParaEsteira(turma) {
 }
 
 // ------------------------------------------------------------- entregas
+// ----------------------------------------------------------- TI
+// Previsibilidade desde o cadastro (decisão de 20/10/2026): a TI vê quem vai entrar e com qual
+// equipamento antes da matrícula, registra o chamado e vê os cancelamentos para desfazer.
+VIEWS.ti = () => {
+  const comTi = (a) => (a.ti_itens || []).length > 0;
+  const hoje = new Date(); const limite = new Date(hoje.getTime() - 30 * 86400000);
+  const l = vivas().filter((a) => comTi(a) && deIso(a.data_inicio) >= limite).sort((x, y) => (x.data_inicio + x.local + x.nome).localeCompare(y.data_inicio + y.local + y.nome));
+  const canc = E.admissoes.filter((a) => a.declinou_em && comTi(a) && (a.chamado_ti || a.matricula) && new Date(a.declinou_em) >= limite).sort((x, y) => y.declinou_em.localeCompare(x.declinou_em));
+  const em7 = l.filter((a) => deIso(a.data_inicio) - hoje < 7 * 86400000 && deIso(a.data_inicio) >= hoje).length;
+  const semChamado = l.filter((a) => a.matricula && !a.chamado_ti).length;
+  const atras = l.filter(chamadoTiAtrasado).length;
+  const situacao = (a) => a.kit_status === 'concluido' ? chip('c-ok', 'ok', 'Kit assinado') : a.matricula ? chip('c-ag', 'ag', 'Pedido · matrícula ' + a.matricula) : chip('c-info', 'info', 'Previsão (' + ((ETAPAS.find((e) => e.id === a.etapa) || {}).n || a.etapa) + ')');
+  const linha = (a) => `<tr><td><b>${esc(titulo(a.nome))}</b><br><span class="apoio" style="font-size:12px">${esc(a.cargo)}${a.setor ? ' · ' + esc(a.setor) : ''} · ${esc(a.local)}</span></td><td class="num">${dmd(a.data_inicio)} ${esc(a.hora_integ || '')}<br><span class="apoio" style="font-size:12px">${esc(a.integ || '')}${a.formato_integ === 'online' ? ' · on-line' : ''}</span></td><td style="font-size:12.5px">${esc((a.ti_itens || []).join(', '))}${a.cd_entrega ? `<br><span class="apoio" style="font-size:12px">entrega no ${esc(a.cd_entrega)}</span>` : ''}${a.requisitante ? `<br><span class="apoio" style="font-size:12px">gestor ${esc(a.requisitante)}</span>` : ''}</td><td class="num">${prazoChamadoTi(a) ? dm(prazoChamadoTi(a)) + (chamadoTiAtrasado(a) ? ' ' + chip('c-cr', 'cr', 'atrasado') : '') : '—'}</td><td>${situacao(a)}</td><td>${a.chamado_ti ? `<b>${esc(a.chamado_ti)}</b>` : souTi() ? `<span class="linha-flex" style="gap:4px"><input class="sel-doc" id="tiCh-${a.id}" placeholder="nº do chamado" style="width:120px" aria-label="Número do chamado"><button class="bt peq" data-act="tiChamado" data-id="${a.id}">Salvar</button></span>` : '—'}</td></tr>`;
+  return `<div class="cab"><div class="t"><span class="olho">TI</span><h1>Equipamentos e acessos</h1><p class="apoio">Quem vai entrar e precisa de equipamento ou acesso, desde o cadastro pelo R&S (previsão) até a matrícula (pedido). O prazo é o do local: ${esc(String((E.locais[0] || {}).prazo_ti_horas || 48))} horas úteis antes do primeiro dia, 72 nos CDs. Registre aqui o número do chamado; a Admissão vê na ficha. Cancelamentos aparecem embaixo para desligar acessos e recolher equipamento.</p></div></div>
+   <div class="grade g4"><div class="caixa kpi"><b class="num">${l.length}</b><span>pessoas com equipamento</span></div><div class="caixa kpi"><b class="num">${em7}</b><span>entram em 7 dias</span></div><div class="caixa kpi"><b class="num">${semChamado}</b><span>com matrícula e sem chamado</span></div><div class="caixa kpi"><b class="num">${atras}</b><span>fora do prazo</span></div></div>
+   <div class="caixa pilha"><h2>Próximas entradas</h2>${l.length ? `<div class="tab-wrap"><table><thead><tr><th>Pessoa</th><th>Integração</th><th>Equipamentos e acessos</th><th>Prazo do chamado</th><th>Situação</th><th>Chamado</th></tr></thead><tbody>${l.map(linha).join('')}</tbody></table></div>` : '<div class="vazio">Ninguém com equipamento previsto.</div>'}</div>
+   <div class="caixa pilha"><h2>Admissões canceladas (últimos 30 dias)</h2><p class="apoio" style="font-size:12.5px">Cancelar o chamado, desligar os acessos e recolher o equipamento reservado.</p>${canc.length ? `<div class="tab-wrap"><table><thead><tr><th>Pessoa</th><th>Era para</th><th>Equipamentos</th><th>Chamado</th><th>Cancelada em</th></tr></thead><tbody>${canc.map((a) => `<tr><td><b>${esc(titulo(a.nome))}</b><br><span class="apoio" style="font-size:12px">${esc(a.cargo)} · ${esc(a.local)}</span></td><td class="num">${dmd(a.data_inicio)}</td><td style="font-size:12.5px">${esc((a.ti_itens || []).join(', '))}</td><td>${esc(a.chamado_ti || '—')}</td><td class="num">${quando(a.declinou_em)}</td></tr>`).join('')}</tbody></table></div>` : '<div class="vazio">Nenhum cancelamento recente.</div>'}</div>`;
+};
 VIEWS.entregas = () => {
   const l = E.entregas;
   return `<div class="cab"><div class="t"><span class="olho">Especialista</span><h1>Minhas entregas</h1><p class="apoio">Só aparece quem está com a documentação completa e precisa de algo da sua área. Marque quando estiver pronto: a Admissão vê sem precisar de e-mail de volta.</p></div></div>
@@ -1333,6 +1354,22 @@ document.addEventListener('click', async (e) => {
       break;
     }
     case 'osAbrir': abrirOs(id); break;
+    case 'asoRemarcar': {
+      const p = { data: $('#asoData')?.value || null, hora: ($('#asoHora')?.value || '').trim() || null, local: ($('#asoLocal')?.value || '').trim() || null };
+      if (!p.data && !confirm('Sem data o exame volta para "a agendar". Continuar?')) return;
+      if (await tentar(() => api.asoDecidir(id, 'remarcar', p), p.data && adm(id)?.email ? 'Exame remarcado. O candidato recebe o e-mail com data, hora e local.' : 'Exame volta para a fila de agendamento')) { await recarregar(); if ($('.gaveta')) abrirFicha(id); else render(); }
+      break;
+    }
+    case 'asoCancelar': {
+      if (!confirm('Cancelar a admissão de ' + titulo(adm(id)?.nome || '') + ' por ASO inapto? As áreas recebem só o aviso de cancelamento, sem o motivo.')) return;
+      if (await tentar(() => api.asoDecidir(id, 'cancelar'), 'Admissão cancelada por ASO inapto')) { await recarregar(); if ($('.gaveta')) abrirFicha(id); else render(); }
+      break;
+    }
+    case 'tiChamado': {
+      const v = ($('#tiCh-' + id)?.value || '').trim(); if (!v) { toast('Informe o número do chamado.', true); return; }
+      if (await tentar(() => api.atualizar(id, { chamado_ti: v }), 'Chamado registrado')) { await recarregar(); render(); }
+      break;
+    }
     case 'osSalvar': case 'osValidar': {
       const p = {}; ['os_atividades', 'os_riscos', 'os_epi', 'os_epc', 'os_nrs', 'cbo'].forEach((k) => { const el2 = $('#os_' + k); if (el2) p[k] = el2.value.trim(); });
       if (a === 'osValidar' && !(p.os_atividades && p.os_riscos && p.os_epi)) { toast('Para validar, preencha ao menos atividades, riscos e EPI.', true); return; }
