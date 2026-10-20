@@ -6534,11 +6534,11 @@ async function assinarPelaCimed(ids, botao, area){
   const alvos = ids.filter(id=>S.kits[id] && blocosPendentes(S.kits[id], S.assin[id]).some(b=>b.area === area));
   if(!alvos.length){ torrada('Nenhum kit com o bloco ' + titulo + ' pendente pela Cimed.'); return; }
   /* quem assina pela Cimed assina com a própria assinatura em imagem; sem ela, cadastra primeiro */
-  if(souSignatario() && !ASSINATURA_CIMED.imagem){
+  if(!ASSINATURA_CIMED.imagem && (souSignatario() || MODO_SIGNATARIO || NUVEM.email)){
     abrirAssinaturaCimed(()=>assinarPelaCimed(ids, botao && botao.isConnected ? botao : null, area));
     return;
   }
-  const imagem = souSignatario() ? ASSINATURA_CIMED.imagem : null;
+  const imagem = ASSINATURA_CIMED.imagem || null;
   const rotulo = botao ? botao.textContent : '';
   if(botao){ botao.disabled = true; botao.textContent = 'Assinando...'; }
   let n = 0;
@@ -8524,11 +8524,23 @@ function renderSignatario(){
           + (st.online ? '<button class="b' + (pendEnvio ? ' prim' : '') + '" data-sig-reenviar="' + esc(x.id) + '">Reenviar à Admissão</button>' : '') + '</div></div>';
       });
     }
-    h += '<p class="dica" style="margin-top:14px">Atualiza sozinho a cada 30 segundos. Fechou sem querer? Abra de novo pela plataforma: os kits voltam.</p>';
+    const ids = Object.keys(S.kits).filter(id=>S.pessoas.some(p=>p.id === id));
+    const velhos = ids.filter(id=>{ const st = S.assin[id] || {}; return (st.online && st.online.cancelado) || (st.colab && blocosPendentes(S.kits[id], st).length === 0); }).length;
+    h += '<p class="dica" style="margin-top:14px">Atualiza sozinho a cada 30 segundos. Fechou sem querer? Abra de novo pela plataforma: os kits voltam.'
+      + (velhos ? ' <button class="b peq fant" id="btSigLimpar">Limpar ' + velhos + ' kit(s) antigo(s) deste computador</button>' : '') + '</p>';
   }
   box.innerHTML = h;
   const bt = box.querySelector('#btTrocarAss');
   if(bt) bt.addEventListener('click', ()=>abrirAssinaturaCimed(()=>renderSignatario()));
+  const bl = box.querySelector('#btSigLimpar');
+  if(bl) bl.addEventListener('click', async ()=>{
+    /* cancelados pela Admissão ou já concluídos: saem deste computador (continuam na nuvem) */
+    const ids2 = Object.keys(S.kits).filter(id=>{ const st = S.assin[id] || {}; return (st.online && st.online.cancelado) || (st.colab && blocosPendentes(S.kits[id], st).length === 0); });
+    for(const id of ids2){ delete S.kits[id]; delete S.assin[id]; try{ await apagarKitGuardado(id); }catch(e){} }
+    S.pessoas = S.pessoas.filter(p=>S.kits[p.id]);
+    salvar(); renderSignatario();
+    torrada(ids2.length + ' kit(s) antigo(s) removido(s) deste computador.', 5000);
+  });
   box.querySelectorAll('[data-sig-ler]').forEach(b=>b.addEventListener('click', ()=>abrirLeituraKit(b.dataset.sigLer)));
   box.querySelectorAll('[data-sig-reenviar]').forEach(b=>b.addEventListener('click', async ()=>{
     b.disabled = true; b.textContent = 'Reenviando...';
