@@ -8098,6 +8098,24 @@ async function trazerOnline(sb, row){
   S.kits[p.id] = {bytes: original, pags: Math.max(1, Math.trunc(+dados.pags) || 1), hash: hashOk,
                   indice: indiceSeguro(dados.indice), em: String(dados.em || '').slice(0, 40)};
   const assinNuvem = dados.assin && typeof dados.assin === 'object' && !Array.isArray(dados.assin) ? dados.assin : {};
+  /* A assinatura da Cimed que o banco guarda (kits_online.blocos) manda: o JSON da versão pode
+     ter nascido antes de a Cimed assinar (o colaborador abriu o link antes) e vir sem ela.
+     Sem isto o kit "voltava" para "Pendente: Cimed assinar" depois de o colaborador assinar. */
+  const blocosBanco = row.blocos && typeof row.blocos === 'object' && !Array.isArray(row.blocos) ? row.blocos : null;
+  if(blocosBanco){
+    const meus = Object.assign({}, assinNuvem.blocos || {});
+    Object.keys(blocosBanco).forEach(area=>{
+      const b = blocosBanco[area] || {};
+      if(b.assinado_empresa_em && b.empresa_nome && !(meus[area] && meus[area].em)){
+        meus[area] = {papel: 'empresa', nome: String(b.empresa_nome).slice(0, 120), em: String(b.assinado_empresa_em).slice(0, 40),
+                      procuracao: b.procuracao ? String(b.procuracao).slice(0, 80) : '', area: area, imagem: null, doBanco: true};
+      }
+    });
+    if(Object.keys(meus).length) assinNuvem.blocos = meus;
+    /* o que ficou guardado neste aparelho (assinatura feita aqui) também não se perde */
+    const local = antigo.blocos || {};
+    Object.keys(local).forEach(area=>{ if(local[area] && local[area].em && !(assinNuvem.blocos && assinNuvem.blocos[area] && assinNuvem.blocos[area].em)){ assinNuvem.blocos = Object.assign({}, assinNuvem.blocos || {}, {[area]: local[area]}); } });
+  }
   S.assin[p.id] = Object.assign({}, assinNuvem, {
     pdfAssinado: pdf,
     online: {id: row.id, versao: row.versao, token: row.token_hash ? tokenAntigo : null}
@@ -8184,7 +8202,7 @@ async function sincronizarOnline(silencioso){
   const sb = await nuvemEquipe(silencioso);
   if(!sb) return;
   const ids = pids.map(pid=>S.assin[pid].online.id);
-  const r = await sb.from('kits_online').select('id,nome,versao,token_hash,pdf_atual,json_atual,colab_assinou').in('id', ids);
+  const r = await sb.from('kits_online').select('id,nome,versao,token_hash,pdf_atual,json_atual,colab_assinou,blocos').in('id', ids);
   if(r.error){ if(!silencioso) torrada('Não foi possível consultar: ' + erroLegivel(r.error), 7000); return; }
   let n = 0, nomes = [];
   for(const row of (r.data || [])){
