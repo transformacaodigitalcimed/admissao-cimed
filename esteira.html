@@ -3430,6 +3430,7 @@ let SIG_AREAS = null;
 function signatariosDaArea(area){ return SIG_AREAS ? (SIG_AREAS[area] || []) : SIGNATARIOS; }
 function listaSignatarios(l){
   return Array.isArray(l) ? l.filter(s=>s && s.nome).map(s=>({nome: String(s.nome).slice(0, 120),
+    email: String(s.email || '').trim().toLowerCase().slice(0, 120),
     procuracao: String(s.procuracao || '').slice(0, 60), validade: String(s.validade || '').slice(0, 10)})) : [];
 }
 function aplicarSignatarios(unico, porArea){
@@ -3460,11 +3461,16 @@ function atualizarCampoSignatario(){
     let v = '';
     try{ v = localStorage.getItem('cimed.assinante.' + area) || ''; }catch(e){}
     if(lista.length && !lista.some(s=>s.nome.toLowerCase() === v.toLowerCase())) v = lista.length === 1 ? lista[0].nome : '';
+    /* quem está logado e tem procuração para a área assina com o próprio nome; o banco confere (SQL 23) */
+    const meu = NUVEM.email ? lista.find(s=>s.email && s.email === NUVEM.email) : null;
+    if(meu) v = meu.nome;
     c.value = v;
     const soColab = !cimedAssinaArea(area);
     const sem = soColab || !!(SIG_AREAS && !lista.length);
     c.placeholder = soColab ? 'A Cimed não assina este bloco' : sem ? 'Sem signatário cadastrado para ' + AREA_NOME[area] : 'Quem assina pela Cimed';
     c.disabled = sem;
+    c.title = meu ? 'Você está logado como ' + meu.nome + ': só este login assina por este nome.'
+            : NUVEM.email && lista.some(s=>s.email) ? 'Só o login do próprio signatário assina pela Cimed. Você está como ' + NUVEM.email + '.' : '';
   }
   const dica = document.getElementById('dicaArea');
   if(dica) dica.textContent = !cimedAssinaArea(area)
@@ -7231,6 +7237,24 @@ async function assinar(p, k, st, quem){
       quem = Object.assign({}, quem, {nome: s.nome,
         procuracao: s.procuracao ? 'Procuracao ' + s.procuracao + (s.validade ? ', valida ate ' + String(s.validade).split('-').reverse().join('/') : '') : ''});
     }
+    /* Só o login do próprio signatário assina pela Cimed (Josianny, 20/10/2026; SQL 23).
+       A Esteira pergunta ao banco antes de carimbar; off-line ninguém assina pela Cimed. */
+    if(MODO_ONLINE || location.protocol === 'file:'){
+      torrada('A Cimed só assina com a Esteira aberta pela Plataforma de Admissão, no login de quem assina (' + quem.nome + ').', 8000);
+      return false;
+    }
+    const sbAss = await nuvemEquipe(false);
+    if(!sbAss) return false;
+    const chk = await sbAss.rpc('signatario_sou_eu', {nome: quem.nome, area: quem.area});
+    if(chk.error && /PGRST202|schema cache|does not exist|signatario_sou_eu/i.test(String(chk.error.message || ''))){
+      if(!AVISOU_SEM_LOGIN_SIG){ AVISOU_SEM_LOGIN_SIG = true; torrada('O banco ainda não tem o SQL 23: a conferência do login de quem assina ainda não está ligada.', 8000); }
+    }else if(chk.error){
+      torrada('Não deu para conferir quem está logado: ' + erroLegivel(chk.error), 8000);
+      return false;
+    }else if(!chk.data){
+      torrada('Só o login de ' + quem.nome + ' assina pela Cimed no bloco ' + bloco.titulo + '. Entre na plataforma com a conta dessa pessoa' + (NUVEM.email ? ' (você está como ' + NUVEM.email + ')' : '') + '.', 9000);
+      return false;
+    }
   }
   let base = st.pdfAssinado || k.bytes;
 
@@ -7688,6 +7712,9 @@ async function nuvemEquipe(silencioso){
     if(!silencioso) torrada('Entre na Plataforma de Admissão neste navegador e tente de novo.', 6500);
     return null;
   }
+  /* e-mail de quem está logado: o campo "quem assina pela Cimed" segue este login (SQL 23) */
+  const emailLogado = String((r.data.session.user && r.data.session.user.email) || '').trim().toLowerCase();
+  if(emailLogado !== NUVEM.email){ NUVEM.email = emailLogado; atualizarCampoSignatario(); }
   if(!NUVEM.relogio){
     NUVEM.relogio = true;
     sb.rpc('agora_servidor').then(x=>{ if(x && x.data) acertarRelogio(x.data); }).catch(()=>{});
@@ -7765,6 +7792,7 @@ function dadosDoKit(pid){
    coluna blocos não existe. Nesse caso a Esteira volta ao jeito antigo, com um
    nome só, e avisa uma vez. */
 let AVISOU_SEM_BLOCOS = false;
+let AVISOU_SEM_LOGIN_SIG = false;
 function bancoSemBlocos(err){
   const m = String((err && err.message) || err || '');
   const sem = /p_blocos|column .*blocos|kit_blocos|PGRST202|PGRST204|schema cache/i.test(m);
