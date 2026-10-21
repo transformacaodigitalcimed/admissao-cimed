@@ -64,25 +64,28 @@ function itinerario(i, aberto) {
     <p class="apoio" style="margin:4px 0 8px">${ps.length} pontos de embarque, na ordem do trajeto. Chegue alguns minutos antes do horário.</p>
     ${ps.map((p) => cartaoPonto(p)).join('')}</details>`;
 }
+const VAZIAS = new Set(['rua', 'avenida', 'av', 'travessa', 'tv', 'alameda', 'praca', 'rodovia', 'estrada', 'bairro', 'numero', 'casa', 'perto', 'proximo', 'de', 'da', 'do', 'das', 'dos', 'em', 'no', 'na', 'mg', 'pouso', 'alegre']);
+const palavrasDe = (s) => norm(s).split(' ').filter((w) => w.length >= 3 && !VAZIAS.has(w) && !/^\d+$/.test(w));
 function pontuar(p, t) {
   const b = norm(p.bairro), e = norm(p.endereco + ' ' + p.referencia), c = norm(p.cidade);
   let s = 0;
   if (t.bairro && b && b === t.bairro) s += 6;
   if (t.bairro && b && (b.includes(t.bairro) || t.bairro.includes(b))) s += 3;
   if (t.rua && t.rua.length >= 4 && e.includes(t.rua)) s += 8;
-  (t.palavras || []).forEach((w) => { if (w.length >= 3 && (e.includes(w) || b.includes(w))) s += 2; });
+  (t.palavras || []).forEach((w) => { if (b.split(' ').includes(w)) s += 4; else if (b.includes(w)) s += 3; else if (e.split(' ').includes(w)) s += 2; });
   if (t.cidade && c && c === t.cidade) s += 1;
   return s;
 }
 async function buscar(txt) {
   const out = $('#res'); const dig = txt.replace(/\D/g, '');
-  let t = { palavras: norm(txt).split(' ').filter((w) => w.length >= 3) };
+  let t = { palavras: palavrasDe(txt) };
   if (dig.length === 8) {
     out.innerHTML = '<div class="vazio">Consultando o CEP…</div>';
     try {
       const r = await fetch(`https://viacep.com.br/ws/${dig}/json/`).then((x) => x.json());
+      if (r && !r.erro && !r.logradouro && !r.bairro) { out.innerHTML = '<div class="vazio">Esse CEP é da cidade inteira (' + esc(r.localidade || '') + '), sem rua nem bairro. Digite o nome da sua rua ou do seu bairro.</div>'; return; }
       if (r && !r.erro) {
-        t = { rua: norm(String(r.logradouro || '').replace(/^(rua|avenida|av|travessa|alameda|praca|rodovia)\s+/i, '')), bairro: norm(r.bairro), cidade: norm(r.localidade), palavras: norm(r.logradouro + ' ' + r.bairro).split(' ').filter((w) => w.length >= 4) };
+        t = { rua: norm(String(r.logradouro || '').replace(/^(rua|avenida|av|travessa|alameda|praca|rodovia)\s+/i, '')), bairro: norm(r.bairro), cidade: norm(r.localidade), palavras: palavrasDe(r.logradouro + ' ' + r.bairro) };
         out.dataset.local = [r.logradouro, r.bairro, r.localidade].filter(Boolean).join(', ');
       } else { out.innerHTML = '<div class="vazio">CEP não encontrado. Tente digitar o nome da rua ou do bairro.</div>'; return; }
     } catch (e) { out.innerHTML = '<div class="vazio">Não consegui consultar o CEP agora. Tente digitar o nome da rua ou do bairro.</div>'; return; }
@@ -92,7 +95,12 @@ async function buscar(txt) {
   const achados = todos.filter((x) => x.s > 0).sort((a, b) => b.s - a.s || Number(b.i.escolhido) - Number(a.i.escolhido)).slice(0, 8);
   out.innerHTML = achados.length
     ? `<p class="apoio">${out.dataset.local ? 'Perto de ' + esc(out.dataset.local) + ': ' : ''}os pontos que mais combinam com o que você digitou. Use "Como chegar daqui" para ver a distância a pé.</p>` + achados.map((x) => cartaoPonto(x.p, x.i.linha, !x.i.escolhido)).join('')
-    : '<div class="vazio">Nenhum ponto do seu turno nesse bairro ou rua. Veja a lista completa abaixo, ou fale com o Time de Admissão.</div>';
+    : `<div class="vazio">Nenhum ponto do seu turno com esse nome de rua ou bairro. Bairros atendidos no seu turno: ${esc(bairrosAtendidos().join(', '))}. Digite o mais perto de você, ou veja a lista completa abaixo.</div>`;
+}
+function bairrosAtendidos() {
+  const m = new Map();
+  ITINS.forEach((i) => (i.pontos || []).forEach((p) => { const b = String(p.bairro || '').trim(); if (b && !m.has(norm(b))) m.set(norm(b), titulo(b)); }));
+  return [...m.values()].sort((a, b) => a.localeCompare(b, 'pt-BR'));
 }
 async function iniciar() {
   const m = $('#m');
@@ -107,8 +115,8 @@ async function iniciar() {
   const meus = ITINS.filter((i) => i.escolhido);
   if (!meus.length) { m.innerHTML = '<div class="caixa">Este itinerário não está mais disponível. Fale com o Time de Admissão.</div>'; return; }
   const outros = ITINS.filter((i) => !i.escolhido);
-  m.innerHTML = `<div class="caixa"><h2>Ache o ponto mais perto de você</h2><p class="apoio" style="margin-top:0">Digite o seu CEP ou o nome da sua rua ou bairro. O CEP é consultado no ViaCEP, um serviço público de endereços; nada do que você digita fica guardado.</p>
-    <form class="busca" id="fBusca"><input id="q" inputmode="text" autocomplete="postal-code" placeholder="Ex.: 37550-000 ou Rua Exemplo, São João" aria-label="CEP, rua ou bairro"><button class="pri" type="submit">Buscar</button></form><div id="res" style="margin-top:10px"></div></div>
+  m.innerHTML = `<div class="caixa"><h2>Ache o ponto mais perto de você</h2><p class="apoio" style="margin-top:0">Digite o CEP da sua rua (com ou sem traço), ou o nome da rua ou do bairro, por exemplo "São Geraldo" ou "Avenida Ayrton Senna". O CEP é consultado no ViaCEP, um serviço público de endereços; nada do que você digita fica guardado.</p>
+    <form class="busca" id="fBusca"><input id="q" inputmode="text" autocomplete="postal-code" placeholder="CEP da sua rua, nome da rua ou do bairro" aria-label="CEP, rua ou bairro"><button class="pri" type="submit">Buscar</button></form><div id="res" style="margin-top:10px"></div></div>
     <h2 style="margin:18px 0 8px">Seu itinerário</h2>
     ${meus.map((i) => itinerario(i, meus.length === 1)).join('')}
     ${outros.length ? `<details class="caixa"><summary>Outras linhas do mesmo turno (${outros.length})</summary><p class="apoio">Se outro ponto ficar mais perto, avise o Time de Admissão para trocar a sua linha.</p>${outros.map((i) => itinerario(i, false)).join('')}</details>` : ''}
