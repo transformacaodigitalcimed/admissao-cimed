@@ -6,15 +6,17 @@
 <title>Seu fretado Cimed</title>
 <meta name="robots" content="noindex">
 <style>
-:root{--am:#FFC600;--sobre-am:#16140C;--bg:#FBFAF5;--sup:#FFFFFF;--sup2:#F3F0E6;--linha:#E6E2D6;--tx:#16140C;--tx2:#3D3A30;--mudo:#6B675A;--ok:#1E6B45;--ok-bg:#E3F2E9;--info:#1F4E8C;--info-bg:#E2ECF8;--r:14px}
-@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#121109;--sup:#1C1A12;--sup2:#24221A;--linha:#36332A;--tx:#F4F1E7;--tx2:#D6D1C2;--mudo:#A39E8D;--ok:#7BD3A2;--ok-bg:#16301F;--info:#8DB6F0;--info-bg:#172338}}
-:root[data-theme="dark"]{--bg:#121109;--sup:#1C1A12;--sup2:#24221A;--linha:#36332A;--tx:#F4F1E7;--tx2:#D6D1C2;--mudo:#A39E8D;--ok:#7BD3A2;--ok-bg:#16301F;--info:#8DB6F0;--info-bg:#172338}
+/* sempre claro, como a plataforma (pedido da Josianny, 21/10/2026) */
+:root{color-scheme:light;--am:#FFC600;--sobre-am:#16140C;--bg:#F8F6F1;--sup:#FFFFFF;--sup2:#F3F0E8;--linha:#ECE7DA;--tx:#1D1B16;--tx2:#4A463C;--mudo:#7A7568;--ok:#1E6B45;--ok-bg:#E3F2E9;--info:#1F4E8C;--info-bg:#E2ECF8;--r:16px}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,'Segoe UI',Arial,sans-serif}
-header{background:var(--am);color:var(--sobre-am);padding:18px 16px}
+header{background:var(--sup);border-bottom:1px solid var(--linha);padding:14px 16px 16px;box-shadow:0 1px 2px rgba(29,27,22,.04)}
 header .in,main{max-width:760px;margin:0 auto}
-header b{letter-spacing:.3em;font-size:17px}
-header h1{margin:4px 0 0;font-size:24px;line-height:1.2}
+header .in{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+header img{height:44px;width:auto;display:block}
+header h1{margin:0;font-size:22px;line-height:1.2}
+header p{margin:2px 0 0;color:var(--mudo);font-size:14px}
+.faixa{height:6px;background:var(--am)}
 main{padding:16px}
 .caixa{background:var(--sup);border:1px solid var(--linha);border-radius:var(--r);padding:16px;margin:0 0 14px}
 h2{font-size:18px;margin:0 0 6px}
@@ -37,7 +39,8 @@ details summary{cursor:pointer;font-weight:600;min-height:40px;display:flex;alig
 </style>
 </head>
 <body>
-<header><div class="in"><b>CIMED</b><h1>Seu fretado</h1></div></header>
+<div class="faixa"></div>
+<header><div class="in"><img src="logo-cimed.png" width="117" height="44" alt="Cimed"><div><h1>Seu fretado</h1><p>Itinerário e ponto mais perto de você</p></div></div></header>
 <main id="m"><div class="caixa">Carregando o itinerário…</div></main>
 <script type="module">
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
