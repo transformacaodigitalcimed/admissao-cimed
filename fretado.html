@@ -161,6 +161,7 @@ async function rpc(nome, corpo) {
   return r.json();
 }
 const UNI_NOME = { 'UNIDADE 1': 'Unidade 1 · Pouso Alegre (Site I)', 'UNIDADE 2': 'Unidade 2 · Fernão Dias (Site II)', 'SSBV': 'SSBV · São Sebastião da Bela Vista' };
+const ORDEM_TURNO = ['1º TURNO', '2º TURNO', '3º TURNO SEG-SAB', '3º TURNO DOM', 'ADMINISTRATIVO', '2X2X3 - 1º TURNO', '2X2X3 - 2º TURNO', 'APRENDIZ'];
 const TURNO_NOME = (x) => ({ '1º TURNO': '1º turno', '2º TURNO': '2º turno', '3º TURNO SEG-SAB': '3º turno (segunda a sábado)', '3º TURNO DOM': '3º turno (domingo)', 'ADMINISTRATIVO': 'Administrativo', '2X2X3 - 1º TURNO': 'Escala 2x2x3 · dia', '2X2X3 - 2º TURNO': 'Escala 2x2x3 · noite', 'APRENDIZ': 'Aprendiz' })[x] || x;
 // caixa da busca (mesma nos dois modos)
 function caixaBusca() {
@@ -197,7 +198,9 @@ async function modoGeral(m) {
   let turnos;
   try { turnos = Array.isArray(window.FRETADO_TURNOS) ? window.FRETADO_TURNOS : await rpc('fretado_publico_turnos'); }
   catch (e) { m.innerHTML = '<div class="caixa">Não consegui carregar as linhas agora. Tente de novo em alguns minutos.</div>'; return; }
-  const unis = [...new Set(turnos.map((x) => x.unidade))].sort();
+  const pos = (lista, x) => { const k = lista.indexOf(x); return k < 0 ? 99 : k; };
+  const unis = [...new Set(turnos.map((x) => x.unidade))].sort((a, b) => pos(Object.keys(UNI_NOME), a) - pos(Object.keys(UNI_NOME), b) || a.localeCompare(b));
+  turnos = turnos.slice().sort((a, b) => pos(ORDEM_TURNO, a.turno) - pos(ORDEM_TURNO, b.turno) || a.turno.localeCompare(b.turno));
   const ps = new URLSearchParams(location.hash.slice(1));
   const uni = unis.includes(ps.get('u')) ? ps.get('u') : '';
   m.innerHTML = `<div class="caixa"><h2>Qual é a sua unidade e o seu turno?</h2><p class="apoio" style="margin-top:0">Escolha para ver as linhas do fretado e achar o ponto mais perto da sua casa.</p>
