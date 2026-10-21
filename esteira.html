@@ -3340,7 +3340,7 @@ const MODO_SIGNATARIO = /[?&]modo=signatario\b/.test(location.search);
 const ASSINATURA_CIMED = {imagem: null, email: '', carregadaDe: ''};
 function temOS(p){ return OS_ATIVA && p && String(p.os_status || '').toLowerCase() === 'validada' && !!(p.os_atividades || p.os_riscos || p.os_epi); }
 function osPendente(p){ return OS_ATIVA && p && /pendente/i.test(String(p.os_status || '')); }
-let TERMO_URL = 'https://www.canalconfidencial.com.br/atitudecimed/';
+let TERMO_URL = 'https://www.canalconfidencial.com.br/atitudecimed/files/730_CODIGO%20DE%20CONDUTA_2023.pdf';
 const TERMO_PERGUNTAS = [
   ['q1', 'Possui familiar de 1o grau (pais, filhos, irmaos, conjuge ou companheiro(a)) trabalhando na Cimed?', 'Nome, parentesco, cargo, area e turno'],
   ['q2', 'Mantem relacionamento amoroso com alguem da mesma area ou sob a mesma gestao?', 'Nome e area'],
@@ -3446,7 +3446,7 @@ FORMULARIOS[CHAVE_TERMO] = {titulo:'Termo de Transparência (Compliance)', campo
   {t:'opcao', id:'codigo_conduta_ciente', l:'Li e estou ciente do Código de Conduta', op:['Sim']}
 ].concat(TERMO_PERGUNTAS.flatMap(([id, l, dica], i)=>[
   {t:'opcao', id:id, l:(i + 1) + '. ' + l.replace('1o', '1º').replace(/conjuge/g,'cônjuge').replace(/area/g,'área').replace(/orgao/g,'órgão').replace(/servico/g,'serviço').replace(/publico/g,'público').replace(/politico/g,'político').replace(/negocios/g,'negócios').replace(/negociacao/g,'negociação').replace(/participacao/g,'participação').replace(/societaria/g,'societária').replace(/litigio/g,'litígio').replace(/Mantem/,'Mantém').replace(/alguem/,'alguém').replace(/gestao/,'gestão').replace(/situacao/,'situação').replace(/Ha /,'Há ').replace(/irmaos/,'irmãos').replace(/esta em/,'está em'), op:['Sim','Não']},
-  {t:'texto', id:id + '_det', l:'Comentário (obrigatório se Sim): ' + dica.replace(/area/g,'área').replace(/orgao/g,'órgão').replace(/servico/g,'serviço').replace(/horaria/g,'horária').replace(/funcao/g,'função').replace(/vinculo/g,'vínculo'), opcional:true, seObrig:{id:id, vale:['Sim']}}
+  {t:'texto', id:id + '_det', se:{id:id, vale:['Sim']}, l:'Comentário (obrigatório): ' + dica.replace(/area/g,'área').replace(/orgao/g,'órgão').replace(/servico/g,'serviço').replace(/horaria/g,'horária').replace(/funcao/g,'função').replace(/vinculo/g,'vínculo')}
 ]))};
 const FORM_TERMO = FORMULARIOS[CHAVE_TERMO];
 
@@ -6142,7 +6142,7 @@ async function estamparTermo(bytes, p, st, kit){
     const {pag, y} = posicaoTermo(i);
     const pg = pags[pag];
     pg.drawText('X', {x:(v === 'Sim' ? T_L : T_L + 60) + 1.5, y:y - 31, size:10, font:neg, color:tinta});
-    const det = String(resp[q + '_det'] || '').trim();
+    const det = v === 'Sim' ? String(resp[q + '_det'] || '').trim() : '';
     if(det) pg.drawText(cabeNaLargura(limpoPDF(det), reg, 8, T_W - 2 * T_L - 4), {x:T_L + 2, y:y - 44, size:8, font:reg, color:tinta});
   });
   const agora = agoraCerta();
@@ -6167,6 +6167,7 @@ function termoDoKit(st, kit){
   if(!TERMO_PERGUNTAS.some(([q])=>resp[q])) return null;
   const out = {};
   Object.keys(resp).forEach(k=>{ if(/^q\d{1,2}(_det)?$/.test(k) || k.indexOf('codigo_conduta') === 0) out[k] = resp[k]; });
+  TERMO_PERGUNTAS.forEach(([q])=>{ if(out[q] !== 'Sim') delete out[q + '_det']; });
   out.assinado_em = (st.colab && st.colab.em) || agoraCerta().toISOString();
   out.codigo = (st.colab && st.colab.codigo) || '';
   return out;
@@ -6928,6 +6929,13 @@ function renderColab(){
     /* A estrutura sai pronta aqui: a moldura de cada folha e o campo
        de assinatura dela. O desenho da página entra depois, dentro da
        moldura. Assim o campo existe mesmo se o desenho demorar. */
+    /* Termo de Confidencialidade: antes do documento, o Termo de Compromisso com o Codigo de Conduta (Josianny, 21/10/2026) */
+    if(/confidencialidade/.test(doc.chave)){
+      h += '<div class="doc-card"><h4 style="margin:0 0 8px">TERMO DE COMPROMISSO</h4>'
+        + '<p style="margin:0 0 8px">Declaro que recebi, li, tive ciência e compreendi o Código de Conduta da CIMED.</p>'
+        + '<p style="margin:0 0 10px">Comprometo-me a cumpri-lo integralmente nas minhas atividades relacionadas à CIMED, inclusive respeitando o compromisso de não divulgação de informações confidenciais, seja durante ou após a vigência do meu vínculo com a CIMED. Ainda, concordo em cumprir a legislação vigente, todas as políticas e instruções normativas internas adotadas pela CIMED, e agir com boa-fé e de maneira ética perante a órgãos e agentes públicos e/ou privados.</p>'
+        + '<a class="b peq" href="' + esc(TERMO_URL) + '" target="_blank" rel="noopener">Ler o Código de Conduta</a></div>';
+    }
     /* Termo de Transparencia: primeiro as perguntas; depois de tudo respondido,
        o documento preenchido para a pessoa revisar e confirmar (Josianny, 20/10/2026) */
     const ehTermo = doc.form === FORM_TERMO;
