@@ -166,6 +166,9 @@ async function criarApi() {
     async opcoesTodas() { return paginas(() => sb.from('opcoes_beneficios').select('admissao_id,dados,recebido_em').order('admissao_id')); },
     async salvarBp(o) { return ok(await sb.from('bps').upsert(o).select('id')); },
     async apagarBp(id) { return ok(await sb.from('bps').delete().eq('id', id)); },
+    async areasDestino() { return ok(await sb.from('areas_destino').select('*').order('area_id').order('unidade')); },
+    async salvarAreaDestino(o) { return ok(await sb.from('areas_destino').upsert(o).select('id')); },
+    async apagarAreaDestino(id) { return ok(await sb.from('areas_destino').delete().eq('id', id)); },
     async destinatariosTurma() { return ok(await sb.from('destinatarios_turma').select('*').order('unidade')); },
     async salvarDestinatario(o) { return ok(await sb.from('destinatarios_turma').upsert(o).select('id')); },
     async apagarDestinatario(id) { return ok(await sb.from('destinatarios_turma').delete().eq('id', id)); },
@@ -514,6 +517,7 @@ async function carregar() {
   if (tem('rs', 'admissao')) {
     tarefas.push(api.turmas().then((r) => (E.turmasCal = r || [])));
     tarefas.push(api.bps().then((r) => (E.bps = r || [])));
+    if (api.areasDestino) tarefas.push(api.areasDestino().then((r) => (E.areaDest = r || [])).catch(() => (E.areaDest = null)));
     tarefas.push(api.destinatariosTurma().then((r) => (E.dest = r || [])));
   }
   if (tem('compliance')) tarefas.push(api.termos().then((r) => (E.termos = r || [])));
@@ -796,6 +800,10 @@ const souBeneficios = () => tem('admissao') || (tem('especialista') && ['benefic
 const temSql27 = () => E.params?.cobranca_imediata != null;
 const temSql28 = () => (E.benCat || []).length > 0;
 const temSql31 = () => (E.tLinhas || []).length > 0;
+const temSql35 = () => (E.areas || []).some((a) => 'reavisar' in a);
+// tipo de uso do carro e prazo das políticas de frota (Frotas, 21/10/2026)
+const FROTA_TIPO = { comercial: 'Ferramenta de trabalho (comercial, até coordenador)', gerente_comercial: 'Gerente comercial (carro benefício, cartão como ferramenta)', beneficio: 'Só benefício (corporativo)' };
+const frotaPrazo = (tipo) => (tipo === 'beneficio' ? 30 : 2);
 // fretado (SQL 31): unidade dos itinerários por local; linhas "24 - FRETADO" do LG
 const UNID_FRETADO = { 'Pouso Alegre': 'UNIDADE 1', 'Fernão Dias': 'UNIDADE 2', 'Gráfica SSBV': 'SSBV' };
 const INTEG_FRETADO = ['Pouso Alegre', 'Fernão Dias'];   // fretado na integração: turno administrativo
@@ -1187,12 +1195,19 @@ VIEWS.novo = () => {
     ${temSql31() ? `<div class="campo l2" id="n_frIntegBox"><label>Fretado na integração</label><div class="marcas"><label><input type="checkbox" id="n_frInteg"> Precisará de fretado na integração? (turno administrativo)</label></div><div id="n_frIntegWrap" hidden></div><span class="ajuda">Só Pouso Alegre e Fernão Dias. O e-mail leva o itinerário da integração e o do turno.</span></div>` : ''}
     <div class="campo"><label for="n_cd_entrega">CD de entrega do equipamento</label><input id="n_cd_entrega" placeholder="Só para o comercial"><span class="ajuda">A TI não entrega em casa: vai para o CD mais perto.</span></div>
     <div class="campo l2"><label>Usa veículo da frota?</label><div class="marcas"><label><input type="checkbox" id="n_frota"> Sim, vai dirigir carro da empresa</label><label><input type="checkbox" id="n_motorista"> Motorista profissional (dirigir é a função)</label></div><span class="ajuda">Frotas separa o veículo; motorista profissional pede CNH com EAR e toxicológico.</span></div>
+    ${temSql35() ? `<div class="campo l2" id="n_frotaTipoBox" hidden><label for="n_frota_tipo">Uso do carro</label><select id="n_frota_tipo"><option value="">Escolha</option>${Object.entries(FROTA_TIPO).map(([k, x]) => `<option value="${k}">${esc(x)}</option>`).join('')}</select><span class="ajuda" id="n_frotaAj">Frotas recebe o aviso já no cadastro. Prazo da política: 2 dias no comercial, 30 no benefício. A pessoa envia a CNH definitiva e o extrato de pontos.</span></div>` : ''}
     <div class="campo l4"><label>Equipamentos e acessos</label><div class="marcas" id="n_ti">${itensTi.map((x) => `<label><input type="checkbox" value="${esc(x)}"> ${esc(x)}</label>`).join('')}</div><span class="ajuda">A TI recebe a previsão agora; a Admissão abre o chamado com a matrícula usando estes dados.</span></div>
   </div><div class="linha-flex" style="margin-top:18px;justify-content:flex-end"><span class="apoio" id="n_resumo" style="flex:1;min-width:220px"></span><button type="submit" class="bt pri" id="n_salvar">Salvar e avisar as áreas</button></div></form>`;
 };
 POS.novo = () => {
   const f = $('#fNovo'); let nr12Manual = false, diasManual = false, horaManual = false;
   const turmaAtual = () => E.turmasCal.find((x) => x.id === $('#n_turma').value);
+  const dataInicioForm = () => {
+    const s = $('#n_turma').value;
+    if (s === 'outra') return $('#n_inicio').value || null;
+    if (s.startsWith('data:')) return s.slice(5);
+    return E.turmasCal.find((x) => x.id === s)?.data || null;
+  };
   const upd = () => {
     const l = localDe($('#n_local').value);
     $('#n_localAj').textContent = l.nome ? `Integração em ${l.integ} · calendário ${GRUPO_TURMA[l.grupo_turma] || ''}` : '';
@@ -1204,6 +1219,15 @@ POS.novo = () => {
       : temSql27() && !tem('admissao') ? 'Turma com corte encerrado fica bloqueada. Exceção aprovada: peça ao Time de Admissão para liberar o CPF nela.' : '';
     $('#n_substBox').hidden = !f.querySelector('input[name=n_motivo][value=subst]').checked;
     $('#n_agenciaBox').hidden = $('#n_tipo').value !== 'Temporário';
+    if ($('#n_frotaTipoBox')) {
+      $('#n_frotaTipoBox').hidden = !$('#n_frota').checked;
+      const tp = $('#n_frota_tipo').value; const ini = dataInicioForm(); const prazo = frotaPrazo(tp);
+      const faltam = ini ? Math.round((new Date(ini + 'T12:00:00') - new Date(new Date().toDateString() + ' 12:00')) / 86400000) : null;
+      $('#n_frotaAj').textContent = tp && faltam != null
+        ? `Prazo da política: ${prazo} dias. Faltam ${faltam} dias para o início${faltam < prazo ? ': abaixo do prazo, combine a entrega com o gestor e com Frotas.' : '.'}`
+        : 'Frotas recebe o aviso já no cadastro. Prazo da política: 2 dias no comercial, 30 no benefício. A pessoa envia a CNH definitiva e o extrato de pontos.';
+      $('#n_frotaAj').style.color = tp && faltam != null && faltam < prazo ? 'var(--cr)' : '';
+    }
     if (!nr12Manual) $('#n_nr12').checked = l.tipo === 'fabrica' && /operador|produc|produç|máquina|maquina/i.test($('#n_cargo').value);
     if (ligado('dependentes_ativo')) $('#n_filhos').value = E.depsNovo.filter((d) => ['Filho(a)', 'Enteado(a)'].includes(d.parentesco)).length;
     mostrarOutras(f);
@@ -1257,6 +1281,7 @@ POS.novo = () => {
       if ((d.nome || '').trim().split(/\s+/).length < 2 || !d.parentesco) { erros.push('n_turma'); toast(`Dependente ${i + 1}: nome completo e parentesco são obrigatórios.`, true); }
       if (d.cpf && !cpfValido(d.cpf)) { erros.push('n_turma'); toast(`Dependente ${i + 1}: CPF inválido.`, true); }
     });
+    if ($('#n_frotaTipoBox') && $('#n_frota').checked && !v('n_frota_tipo')) marca('n_frota_tipo', 'Escolha o uso do carro: Frotas precisa para o termo e o prazo.');
     if (erros.length) { $('#' + erros[0])?.focus(); return; }
     if (!v('n_email') && !confirm('Sem e-mail, a lista de documentos, as cobranças e o convite da integração não chegam por e-mail ao candidato. O e-mail é importante para comunicar as próximas etapas.\n\nSeguir mesmo assim, sem e-mail?')) { $('#n_email').focus(); return; }
     $('#n_salvar').disabled = true;
@@ -1275,6 +1300,7 @@ POS.novo = () => {
       ti_itens: [...document.querySelectorAll('#n_ti input:checked')].map((x) => x.value),
       ...($('#n_sind') ? { sindicato: v('n_sind') || null } : {}),
       ...($('#n_eradep') ? { era_dependente_cimed: $('#n_eradep').checked } : {}),
+      ...($('#n_frotaTipoBox') ? { frota_tipo: $('#n_frota').checked ? v('n_frota_tipo') || null : null } : {}),
     }));
     if (novo && deps.length) {
       for (const d of deps) await tentar(() => api.salvarDependente({ admissao_id: novo.id, nome: d.nome.trim(), parentesco: d.parentesco, nasc: d.nasc || null, cpf: (d.cpf || '').replace(/\D/g, '') || null, universitario: !!d.universitario, plano_saude: !!d.plano_saude, odonto: !!d.odonto, salario_familia: !!d.salario_familia }));
@@ -1451,7 +1477,7 @@ function desenharFicha(a, docs, evs, arqs = []) {
     ${exigeLg || a.lg_movimentado_em ? `<div class="doc"><div><div class="dn">Movimentado no LG (recrutadora)</div><div class="dm">${chipLg}${a.lg_movimentado_por ? ` <span class="apoio" style="font-size:12px">por ${esc(a.lg_movimentado_por)}</span>` : ''}${!a.lg_movimentado_em && a.lg_avisado_em ? ` <span class="apoio" style="font-size:12px">aviso à analista em ${quando(a.lg_avisado_em)}</span>` : ''}${!a.lg_movimentado_em && a.lg_cobrado_em ? ` <span class="apoio" style="font-size:12px">· cobrada em ${quando(a.lg_cobrado_em)}${a.lg_cobrancas > 1 ? ' (' + a.lg_cobrancas + ' vezes)' : ''}</span>` : ''}${!a.lg_movimentado_em && exigeLg ? '<div class="motivo">Sem a movimentação para a etapa "Admissão" no LG, o DP não registra.</div>' : ''}</div></div><div class="acoes">${podeRs && !a.declinou_em && !a.matricula ? (a.lg_movimentado_em ? `<button class="bt peq fan" data-act="lgDesfazer" data-id="${a.id}">Desfazer</button>` : `<button class="bt peq pri" data-act="lgMovimentado" data-id="${a.id}">Movimentei no LG</button>`) : ''}${dp && 'lg_cobrancas' in a && !a.declinou_em && !a.matricula && !a.lg_movimentado_em && asoOk(a) ? `<button class="bt peq" data-act="cobrarLg" data-id="${a.id}" title="E-mail à analista de R&S responsável, e o sino dela acende">Cobrar a recrutadora</button>` : ''}</div></div>` : ''}
     <div class="doc"><div><div class="dn">Remuneração · posição ${esc(a.posicao || '—')}</div><div class="dm">${chipRemun(a)}</div></div><div class="acoes">${podeRem && !a.declinou_em && a.remuneracao !== 'ok' ? `<button class="bt peq" data-act="remun" data-id="${a.id}" data-v="ok">Validada</button><button class="bt peq" data-act="remun" data-id="${a.id}" data-v="ocupada">Posição ocupada</button>` : ''}</div></div>
     <div class="doc"><div><div class="dn">${a.tipo_contrato === 'Estágio' ? 'Cadastro do estágio e eSocial (S-2300)' : 'Matrícula e eSocial'}</div><div class="dm">${a.matricula ? chip('c-esc', '', a.matricula) + (a.esocial_enviado_em ? ' ' + chip('c-ok', 'ok', 'eSocial ' + dm(a.esocial_enviado_em) + (a.esocial_evento ? ' · ' + a.esocial_evento.split(' ')[0] : '')) : ' ' + chip('c-ag', 'ag', 'eSocial não registrado')) + (a.chamado_ti ? ' ' + chip('c-ag', '', 'Chamado TI ' + a.chamado_ti) : '') + ` <span class="apoio" style="font-size:12px">${esc(avisadas('matricula', a) || 'Nenhuma área com e-mail cadastrado para este momento.')}</span>` : a.etapa === 'registro' ? 'Pronto para registrar no LG' : 'Libera com documentos, ASO apto, remuneração ok' + (exigeLg ? ' e LG movimentado' : '')}</div></div><div class="acoes">${dp && a.etapa === 'registro' ? `<input id="matIn" class="sel-doc" style="width:110px" inputmode="numeric" placeholder="Matrícula" aria-label="Matrícula"><button class="bt peq pri" data-act="matricular" data-id="${a.id}">Registrar</button>` : ''}${dp && a.matricula && !a.declinou_em ? `<input type="date" id="esocialData" class="sel-doc" value="${a.esocial_enviado_em || ''}" aria-label="eSocial enviado em"><select id="esocialEv" class="sel-doc" aria-label="Evento"><option value="">Evento</option>${ESOCIAL.map((x) => `<option ${x === a.esocial_evento ? 'selected' : ''}>${x}</option>`).join('')}</select>${inputFicha('chamadoIn', 'Nº do chamado TI', `value="${esc(a.chamado_ti || '')}" style="width:130px"`)}<button class="bt peq" data-act="salvarRegistro" data-id="${a.id}">Salvar</button>${(a.ti_itens || []).length ? `<button class="bt peq" data-act="copiarChamado" data-id="${a.id}" title="Texto pronto para abrir o chamado no Jira">Copiar texto do chamado</button>` : ''}` : ''}</div></div>
-    <div class="doc"><div><div class="dn">Para as áreas</div><div class="dm">Camisa ${esc(a.camisa || '—')} · ${a.fretado ? 'Fretado ' + esc(a.fretado) : 'Sem fretado'} · ${(a.ti_itens || []).length ? 'TI: ' + esc(a.ti_itens.join(', ')) + (a.cd_entrega ? ' (entrega no ' + esc(a.cd_entrega) + ')' : '') + (prazoChamadoTi(a) && !a.chamado_ti && !a.declinou_em ? ' · ' + chip(chamadoTiAtrasado(a) ? 'c-cr' : 'c-at', chamadoTiAtrasado(a) ? 'cr' : 'at', 'chamado TI até ' + dm(prazoChamadoTi(a))) : '') : 'Sem equipamento'}${a.usa_frota ? ' · Frota' : ''}${a.turno ? ' · ' + esc(a.turno) : ''}${a.cc_codigo || a.cc_nome ? ' · CC ' + esc([a.cc_codigo, a.cc_nome].filter(Boolean).join(' ')) : ''}${a.substituicao ? ' · Substitui ' + esc(a.pessoa_substituida || '(não informado)') : ''}</div></div></div>
+    <div class="doc"><div><div class="dn">Para as áreas</div><div class="dm">Camisa ${esc(a.camisa || '—')} · ${a.fretado ? 'Fretado ' + esc(a.fretado) : 'Sem fretado'} · ${(a.ti_itens || []).length ? 'TI: ' + esc(a.ti_itens.join(', ')) + (a.cd_entrega ? ' (entrega no ' + esc(a.cd_entrega) + ')' : '') + (prazoChamadoTi(a) && !a.chamado_ti && !a.declinou_em ? ' · ' + chip(chamadoTiAtrasado(a) ? 'c-cr' : 'c-at', chamadoTiAtrasado(a) ? 'cr' : 'at', 'chamado TI até ' + dm(prazoChamadoTi(a))) : '') : 'Sem equipamento'}${a.usa_frota ? ' · Frota' + (a.frota_tipo ? ' (' + esc(FROTA_TIPO[a.frota_tipo] || a.frota_tipo) + ')' : '') : ''}${a.turno ? ' · ' + esc(a.turno) : ''}${a.cc_codigo || a.cc_nome ? ' · CC ' + esc([a.cc_codigo, a.cc_nome].filter(Boolean).join(' ')) : ''}${a.substituicao ? ' · Substitui ' + esc(a.pessoa_substituida || '(não informado)') : ''}</div></div></div>
    </div></div>
    ${ligado('dependentes_ativo') && tem('rs', 'admissao', 'saude', 'remuneracao') ? `<div class="caixa pilha"><div class="linha-flex"><h3 style="flex:1">Dependentes · ${plural(E.depsFicha.length, 'cadastrado', 'cadastrados')}</h3>${podeRs && !a.declinou_em ? `<button class="bt peq pri" data-act="fDepSalvar" data-id="${a.id}">Salvar dependentes</button>` : ''}</div>${blocoDeps(E.depsFicha, 'f', podeRs && !a.declinou_em)}<p class="apoio" style="font-size:12px">Os documentos de cada dependente entram na lista abaixo. Benefícios recebe o resumo no cadastro, na matrícula e quando o kit é assinado.</p></div>` : ''}
    ${docs.length ? `<div class="caixa pilha"><div class="linha-flex"><h3 style="flex:1">Documentos · ${r.ok} de ${r.total} conferidos</h3>${dp && !a.declinou_em && (r.pendentes || []).length ? `<button class="bt peq" data-act="cobrar" data-id="${a.id}">Cobrar ${plural(r.pendentes.length, 'pendência', 'pendências')}</button>` : ''}</div>
@@ -2032,12 +2058,15 @@ VIEWS.especialistas = () => {
   const unidades = ['todas', ...E.locais.map((l) => l.nome), 'fabrica', 'cd', 'sp', 'comercial', 'pa_sp_comercial', 'ssbv_cds'];
   const optU = (sel) => unidades.map((u) => `<option value="${esc(u)}" ${u === sel ? 'selected' : ''}>${esc(GRUPO_TURMA[u] || ({ todas: 'Todas as unidades', fabrica: 'Fábricas', cd: 'CDs', sp: 'Escritórios SP', comercial: 'Comercial' })[u] || u)}</option>`).join('');
   const linhaBp = (b, i) => `<div class="area" data-bp="${i}"><div class="ac"><label class="olho">Unidade</label><select class="sel-doc" data-f="unidade">${optU(b.unidade)}</select></div><div class="ac"><label class="olho">Setor (opcional)</label><input class="sel-doc" data-f="area" value="${esc(b.area || '')}" placeholder="vazio = unidade inteira"></div><div class="ac"><label class="olho">BP</label><input class="sel-doc" data-f="nome" value="${esc(b.nome || '')}" placeholder="Nome"><input class="sel-doc" data-f="email" value="${esc(b.email || '')}" placeholder="nome@grupocimed.com.br" style="margin-top:4px"></div><div class="linha-flex"><button class="bt peq" data-act="bpSalvar" data-i="${i}">Salvar</button>${b.id ? `<button class="bt peq fan" data-act="bpApagar" data-id="${b.id}">Apagar</button>` : ''}</div></div>`;
+  const linhaAreaDest = (d, i) => `<div class="area" data-adest="${i}"><div class="ac"><label class="olho">Área</label><select class="sel-doc" data-f="area_id">${E.areas.map((a) => `<option value="${esc(a.id)}" ${a.id === d.area_id ? 'selected' : ''}>${esc(a.nome)}</option>`).join('')}</select></div><div class="ac"><label class="olho">Unidade</label><select class="sel-doc" data-f="unidade">${optU(d.unidade)}</select></div><div class="ac"><label class="olho">E-mails</label><input class="sel-doc" style="width:100%;min-height:40px" data-f="emails" value="${esc((d.emails || []).join(', '))}" placeholder="nome@grupocimed.com.br"></div><div class="linha-flex"><button class="bt peq" data-act="adestSalvar" data-i="${i}">Salvar</button>${d.id ? `<button class="bt peq fan" data-act="adestApagar" data-id="${d.id}">Apagar</button>` : ''}</div></div>`;
   const linhaDest = (d, i) => `<div class="area" data-dest="${i}"><div class="ac"><label class="olho">Unidade</label><select class="sel-doc" data-f="unidade">${optU(d.unidade)}</select><input class="sel-doc" data-f="descricao" value="${esc(d.descricao || '')}" placeholder="Descrição" style="margin-top:4px"></div><div class="ac" style="grid-column:span 2"><label class="olho">E-mails e listas</label><input class="sel-doc" style="width:100%;min-height:40px" data-f="emails" value="${esc((d.emails || []).join(', '))}" placeholder="lista@grupocimed.com.br, portaria@grupocimed.com.br"><label class="marcas" style="margin-top:4px"><label><input type="checkbox" data-f="copiar_requisitantes" ${d.copiar_requisitantes !== false ? 'checked' : ''}> Requisitantes da turma em cópia</label></label></div><div class="linha-flex"><button class="bt peq" data-act="destSalvar" data-i="${i}">Salvar</button>${d.id ? `<button class="bt peq fan" data-act="destApagar" data-id="${d.id}">Apagar</button>` : ''}</div></div>`;
   return `<div class="cab"><div class="t"><span class="olho">Comunicação</span><h1>Especialistas e avisos</h1><p class="apoio">Quem recebe e-mail, em que momento e com quais dados. Área sem e-mail cadastrado não recebe nada. As marcadas como sugestão vieram do mapeamento e precisam da sua validação antes de ligar. Separe vários e-mails por vírgula. Gestor, analista de R&S e BP têm destino por candidato: o e-mail do requisitante na ficha, o e-mail da analista no cadastro de pessoas e a tabela de BPs abaixo; a lista da área é só reserva.</p></div></div>
   ${g.map((k) => `<div class="caixa" style="padding:0"><div style="padding:14px 16px;border-bottom:1px solid var(--linha)"><h2>${esc(GATILHO[k])}</h2></div>
    ${E.areas.filter((a) => a.gatilho === k).map((a) => `<div class="area"><div><b>${esc(a.nome)}</b><div class="linha-flex" style="gap:6px;margin-top:3px">${a.origem === 'sugestao' ? chip('c-ama', '', 'Sugestão') : chip('c-ag', 'ok', 'Você pediu')}<span class="apoio" style="font-size:12px">${esc(CONDICAO[a.condicao] || a.condicao)}</span></div><div class="apoio" style="font-size:12.5px;margin-top:4px">${esc(a.leva)}</div></div>
      <div class="ac" style="grid-column:span 2"><label class="olho" for="em_${esc(a.id)}">E-mails${['gestor', 'rs', 'bp'].includes(a.id) ? ' (reserva)' : ''}</label><input id="em_${esc(a.id)}" class="sel-doc" style="width:100%;min-height:40px" value="${esc((a.emails || []).join(', '))}" placeholder="nome@grupocimed.com.br"></div>
      <div class="linha-flex"><button class="troca" data-act="togArea" data-id="${esc(a.id)}" aria-pressed="${a.ativo}" aria-label="Ligar ${esc(a.nome)}"></button><button class="bt peq" data-act="salvarArea" data-id="${esc(a.id)}">Salvar</button></div></div>`).join('')}</div>`).join('')}
+  ${E.areaDest ? `<div class="caixa" style="padding:0" id="areaDestBox"><div style="padding:14px 16px;border-bottom:1px solid var(--linha)"><h2>Destino por unidade</h2><p class="apoio" style="font-size:12.5px">Para a área que tem uma pessoa em cada unidade (por exemplo, Facilities em Pouso Alegre, Fernão Dias e SSBV). Com linha para a unidade, o aviso vai para estes e-mails; sem linha, para a lista da área acima. Frotas e Facilities também recebem um novo e-mail quando cargo, setor, centro de custo, gestor, unidade, turma, turno, camisa ou uso do carro mudam depois do aviso, e quando a admissão é cancelada.</p></div>
+   ${E.areaDest.map(linhaAreaDest).join('')}${linhaAreaDest({ area_id: 'facilities', unidade: 'Pouso Alegre' }, E.areaDest.length)}</div>` : ''}
   <div class="caixa" style="padding:0" id="bpsBox"><div style="padding:14px 16px;border-bottom:1px solid var(--linha)"><h2>BPs por unidade</h2><p class="apoio" style="font-size:12.5px">Quem recebe o aviso "BP da unidade" quando a documentação fica completa. Uma linha por unidade; com setor preenchido, vale só para aquele setor.</p></div>
    ${E.bps.map(linhaBp).join('')}${linhaBp({ unidade: 'todas' }, E.bps.length)}</div>
   <div class="caixa" style="padding:0" id="destBox"><div style="padding:14px 16px;border-bottom:1px solid var(--linha)"><h2>Lista da turma: destinatários por unidade</h2><p class="apoio" style="font-size:12.5px">Quem recebe o e-mail "INTEGRAÇÃO SITE I dd/mm/aaaa" com a planilha, enviado pela tela Turma e lista. Listas de distribuição valem.</p></div>
@@ -2439,6 +2468,16 @@ document.addEventListener('click', async (e) => {
       if (await tentar(() => api.salvarBp(Object.assign({ ativo: true }, o)), 'BP salvo')) await recarregar(); break;
     }
     case 'bpApagar': if (await tentar(() => api.apagarBp(+id || id), 'BP removido')) await recarregar(); break;
+    case 'adestSalvar': {
+      const box = document.querySelector(`[data-adest="${el.dataset.i}"]`); const atual = E.areaDest[+el.dataset.i];
+      const o = atual ? { id: atual.id } : {};
+      box.querySelectorAll('[data-f]').forEach((x) => { o[x.dataset.f] = x.value.trim(); });
+      o.emails = o.emails.split(/[,;\s]+/).map((x) => x.trim().toLowerCase()).filter(Boolean);
+      const ruins = o.emails.filter((x) => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x));
+      if (!o.emails.length || ruins.length) { toast(ruins.length ? 'E-mail inválido: ' + ruins.join(', ') : 'Informe ao menos um e-mail.', true); return; }
+      if (await tentar(() => api.salvarAreaDestino(Object.assign({ ativo: true }, o)), 'Destino salvo')) await recarregar(); break;
+    }
+    case 'adestApagar': if (await tentar(() => api.apagarAreaDestino(+id || id), 'Destino removido')) await recarregar(); break;
     case 'destSalvar': {
       const box = document.querySelector(`[data-dest="${el.dataset.i}"]`); const o = E.dest[+el.dataset.i] ? { id: E.dest[+el.dataset.i].id } : {};
       box.querySelectorAll('[data-f]').forEach((x) => { o[x.dataset.f] = x.type === 'checkbox' ? x.checked : x.value.trim(); });
