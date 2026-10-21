@@ -6700,7 +6700,9 @@ function abrirColaborador(pid){
      e o colaborador assina a versão já assinada por ela. Sem nenhum bloco assinado pela
      Cimed a tela do colaborador não abre, no tablet nem no link. Kit retomado de um PDF
      já assinado pelo colaborador passa, porque a assinatura dele já existe. */
-  if(!st.empresa && !st.colab && !blocosAssinados(k, st).length){
+  /* TEMPORÁRIO (Josianny, 21/10/2026): trava desligada para uma demonstração. Voltar para true. */
+  const CIMED_PRIMEIRO = false;
+  if(CIMED_PRIMEIRO && !st.empresa && !st.colab && !blocosAssinados(k, st).length){
     torrada('A Cimed assina primeiro: peça a quem tem procuração (Keila, bloco DP) para assinar este kit no passo 4. Depois disso o colaborador assina a versão já assinada.', 8000);
     return;
   }
