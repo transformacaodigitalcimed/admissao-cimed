@@ -1434,6 +1434,75 @@ async function abrirFicha(id) {
   E.fichaAberta = id; E.docsFicha = docs || []; E.depsFicha = (deps || []).map((d) => Object.assign({}, d)); E.opcFicha = opc || null; E.termoFicha = termo || null;
   desenharFicha(a, docs || [], evs || [], arqs || []);
 }
+// ---------- editar o cadastro: grava só o que mudou; as áreas já avisadas recebem a mudança (SQL 35/37) e o
+// candidato é avisado quando a integração muda (data, horário, local, formato, endereço)
+const CAMPOS_EDICAO = ['nome', 'email', 'telefone', 'nasc', 'sexo', 'estado_civil', 'tipo_contrato', 'cargo', 'setor', 'cc_codigo', 'cc_nome',
+  'requisitante', 'requisitante_email', 'local', 'turno', 'escala', 'hora_integ', 'dias_integ', 'formato_integ', 'link_ou_endereco', 'contato_chegada',
+  'camisa', 'usa_frota', 'frota_tipo', 'motorista_profissional', 'ti_itens', 'cd_entrega'];
+function abrirEdicao(id) {
+  const a = adm(id); if (!a) return;
+  const opt = (arr, sel) => arr.map((v) => `<option ${v === sel ? 'selected' : ''}>${esc(v)}</option>`).join('');
+  const itensTi = opcoesLista('acesso_ti').length ? opcoesLista('acesso_ti') : ITENS_TI;
+  const inp = (k, extra = '') => `<input id="e_${k}" value="${esc(a[k] ?? '')}" ${extra}>`;
+  const campo = (rot, html, cls = '') => `<div class="campo ${cls}"><label>${esc(rot)}</label>${html}</div>`;
+  $('#camada').innerHTML = `<div class="veu" data-act="fechar"><aside class="gaveta" role="dialog" aria-modal="true" aria-label="Editar cadastro" data-pare="1">
+   <div class="linha-flex" style="align-items:flex-start"><div class="pilha" style="flex:1;gap:6px"><span class="olho">Editar cadastro</span><h2 style="font-size:22px">${esc(titulo(a.nome))}</h2>
+    <span class="apoio">Só o que você mudar é gravado. As áreas que já receberam o aviso desta pessoa recebem um e-mail com o que mudou${a.email ? '; o candidato é avisado se a integração mudar (horário, local, formato ou endereço)' : ''}. A data muda pelo botão "Mover para a turma" na ficha.${a.matricula ? ' <b>Matrícula já gerada: ajuste também no LG.</b>' : ''}</span></div>
+    <button class="bt" data-act="edVoltar" data-id="${a.id}">Voltar à ficha</button></div>
+   <form id="fEd" novalidate class="caixa" style="margin-top:12px"><div class="form">
+    <div class="secao-form">Candidato</div>
+    ${campo('Nome completo', inp('nome'), 'l2')}
+    ${campo('E-mail pessoal', inp('email', 'type="email"'), 'l2')}
+    ${campo('WhatsApp', inp('telefone', 'inputmode="tel"'))}
+    ${campo('Nascimento', inp('nasc', 'type="date"'))}
+    ${campo('Sexo', `<select id="e_sexo"><option value="F" ${a.sexo === 'F' ? 'selected' : ''}>Feminino</option><option value="M" ${a.sexo === 'M' ? 'selected' : ''}>Masculino</option></select>`)}
+    ${campo('Estado civil', `<select id="e_estado_civil">${opt(['Solteiro(a)', 'Casado(a)', 'União estável', 'Divorciado(a)', 'Viúvo(a)'], a.estado_civil)}</select>`)}
+    ${campo('Contratação', `<select id="e_tipo_contrato">${opt(['CLT', 'Jovem aprendiz', 'Estágio', 'Temporário'], a.tipo_contrato)}</select>`)}
+    <div class="secao-form">Vaga</div>
+    ${campo('Cargo', inp('cargo'), 'l2')}
+    ${campo('Setor', inp('setor'))}
+    ${campo('Centro de custo (código)', inp('cc_codigo'))}
+    ${campo('Centro de custo (nome)', inp('cc_nome'), 'l2')}
+    ${campo('Gestor requisitante', inp('requisitante'))}
+    ${campo('E-mail do gestor', inp('requisitante_email', 'type="email"'))}
+    ${campo('Local', `<select id="e_local">${opt(E.locais.map((l) => l.nome), a.local)}</select>`)}
+    ${campo('Turno', selLista('e_turno', 'turno', a.turno || '', { vazio: '—', padrao: ['1º turno', '2º turno', '3º turno', 'Administrativo', 'Comercial'] }))}
+    ${campo('Escala', selLista('e_escala', 'escala', a.escala || '', { vazio: '—', outra: true }), 'l2')}
+    <div class="secao-form">Integração</div>
+    ${campo('Horário', inp('hora_integ', 'type="time"'))}
+    ${campo('Dias de integração', inp('dias_integ', 'type="number" min="1" max="10"'))}
+    ${campo('Formato', `<select id="e_formato_integ"><option value="">Padrão do local</option><option value="presencial" ${a.formato_integ === 'presencial' ? 'selected' : ''}>Presencial</option><option value="online" ${a.formato_integ === 'online' ? 'selected' : ''}>On-line (Teams)</option></select>`)}
+    ${campo('Link ou endereço', inp('link_ou_endereco'), 'l2')}
+    ${campo('Ao chegar, procurar', inp('contato_chegada'), 'l2')}
+    <div class="secao-form">Para as áreas</div>
+    ${campo('Tamanho de camisa', `<select id="e_camisa">${opt(['PP', 'P', 'M', 'G', 'GG', 'XGG', 'Não usa uniforme'], a.camisa)}</select>`)}
+    ${campo('CD de entrega do equipamento', inp('cd_entrega'))}
+    ${campo('Carro da empresa', `<div class="marcas"><label><input type="checkbox" id="e_usa_frota" ${a.usa_frota ? 'checked' : ''}> Vai dirigir carro da empresa</label><label><input type="checkbox" id="e_motorista_profissional" ${a.motorista_profissional ? 'checked' : ''}> Motorista profissional</label></div>`, 'l2')}
+    ${temSql35() ? campo('Uso do carro', `<select id="e_frota_tipo"><option value="">—</option>${Object.entries(FROTA_TIPO).map(([k, x]) => `<option value="${k}" ${a.frota_tipo === k ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>`, 'l2') : ''}
+    ${campo('Equipamentos e acessos', `<div class="marcas" id="e_ti">${itensTi.map((x) => `<label><input type="checkbox" value="${esc(x)}" ${(a.ti_itens || []).includes(x) ? 'checked' : ''}> ${esc(x)}</label>`).join('')}</div>`, 'l4')}
+   </div></form>
+   <div class="linha-flex" style="justify-content:flex-end;margin-top:14px"><span class="apoio" style="flex:1">O fretado muda com Benefícios (tela Benefícios).</span><button class="bt pri" data-act="edSalvar" data-id="${a.id}">Salvar e avisar</button></div>
+  </aside></div>`;
+  mostrarOutras($('#fEd'));
+  $('#fEd').addEventListener('change', () => mostrarOutras($('#fEd')));
+}
+function mudancasEdicao(a) {
+  const val = (k) => {
+    if (k === 'usa_frota' || k === 'motorista_profissional') return $('#e_' + k).checked;
+    if (k === 'ti_itens') return [...document.querySelectorAll('#e_ti input:checked')].map((x) => x.value);
+    if (k === 'turno' || k === 'escala') return valLista('e_' + k) || null;
+    const el = $('#e_' + k); if (!el) return undefined;
+    const v = el.value.trim();
+    if (k === 'dias_integ') return v ? +v : null;
+    if (k === 'email' || k === 'requisitante_email') return v.toLowerCase() || null;
+    return v || null;
+  };
+  const igual = (x, y) => JSON.stringify(x ?? null) === JSON.stringify(y ?? null);
+  const p = {};
+  CAMPOS_EDICAO.forEach((k) => { const v = val(k); if (v !== undefined && !igual(v, k === 'ti_itens' ? (a.ti_itens || []) : a[k])) p[k] = v; });
+  if ('usa_frota' in p && !p.usa_frota && $('#e_frota_tipo')) p.frota_tipo = null;
+  return p;
+}
 const ST_ARQ = {
   analisando: ['c-info', 'ag', 'IA lendo…'], aceito: ['c-ok', 'ok', 'IA aceitou'], duvida: ['c-info', 'info', 'Conferir'],
   recusado: ['c-at', 'at', 'IA recusou'], erro: ['c-cr', 'cr', 'Leitura falhou'],
@@ -1471,7 +1540,7 @@ function desenharFicha(a, docs, evs, arqs = []) {
   $('#camada').innerHTML = `<div class="veu" data-act="fechar"><aside class="gaveta" role="dialog" aria-modal="true" aria-label="Ficha" data-pare="1">
    <div class="linha-flex" style="align-items:flex-start"><div class="pilha" style="flex:1;gap:6px"><span class="olho">Ficha do candidato</span><h2 style="font-size:24px">${esc(titulo(a.nome))}</h2><span class="apoio">${esc(a.cargo)}${a.setor ? ' · ' + esc(a.setor) : ''} · ${esc(a.local)}${a.cc_codigo ? ' · CC ' + esc(a.cc_codigo) : ''}</span>
     <div class="linha-flex">${a.teste ? chip('c-ia', 'info', 'TESTE · e-mails só para ' + (E.params?.teste_email || 'a admin')) : ''}${chipEtapa(a)}${foraCorte(a) ? chip('c-cr', 'cr', 'Fora do corte') : ''}${a.pcd !== 'Não' ? chip('c-info', 'info', 'PCD') : ''}${a.tipo_contrato !== 'CLT' ? chip('c-info', 'info', a.tipo_contrato + (a.agencia ? ' · ' + a.agencia : '')) : ''}${a.nasc && idade(a.nasc) < 18 ? chip('c-at', 'at', 'Menor de idade' + (l.tipo === 'fabrica' ? ' em fábrica' : '')) : ''}${a.motorista_profissional ? chip('c-info', 'info', 'Motorista profissional') : ''}${a.formato_integ === 'online' ? chip('c-ag', '', 'Integração on-line') : ''}${a.nr12 ? chip('c-ag', '', 'NR-12') : ''}${a.arquivado_em ? chip('c-ok', 'ok', 'Dossiê arquivado') : ''}${a.origem === 'importacao' ? chip('c-ag', '', 'Veio da planilha') : ''}</div></div>
-    <button class="bt" data-act="fechar">Fechar</button></div>
+    ${podeRs && !a.declinou_em ? `<button class="bt" data-act="editar" data-id="${a.id}">Editar cadastro</button>` : ''}<button class="bt" data-act="fechar">Fechar</button></div>
    ${inc ? `<p class="apoio" style="font-size:12.5px;margin:0">Incluído por <b>${esc(a.incluido_por || inc.quem)}</b> em ${quando(inc.em)}${a.origem === 'importacao' ? ' (importação da planilha)' : ''}${a.analista_rs ? ' · analista responsável: ' + esc(a.analista_rs) : ''}</p>` : ''}
    ${!a.declinou_em ? fluxoVisual(a) : ''}
    ${a.declinou_em ? `<div class="faixa"><p><b>Declinou</b> em ${quando(a.declinou_em)}: ${esc(a.declinou_motivo || '')}.${a.declinou_sensivel ? ' <span class="apoio">Motivo sensível: as áreas receberam só o aviso de cancelamento.</span>' : ''}</p></div>` : ''}
@@ -2244,6 +2313,19 @@ document.addEventListener('click', async (e) => {
       el.disabled = true; let n = 0;
       for (const x of vivas().filter((y) => y.data_inicio === el.dataset.t && ['aguardando', 'pendencia'].includes(y.etapa))) { if (await tentar(() => api.cobrar(x.id))) n++; }
       toast(plural(n, 'cobrança na fila', 'cobranças na fila')); await recarregar(); break;
+    }
+    case 'editar': abrirEdicao(id); break;
+    case 'edVoltar': abrirFicha(id); break;
+    case 'edSalvar': {
+      const a = adm(id); const p = mudancasEdicao(a);
+      if (!Object.keys(p).length) { toast('Nada mudou.'); abrirFicha(id); break; }
+      if ('nome' in p && String(p.nome || '').split(/\s+/).length < 2) { toast('Digite o nome completo.', true); break; }
+      if ((p.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(p.email)) || (p.requisitante_email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(p.requisitante_email))) { toast('E-mail inválido.', true); break; }
+      if ($('#e_frota_tipo') && $('#e_usa_frota').checked && !$('#e_frota_tipo').value) { toast('Escolha o uso do carro: Frotas precisa para o termo e o prazo.', true); break; }
+      if (!p.cargo && 'cargo' in p) { toast('O cargo não pode ficar vazio.', true); break; }
+      const integ = ['hora_integ', 'local', 'formato_integ', 'link_ou_endereco'].some((k) => k in p) && (p.email || a.email);
+      if (await tentar(() => api.atualizar(id, p), 'Cadastro atualizado: ' + plural(Object.keys(p).length, 'campo', 'campos') + '. As áreas já avisadas recebem a mudança' + (integ ? ' e o candidato recebe a nova integração.' : '.'))) { await recarregar(); abrirFicha(id); }
+      break;
     }
     case 'turma': if (await tentar(() => api.atualizar(id, { data_inicio: el.dataset.t, turma_id: el.dataset.tid || null }), 'Turma alterada')) { E.turma = el.dataset.t; await recarregar(); abrirFicha(id); } break;
     case 'salvarAso': {
