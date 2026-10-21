@@ -3563,7 +3563,7 @@ function assinLeve(imgs){
   Object.keys(S.assin).forEach(k=>{
     const v = S.assin[k] || {};
     out[k] = {
-      resp: v.resp, vistos: v.vistos, marcas: v.marcas, marcaNome: v.marcaNome, entrega: v.entrega,
+      resp: v.colab && v.respostasEnviadas ? respSemTermo(v.resp) : v.resp, vistos: v.vistos, marcas: v.marcas, marcaNome: v.marcaNome, entrega: v.entrega,
       pendAoFechar: v.pendAoFechar, assinaturasReplicadas: v.assinaturasReplicadas,
       estampadas: v.estampadas, datasPreenchidas: v.datasPreenchidas,
       respostasEnviadas: v.respostasEnviadas, respostasPendentes: v.respostasPendentes,
@@ -6772,10 +6772,10 @@ function fitaCimed(k, st){
     + (st.blocos ? ', bloco por bloco: ' + esc(blocosAssinados(k, st).map(b=>b.titulo + ' (' + assinaturaBloco(st, b.area).nome + ')').join(', ')) : ', por ' + esc(st.empresa.nome)) + '.</div>';
   const ass = blocosAssinados(k, st), pend = textoPendentes(k, st);
   if(ass.length) return '<div class="fita at">A Cimed assinou ' + esc(ass.map(b=>b.titulo).join(', ')) + '. Ainda falta a Cimed assinar: ' + esc(pend) + '. '
-    + (C.kiosk ? 'Você pode continuar; o RH completa a assinatura depois e a sua via fica com as duas assinaturas em todos os blocos.'
+    + (C.kiosk ? 'Você pode continuar; a Cimed assina depois e a sua via final chega com as duas assinaturas nos blocos em que a Cimed assina.'
                : 'O colaborador pode assinar; o bloco pendente é assinado depois por quem tem procuração para a área.') + '</div>';
   return C.kiosk
-    ? '<div class="fita at">Este kit ainda não foi assinado pela Cimed. Chame o RH antes de continuar: a sua via só vale com as duas assinaturas.</div>'
+    ? '<div class="fita at">Este kit ainda não tem a assinatura da Cimed. Você pode continuar: a Cimed assina depois e a sua via final chega com as duas assinaturas.</div>'
     : '<div class="fita at">A Cimed ainda não assinou este kit. O combinado é assinar antes de entregar o tablet.</div>';
 }
 
@@ -6899,7 +6899,7 @@ function renderColab(){
               + '<input type="text" id="cbContato" inputmode="numeric" placeholder="(31) 90000-0000" value="' + esc(ent.contato || '') + '"></label>'
             : ent.canal === 'email'
             ? '<label class="campo" style="margin:9px 0 0"><span>Seu e-mail</span>'
-              + '<input type="text" id="cbContato" placeholder="nome@exemplo.com" value="' + esc(ent.contato || p.email || '') + '"></label>'
+              + '<input type="email" autocomplete="email" id="cbContato" placeholder="nome@exemplo.com" value="' + esc(ent.contato || p.email || '') + '"></label>'
             : ent.canal === 'impressa'
             ? '<p class="dica" style="margin:8px 0 0">A via sai impressa e é entregue na integração.</p>'
             : '<p class="dica" style="margin:8px 0 0">Informe o seu e-mail para receber a via.</p>')
@@ -7457,6 +7457,7 @@ function ligarCamposAssinatura(box, st, p){
     if(alvo.tipo === 'rubrica') st.rubrica = img; else st.assinatura = img;
     if(!st.marcaNome) st.marcaNome = p.nome;
     st.estiloAssinatura = e.fonte;
+    guardarKit(C.pid).catch(()=>{});
     aplicarMarca(alvo.id, alvo.tipo, st);
     C.captura = null;
     torrada('Pronto. A partir de agora é um toque por campo.', 4000);
@@ -7486,6 +7487,7 @@ function ligarCamposAssinatura(box, st, p){
       const img = cvc.toDataURL('image/png');
       if(alvo.tipo === 'rubrica') st.rubrica = img; else st.assinatura = img;
       if(!st.marcaNome) st.marcaNome = p.nome;
+      guardarKit(C.pid).catch(()=>{});
       aplicarMarca(alvo.id, alvo.tipo, st);
       C.captura = null;
       torrada('Pronto. A partir de agora é um toque por campo.', 4000);
@@ -7498,7 +7500,7 @@ function ligarColaborador(p, k, st){
   const corpo = $('#janelaCorpo');
 
   const bv = corpo.querySelector('#cbVoltar');
-  if(bv) bv.addEventListener('click', ()=>{ if(C.passo > 0){ C.passo--; C.captura = null; renderColab(); aoTopo(); } });
+  if(bv) bv.addEventListener('click', ()=>{ if(C.passo > 0){ C.passo--; C.captura = null; C.doFecho = false; renderColab(); aoTopo(); } });
   const bp = corpo.querySelector('#cbProx');
   if(bp) bp.addEventListener('click', ()=>{ C.passo++; C.captura = null; salvar(); renderColab(); aoTopo(); });
   const btr = corpo.querySelector('#cbTermoRevisar');
@@ -7540,6 +7542,12 @@ function ligarColaborador(p, k, st){
   let confirmou = false;
   if(bt) bt.addEventListener('click', async ()=>{
     if(!corpo.querySelector('#cbAceite').checked){ torrada('Marque a confirmação antes de fechar.'); return; }
+    if((k.indice || []).some(x=>chaveDoc(x.nome) === CHAVE_TERMO) && TERMO_ATIVO && !termoRespondido(st)){
+      torrada('Termo de Transparência incompleto: responda todas as perguntas e escreva o comentário em cada "Sim".', 7000);
+      const i = C.docs.findIndex(d=>d.form === FORM_TERMO);
+      if(i >= 0){ C.passo = i; C.doFecho = false; if(st.resp) st.resp.termo_etapa = 'perguntas'; salvar(); renderColab(); aoTopo(); }
+      return;
+    }
     const pend = +(bt.dataset.pend || 0);
     /* fechar com campo em branco e decisao da pessoa, mas nao por
        descuido: o segundo toque confirma */
@@ -7894,7 +7902,7 @@ async function assinar(p, k, st, quem){
   quebrar(hash.toUpperCase().replace(/(.{8})/g,'$1 '), reg, 8.5, W-2*L).forEach((l,i)=>{
     pg.drawText(l, {x:L,y:y-22-i*11,size:8.5,font:reg,color:rgb(0.3,0.29,0.22)});
   });
-  pg.drawText(limpoPDF('Hash SHA-256 do kit no momento da assinatura. Qualquer alteracao no arquivo muda este codigo.'),
+  pg.drawText(limpoPDF('Hash SHA-256 do kit original, antes das assinaturas: identifica qual kit foi assinado.'),
     {x:L,y:56,size:8,font:reg,color:rgb(0.55,0.53,0.45)});
 
   st.pgAssin = doc.getPageCount() - 1;
@@ -9704,8 +9712,15 @@ $('#inBase').addEventListener('change', async e=>{
 
 function fecharJanela(){ const tp = $('#tampa'); tp.hidden = true; tp.classList.remove('cheia'); }
 $('#btFechar').addEventListener('click', fecharJanela);
-$('#tampa').addEventListener('click', e=>{ if(e.target.id==='tampa') fecharJanela(); });
-document.addEventListener('keydown', e=>{ if(e.key==='Escape') fecharJanela(); });
+$('#tampa').addEventListener('click', e=>{ if(e.target.id==='tampa' && !document.body.classList.contains('modo-colab')) fecharJanela(); });
+document.addEventListener('keydown', e=>{ if(e.key==='Escape' && !document.body.classList.contains('modo-colab')) fecharJanela(); });
+/* 2. sair da página no meio do kit (recarregar, fechar a aba) pede confirmação: no celular nada fica gravado */
+window.addEventListener('beforeunload', e=>{
+  if(!document.body.classList.contains('modo-colab') || !C.pid) return;
+  const st = S.assin[C.pid] || {};
+  const comecou = Object.keys(st.marcas || {}).length || Object.keys(st.resp || {}).length;
+  if(comecou && !st.colab){ e.preventDefault(); e.returnValue = ''; }
+});
 
 /* ---- salvar e abrir setup em arquivo ---- */
 function limparAssin(){

@@ -42,6 +42,21 @@ async function criarApi() {
       const r = ok(await sb.from('admissoes').insert(o).select('id').single());
       return this.umaAdmissao(r.id);
     },
+    async criarComDependentes(o, deps) {
+      const r = await sb.rpc('admissao_criar', { p: o, p_deps: deps });
+      if (r.error && /PGRST202|schema cache|does not exist/i.test((r.error.code || '') + ' ' + (r.error.message || ''))) {
+        const novo = await this.criar(o);   // banco sem o SQL 36: como antes
+        for (const d of deps) await this.salvarDependente(Object.assign({ admissao_id: novo.id }, d));
+        return novo;
+      }
+      return this.umaAdmissao(ok(r));
+    },
+    // TI registra o chamado por função (a especialista não tem update direto na tabela)
+    async tiChamado(adm, numero) {
+      const r = await sb.rpc('ti_chamado', { adm, numero });
+      if (r.error && /PGRST202|schema cache|does not exist/i.test((r.error.code || '') + ' ' + (r.error.message || ''))) return this.atualizar(adm, { chamado_ti: numero });
+      ok(r); return true;
+    },
     async atualizar(id, p) {
       ok(await sb.from('admissoes').update(p).eq('id', id).select('id').single());
       return this.umaAdmissao(id);
@@ -419,7 +434,7 @@ function visaoInicial() {
 const NAV = [
   ['inicio', 'Início', 'inicio', () => tem('rs', 'admissao'), 1],
   ['novo', 'Cadastrar aprovado', 'novo', () => tem('rs', 'admissao'), 1],
-  ['painel', 'Painel da admissão', 'painel', () => tem('rs', 'admissao', 'saude', 'remuneracao', 'signatario'), 1],
+  ['painel', 'Painel da admissão', 'painel', () => tem('rs', 'admissao', 'saude', 'remuneracao'), 1],
   ['turma', 'Turma e lista', 'esp', () => tem('rs', 'admissao'), 1],
   ['cronograma', 'Cronograma e corte', 'esp', () => tem('rs', 'admissao'), 1],
   ['documentos', 'Documentos', 'docs', () => tem('admissao'), 1],
@@ -1285,7 +1300,8 @@ POS.novo = () => {
     if (erros.length) { $('#' + erros[0])?.focus(); return; }
     if (!v('n_email') && !confirm('Sem e-mail, a lista de documentos, as cobranças e o convite da integração não chegam por e-mail ao candidato. O e-mail é importante para comunicar as próximas etapas.\n\nSeguir mesmo assim, sem e-mail?')) { $('#n_email').focus(); return; }
     $('#n_salvar').disabled = true;
-    const novo = await tentar(() => api.criar({
+    const depsP = deps.map((d) => ({ nome: d.nome.trim(), parentesco: d.parentesco, nasc: d.nasc || null, cpf: (d.cpf || '').replace(/\D/g, '') || null, universitario: !!d.universitario, plano_saude: !!d.plano_saude, odonto: !!d.odonto, salario_familia: !!d.salario_familia }));
+    const novo = await tentar(() => api.criarComDependentes({
       nome: v('n_nome'), cpf: v('n_cpf').replace(/\D/g, ''), nasc: v('n_nasc'), email: v('n_email').toLowerCase() || null, telefone: v('n_tel'),
       sexo: v('n_sexo'), estado_civil: v('n_civil'), filhos: +v('n_filhos') || 0, tipo_contrato: v('n_tipo'), pcd: v('n_pcd'),
       estrangeiro: false, cargo: v('n_cargo'), setor: v('n_setor') || null, local: v('n_local'), data_inicio, turma_id,
@@ -1301,10 +1317,7 @@ POS.novo = () => {
       ...($('#n_sind') ? { sindicato: v('n_sind') || null } : {}),
       ...($('#n_eradep') ? { era_dependente_cimed: $('#n_eradep').checked } : {}),
       ...($('#n_frotaTipoBox') ? { frota_tipo: $('#n_frota').checked ? v('n_frota_tipo') || null : null } : {}),
-    }));
-    if (novo && deps.length) {
-      for (const d of deps) await tentar(() => api.salvarDependente({ admissao_id: novo.id, nome: d.nome.trim(), parentesco: d.parentesco, nasc: d.nasc || null, cpf: (d.cpf || '').replace(/\D/g, '') || null, universitario: !!d.universitario, plano_saude: !!d.plano_saude, odonto: !!d.odonto, salario_familia: !!d.salario_familia }));
-    }
+    }, depsP));
     $('#n_salvar') && ($('#n_salvar').disabled = false);
     if (novo) {
       E.depsNovo = [];
@@ -1716,10 +1729,10 @@ VIEWS.kit = () => {
   const prox = E.turmaKit || ts.find((t) => deIso(t) >= deIso(iso(new Date()))) || ts[ts.length - 1] || '';
   const prontos = vivas().filter((a) => a.matricula && a.data_inicio === prox).length;
   if (modoEsteira()) return `<div class="cab"><div class="t"><span class="olho">Kit admissional</span><h1>Assinatura pela Cimed</h1><p class="apoio">Os kits publicados pela Admissão chegam aqui sozinhos. Leia o kit se quiser e assine com a sua assinatura; ela volta para a Admissão na hora.</p></div>
-    <a class="bt" href="${(window.ESTEIRA_URL || 'esteira.html') + '?v=38' + modoEsteira()}" target="_blank" rel="noopener">Abrir em tela cheia</a></div>
+    <a class="bt" href="${(window.ESTEIRA_URL || 'esteira.html') + '?v=39' + modoEsteira()}" target="_blank" rel="noopener">Abrir em tela cheia</a></div>
   ${ondeEstaCadaKit('todas')}`;
   return `<div class="cab"><div class="t"><span class="olho">Kit admissional</span><h1>Esteira de assinatura</h1><p class="apoio">A mesma Esteira de Admissão de sempre: junta os PDFs do LG por pessoa, a Cimed assina primeiro e o colaborador assina na tela. Com <b>Publicar on-line</b>, o kit vai para o armazenamento privado da plataforma: a Cimed assina de qualquer aparelho e o colaborador assina pelo QR, no celular dele, depois de confirmar CPF e data de nascimento. Sem publicar, o kit fica só neste aparelho, como antes.</p></div>
-    <a class="bt" href="${(window.ESTEIRA_URL || 'esteira.html') + '?v=38' + modoEsteira()}" target="_blank" rel="noopener">Abrir em tela cheia</a></div>
+    <a class="bt" href="${(window.ESTEIRA_URL || 'esteira.html') + '?v=39' + modoEsteira()}" target="_blank" rel="noopener">Abrir em tela cheia</a></div>
   ${faixaBlocos()}
   ${ondeEstaCadaKit(prox)}
   ${tem('admissao') && ts.length ? `<div class="faixa"><p><b>Lista de admitidos para a Esteira.</b> Copie os matriculados de uma turma e cole no passo 1 da Esteira, em "Colar da planilha". Nome, CPF, matrícula, unidade e cargo vão no formato que ela lê.</p>
@@ -1735,7 +1748,7 @@ POS.kit = () => {
   const atual = host.firstChild;
   if (atual && String(atual.src || '').includes('modo=signatario') !== !!modoEsteira()) host.innerHTML = '';
   if (!host.firstChild) {
-    host.innerHTML = `<iframe class="esteira" src="${(window.ESTEIRA_URL || 'esteira.html') + '?v=38' + modoEsteira()}" title="Esteira de Admissão"></iframe>`;
+    host.innerHTML = `<iframe class="esteira" src="${(window.ESTEIRA_URL || 'esteira.html') + '?v=39' + modoEsteira()}" title="Esteira de Admissão"></iframe>`;
     // a Esteira lê os mesmos parâmetros do Supabase; mandar daqui cobre o teste sem banco e evita esperar
     const fr = host.firstChild;
     fr.addEventListener('load', () => {
@@ -2029,7 +2042,7 @@ function baixarCsvSimples(nome, cab, linhas) {
 }
 function exportarBen(k) {
   const comItens = new Set((E.benPessoa || []).map((x) => x.admissao_id));
-  const ps = E.admissoes.filter((a) => !a.declinou_em && comItens.has(a.id) && (E.benTurma === 'todas' || a.data_inicio === E.benTurma));
+  const ps = E.admissoes.filter((a) => !a.declinou_em && !a.teste && comItens.has(a.id) && (E.benTurma === 'todas' || a.data_inicio === E.benTurma));
   const sufixo = E.benTurma === 'todas' ? 'todas' : E.benTurma;
   if (k === 'saude') {
     const linhas = [];
@@ -2354,7 +2367,7 @@ document.addEventListener('click', async (e) => {
     }
     case 'tiChamado': {
       const v = ($('#tiCh-' + id)?.value || '').trim(); if (!v) { toast('Informe o número do chamado.', true); return; }
-      if (await tentar(() => api.atualizar(id, { chamado_ti: v }), 'Chamado registrado')) { await recarregar(); render(); }
+      if (await tentar(() => api.tiChamado(id, v), 'Chamado registrado')) { await recarregar(); render(); }
       break;
     }
     case 'osSalvar': case 'osValidar': {
@@ -2421,7 +2434,7 @@ document.addEventListener('click', async (e) => {
       const ruins = E.depsFicha.filter((d) => (d.nome || '').trim().split(/\s+/).length < 2 || !d.parentesco || (d.cpf && !cpfValido(d.cpf)));
       if (ruins.length) { toast('Cada dependente precisa de nome completo, parentesco e, se informado, CPF válido.', true); return; }
       let n = 0;
-      for (const d of E.depsFicha) { if (await tentar(() => api.salvarDependente({ id: d.id, admissao_id: id, nome: d.nome.trim(), parentesco: d.parentesco, nasc: d.nasc || null, cpf: (d.cpf || '').replace(/\D/g, '') || null, universitario: !!d.universitario, plano_saude: !!d.plano_saude, odonto: !!d.odonto, salario_familia: !!d.salario_familia }))) n++; }
+      for (const d of E.depsFicha) { if (await tentar(() => api.salvarDependente({ id: d.id, admissao_id: id, nome: d.nome.trim(), parentesco: d.parentesco, nasc: d.nasc || null, ...(d.cpf ? { cpf: d.cpf.replace(/\D/g, '') } : d.id ? {} : { cpf: null }), universitario: !!d.universitario, plano_saude: !!d.plano_saude, odonto: !!d.odonto, salario_familia: !!d.salario_familia }))) n++; }
       toast(plural(n, 'dependente salvo', 'dependentes salvos')); await recarregar(); abrirFicha(id); break;
     }
     // ---------- LG, eSocial, chamado, dossiê

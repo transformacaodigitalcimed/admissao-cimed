@@ -87,8 +87,8 @@ function porDistancia(origem, rotulo, termos) {
   const grupos = new Map();
   for (const x of todos) {
     const k = norm(x.p.endereco || x.p.referencia);
-    if (!grupos.has(k)) grupos.set(k, { p: x.p, d: x.d, itins: [] });
-    const g = grupos.get(k); if (!g.itins.includes(x.i)) g.itins.push(x.i);
+    if (!grupos.has(k)) grupos.set(k, { p: x.p, d: x.d, itins: [], horas: [] });
+    const g = grupos.get(k); if (!g.itins.includes(x.i)) { g.itins.push(x.i); g.horas.push(x.p.horario || ''); }
   }
   const todosG = [...grupos.values()];
   const perto = todosG.filter((g) => g.d <= RAIO_M).slice(0, 15);
@@ -99,7 +99,9 @@ function porDistancia(origem, rotulo, termos) {
   const semCoord = [];
   if (termos) ITINS.forEach((i) => (i.pontos || []).forEach((p) => { if (typeof p.lat === 'number') return; const s = pontuar(p, termos); const k = norm(p.endereco || p.referencia); if (s > 0 && !vistos.has(k)) { vistos.add(k); semCoord.push({ p, i, s }); } }));
   semCoord.sort((a, b) => b.s - a.s);
-  const cartaoG = (g) => cartaoPonto(g.p, g.itins.map((i) => titulo(i.linha)).join(' · '), temEscolhido() && !g.itins.some((i) => i.escolhido), g.d);
+  const cartaoG = (g) => g.itins.length === 1
+    ? cartaoPonto(g.p, titulo(g.itins[0].linha), temEscolhido() && !g.itins[0].escolhido, g.d)
+    : cartaoPonto(Object.assign({}, g.p, { horario: '' }), g.itins.map((i, n) => titulo(i.linha) + (g.horas[n] ? ' ' + g.horas[n] : '')).join(' · '), temEscolhido() && !g.itins.some((i) => i.escolhido), g.d);
   const rot = rotulo ? esc(rotulo) + ': ' : '';
   let h = '';
   if (perto.length) h = `<p class="apoio">${rot}${perto.length === 1 ? 'o ponto' : perto.length + ' pontos'} do fretado a até ${RAIO_M} m, do mais perto para o mais longe (distância em linha reta). Use "Como chegar daqui" para ver o caminho a pé.</p>` + perto.map(cartaoG).join('');
@@ -109,12 +111,12 @@ function porDistancia(origem, rotulo, termos) {
 }
 
 function cartaoPonto(p, linha, outra, dist) {
-  const end = String(p.endereco || '').replace(/, Brasil$/, '');
-  return `<div class="ponto"><div class="hora">${esc(p.horario || '')}${dist != null ? `<div class="dist">${fmtDist(dist)}${p.aprox ? ' <span style="font-weight:400;color:var(--mudo)">(aprox.)</span>' : ''}</div>` : ''}</div><div><div class="ref">${esc(p.referencia || end)}${linha ? ` <span class="chip">${esc(linha)}${outra ? ' · outra linha do turno' : ''}</span>` : ''}</div>${p.bairro ? `<div class="apoio">${esc(p.bairro)}${p.cidade ? ' · ' + esc(p.cidade) : ''}</div>` : ''}${end ? `<div class="end">${esc(end)}</div><div class="acoes"><a class="bt" href="${esc(mapa(end))}" target="_blank" rel="noopener">Ver no mapa</a><a class="bt" href="${esc(rota(end))}" target="_blank" rel="noopener">Como chegar daqui</a></div>` : ''}</div></div>`;
+  const end = String(p.endereco || '').replace(/, Brasil$/, '').replace(/,(\s*,)+/g, ',');
+  return `<div class="ponto"><div class="hora">${esc(p.horario || '')}${dist != null ? `<div class="dist">${p.aprox ? fmtDist(Math.max(100, Math.ceil(dist / 100) * 100)) + ' <span style="font-weight:400;color:var(--mudo)">(aprox.)</span>' : fmtDist(dist)}</div>` : ''}</div><div><div class="ref">${esc(p.referencia || end)}${linha ? ` <span class="chip">${esc(linha)}${outra ? ' · outra linha do turno' : ''}</span>` : ''}</div>${p.bairro ? `<div class="apoio">${esc(p.bairro)}${p.cidade ? ' · ' + esc(p.cidade) : ''}</div>` : ''}${end ? `<div class="end">${esc(end)}</div><div class="acoes"><a class="bt" href="${esc(mapa(end))}" target="_blank" rel="noopener">Ver no mapa</a><a class="bt" href="${esc(rota(end))}" target="_blank" rel="noopener">Como chegar daqui</a></div>` : ''}</div></div>`;
 }
 function itinerario(i, aberto) {
   const ps = Array.isArray(i.pontos) ? i.pontos : [];
-  return `<details class="caixa" ${aberto ? 'open' : ''}><summary>${esc(titulo(i.linha))} · ${esc(i.turno.toLowerCase())} · chega ${esc(i.chegada || '—')}</summary>
+  return `<details class="caixa" ${aberto ? 'open' : ''}><summary>${esc(titulo(i.linha))} · ${esc(String(i.turno || '').toLowerCase())} · chega ${esc(i.chegada || '—')}</summary>
     <p class="apoio" style="margin:4px 0 8px">${ps.length} pontos de embarque, na ordem do trajeto. Chegue alguns minutos antes do horário.</p>
     ${ps.map((p) => cartaoPonto(p)).join('')}</details>`;
 }
@@ -154,7 +156,9 @@ async function buscar(txt) {
     out.dataset.local = '';
     if (comCoord()) {
       out.innerHTML = '<div class="vazio">Calculando as distâncias…</div>';
-      try { const o = await localizar(txt); if (o) { porDistancia(o, 'Perto de ' + txt, t); return; } } catch (e) { /* segue pela busca por nome */ }
+      // só rua e bairro vão para o mapa: o número da casa fica no celular
+      const semNumero = txt.replace(/\b\d+[a-zA-Z]?\b/g, ' ').replace(/\s+/g, ' ').trim();
+      try { const o = semNumero.length >= 3 ? await localizar(semNumero) : null; if (o) { porDistancia(o, 'Perto de ' + semNumero, t); return; } } catch (e) { /* segue pela busca por nome */ }
     }
   }
   const todos = [];
