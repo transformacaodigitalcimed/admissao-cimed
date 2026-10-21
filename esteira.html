@@ -3558,7 +3558,7 @@ const CHAVE = 'cimed.esteira.admissao.v2';
 /* O PDF assinado e as imagens da assinatura são binário: em JSON
    viram objeto gigante, estouram a cota do navegador e voltam
    quebrados. Eles ficam no IndexedDB; aqui vai só o leve. */
-function assinLeve(){
+function assinLeve(imgs){
   const out = {};
   Object.keys(S.assin).forEach(k=>{
     const v = S.assin[k] || {};
@@ -3569,20 +3569,44 @@ function assinLeve(){
       respostasEnviadas: v.respostasEnviadas, respostasPendentes: v.respostasPendentes,
       colab: v.colab ? Object.assign({}, v.colab, {imagem:undefined}) : undefined,
       empresa: v.empresa ? Object.assign({}, v.empresa, {imagem:undefined}) : undefined,
-      blocos: v.blocos || undefined,
+      /* a imagem da assinatura da Cimed (até 400 mil caracteres) repetida em cada kit enchia o
+         navegador, e a lista de pessoas deixava de ser salva (21/10/2026): guarda uma cópia só */
+      blocos: v.blocos ? imagensPorRef(v.blocos, imgs) : undefined,
       online: v.online
     };
   });
   return out;
 }
+function imagensPorRef(blocos, imgs){
+  const o = {};
+  Object.keys(blocos).forEach(a=>{
+    const b = blocos[a];
+    if(!b || typeof b !== 'object' || typeof b.imagem !== 'string' || !imgs){ o[a] = b; return; }
+    let i = imgs.indexOf(b.imagem); if(i < 0){ imgs.push(b.imagem); i = imgs.length - 1; }
+    o[a] = Object.assign({}, b, {imagem: '@img' + i});
+  });
+  return o;
+}
+function imagensDeVolta(assin, imgs){
+  Object.keys(assin || {}).forEach(k=>{
+    const bl = (assin[k] || {}).blocos; if(!bl) return;
+    Object.keys(bl).forEach(a=>{ const b = bl[a]; if(b && typeof b.imagem === 'string' && /^@img\d+$/.test(b.imagem)) b.imagem = (imgs || [])[+b.imagem.slice(4)] || null; });
+  });
+}
 
+let AVISOU_CHEIO = false;
 function salvar(){
   if(MODO_ONLINE) return;
   try{
+    const imgs = [];
+    const assin = assinLeve(imgs);
     localStorage.setItem(CHAVE, JSON.stringify({
-      pessoas:S.pessoas, base:S.base, assin:assinLeve()
+      pessoas:S.pessoas, base:S.base, assin:assin, imgs:imgs
     }));
-  }catch(e){}
+  }catch(e){
+    /* sem espaço no navegador: avisa, em vez de perder as pessoas novas calado */
+    if(!AVISOU_CHEIO){ AVISOU_CHEIO = true; try{ torrada('O navegador está sem espaço para guardar a Esteira: as últimas mudanças podem não ficar salvas. No painel, use "Limpar kits antigos deste computador" ou baixe os kits concluídos e remova-os.', 12000); }catch(e2){} }
+  }
 }
 function carregar(){
   try{
@@ -3592,6 +3616,7 @@ function carregar(){
       S.pessoas = o.pessoas||[];
       S.base = o.base||null;
       S.assin = o.assin||{};
+      imagensDeVolta(S.assin, o.imgs);
       /* versões anteriores gravavam o PDF assinado aqui; o que volta
          do JSON não é mais binário utilizável, então sai */
       Object.keys(S.assin).forEach(k=>{
