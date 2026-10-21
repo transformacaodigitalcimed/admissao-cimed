@@ -131,6 +131,11 @@ async function criarApi() {
     async osSalvar(adm, p, validar) { return ok(await sb.rpc('os_salvar', { adm, p, p_validar: !!validar })); },
     async osSugerir(adm) { return ok(await sb.rpc('os_sugerir', { adm })); },
     async asoDecidir(adm, decisao, p = {}) { return ok(await sb.rpc('aso_decidir', { adm, p_decisao: decisao, p_data: p.data || null, p_hora: p.hora || null, p_local: p.local || null })); },
+    // fluxo da Saúde (SQL 26): cadastro no SOC, contato, vacinas, modo do exame e o que vai ao R&S
+    async socMarcar(adm, desfazer) { return ok(await sb.rpc('soc_marcar', { adm, desfazer: !!desfazer })); },
+    async saudeAcao(adm, acao, valor, texto) { return ok(await sb.rpc('saude_acao', { adm, acao, valor: valor ?? null, texto: texto ?? null })); },
+    async rsDecidirSaude(adm, decisao, texto) { return ok(await sb.rpc('rs_decidir_saude', { adm, decisao, texto: texto ?? null })); },
+    async saudeParametro(chave, valor) { return ok(await sb.rpc('saude_parametro', { p_chave: chave, p_valor: valor })); },
     async salvarBp(o) { return ok(await sb.from('bps').upsert(o).select('id')); },
     async apagarBp(id) { return ok(await sb.from('bps').delete().eq('id', id)); },
     async destinatariosTurma() { return ok(await sb.from('destinatarios_turma').select('*').order('unidade')); },
@@ -287,17 +292,19 @@ const ETAPAS = [
 ];
 const ETAPA = Object.fromEntries(ETAPAS.map((e) => [e.id, e]));
 const GATILHO = { cadastro: 'Quando o R&S cadastra', docs_ok: 'Quando a documentação fica completa', matricula: 'Quando a matrícula é gerada', declinou: 'Quando a admissão é cancelada (declínio ou não comparecimento)', termo: 'Quando o Termo de Transparência tem resposta "Sim"' };
-const TIPO_EMAIL = { cadastro: 'Novo aprovado', boasvindas: 'Boas-vindas', cobranca: 'Cobrança', docs_ok: 'Documentação completa', matricula: 'Matrícula', lg: 'Movimentar no LG', convite: 'Convite da integração', turma: 'Lista da turma', beneficios_opcoes: 'Opções de benefícios', termo: 'Termo de Transparência', via_assinada: 'Via assinada do kit', aso: 'Exame admissional (ASO)', declinou: 'Admissão cancelada' };
+const TIPO_EMAIL = { cadastro: 'Novo aprovado', boasvindas: 'Boas-vindas', cobranca: 'Cobrança', docs_ok: 'Documentação completa', matricula: 'Matrícula', lg: 'Movimentar no LG', convite: 'Convite da integração', turma: 'Lista da turma', beneficios_opcoes: 'Opções de benefícios', termo: 'Termo de Transparência', via_assinada: 'Via assinada do kit', aso: 'Exame admissional (ASO)', aso_inapto: 'ASO inapto', exame_etapa: 'Etapa de exame médico', saude_rs: 'Saúde → R&S', declinou: 'Admissão cancelada' };
 // a jornada de e-mails do colaborador, na ordem (os demais e-mails vão para as áreas e a equipe)
 const JORNADA_EMAILS = [
   ['boasvindas', 'Cadastro do aprovado pelo R&S', 'Boas-vindas: data da integração, lista de documentos, como enviar (LG), prazo do corte da turma, link do Código de Conduta e aviso de privacidade.'],
   ['cobranca', 'Todo dia, enquanto faltar documento (até o corte da turma)', 'Cobrança dos documentos que faltam ou precisam ser reenviados; também pelo botão "Cobrar" da ficha.'],
+  ['exame_etapa', 'Cadastro no SOC marcado', 'Etapa de exame médico (card da Saúde): contato pelo WhatsApp, caderneta de vacinação com as vacinas do parâmetro vacinas_obrigatorias, não faltar, clínica parceira ou reembolso.'],
   ['convite', 'Matrícula registrada', 'Convite da integração: data, hora, local (ou link do Teams) e quem procurar ao chegar; gestor e recrutadora em cópia.'],
   ['via_assinada', 'Colaborador assina o kit e escolhe e-mail', 'Via assinada do kit admissional em PDF, com o código de verificação.'],
 ];
 // e-mails que dependem de um acontecimento
 const EMAILS_EVENTO = [
   ['aso', 'Saúde agenda o exame (ASO agendado com data)', 'Ao candidato: data, hora, local e orientações do exame (parâmetro aso_orientacoes). Se o ASO fica inapto, a analista de R&S e a Admissão recebem o aviso.'],
+  ['saude_rs', 'Saúde envia um caso ao R&S', 'À analista de R&S (sem ela, à lista do R&S): sem contato há 24h, falta ao exame, limite de remarcação, recusa de vacina ou erro no cadastro do SOC. O R&S decide na ficha.'],
   ['declinou', 'Admissão cancelada', 'Às áreas com aviso no gatilho "admissão cancelada" (TI: cancelar chamado, acessos e equipamento).'],
 ];
 const EMAILS_EQUIPE = [
@@ -407,6 +414,7 @@ function toast(msg, erro) {
   t.innerHTML = (erro ? ICO.at : ICO.ok).replace('<svg', '<svg width="16" height="16"') + '<span>' + esc(msg) + '</span>';
   t.hidden = false; toastT = setTimeout(() => (t.hidden = true), erro ? 6000 : 3800);
 }
+async function aposSaude(id) { await recarregar(); if ($('.gaveta')) abrirFicha(id); else render(); }
 async function tentar(fn, sucesso) {
   try { const r = await fn(); if (sucesso) toast(sucesso); return r; }
   catch (e) { toast(e.message || String(e), true); return undefined; }
@@ -688,6 +696,35 @@ function chipEtapa(a) {
 function chipDocs(a) { const r = resumo(a); const cls = r.ok === r.total ? ['c-ok', 'ok'] : r.reenviar || r.total - r.ok - r.analise ? ['c-at', 'at'] : ['c-info', 'info']; return chip(cls[0], cls[1], `Docs ${r.ok}/${r.total}`); }
 function chipAso(a) { const s = a.aso_status; if (s === 'apto') return chip('c-ok', 'ok', 'ASO apto' + (a.aso_data ? ' ' + dm(a.aso_data) : '')); if (s === 'apto_restricao') return chip('c-ok', 'ok', 'ASO apto com restrição' + (a.aso_data ? ' ' + dm(a.aso_data) : '')); if (s === 'agendado') return chip('c-ag', 'ag', 'ASO ' + (a.aso_data ? dm(a.aso_data) + (a.aso_hora ? ' ' + a.aso_hora : '') : 'agendado') + (a.aso_local ? ' · ' + a.aso_local : '')); if (s === 'inapto') return chip('c-cr', 'cr', 'ASO inapto'); return chip('c-at', 'at', 'ASO a agendar'); }
 const asoOk = (a) => a.aso_status === 'apto' || a.aso_status === 'apto_restricao';
+// fluxo da Saúde (SQL 26, documentos da Saúde de 20/10/2026)
+const MOTIVO_SAUDE = { sem_contato: 'sem contato há 24h', falta: 'faltou ao exame', remarcacao_excedida: 'limite de remarcação atingido', recusa_vacina: 'recusou a vacinação', erro_soc: 'erro no cadastro do SOC' };
+const MODO_ASO = { credenciada: 'Rede credenciada', proxima: 'Clínica próxima ao candidato', reembolso: 'Reembolso (clínica conveniente)' };
+const examesCompl = (a) => a.exames_complementares ?? a.exames_complementares_tabela ?? null;
+const remarcMax = (a) => Number(E.params?.aso_remarcacoes_max || 1) + (a.aso_remarcacoes_extra || 0);
+const contatoAtrasado = (a) => !!(a.soc_cadastrado_em && !a.saude_contato_em && a.saude_prazo_contato && Date.now() > new Date(a.saude_prazo_contato).getTime());
+const janelaContatoVencida = (a) => !!(a.saude_sem_contato_desde && !a.saude_escalado_em && Date.now() - new Date(a.saude_sem_contato_desde).getTime() > Number(E.params?.saude_janela_contato_horas || 24) * 3600e3);
+const prazoAsoPassa = (a) => !!(a.soc_cadastrado_em && a.saude_prazo_aso && !asoOk(a) && a.saude_prazo_aso > a.data_inicio);
+// sem o SQL 26 rodado a visão não traz os campos: a tela fica como antes
+const fluxoSaude = (a) => !!a && 'soc_cadastrado_em' in a;
+const pendenteSaude = (a) => !a.declinou_em && !a.matricula && !asoOk(a);
+function chipSoc(a) { if (!fluxoSaude(a) || (asoOk(a) && !a.soc_cadastrado_em)) return '—'; return a.soc_cadastrado_em ? chip('c-ok', 'ok', 'SOC ' + dm(new Date(a.soc_cadastrado_em))) : chip('c-at', 'at', 'Falta cadastrar no SOC'); }
+function chipVacina(a) { if (!a.vacina_status || (asoOk(a) && a.vacina_status === 'pendente')) return ''; return a.vacina_status === 'comprovada' ? chip('c-ok', 'ok', 'Vacinas comprovadas') : a.vacina_status === 'recusada' ? chip('c-cr', 'cr', 'Recusou a vacina') : chip('c-at', 'at', 'Vacinas pendentes'); }
+function chipContato(a) {
+  if (!fluxoSaude(a)) return '—';
+  if (!a.soc_cadastrado_em) return '<span class="apoio">depois do SOC</span>';
+  if (a.saude_escalado_em) return chip('c-cr', 'cr', 'No R&S: ' + (MOTIVO_SAUDE[a.saude_escalado_motivo] || ''));
+  if (a.aso_faltou_em && a.saude_sem_contato_desde) return chip(janelaContatoVencida(a) ? 'c-cr' : 'c-at', janelaContatoVencida(a) ? 'cr' : 'at', 'Faltou ' + dm(new Date(a.aso_faltou_em)) + (janelaContatoVencida(a) ? ' · 24h passaram' : ''));
+  if (a.saude_sem_contato_desde) return chip(janelaContatoVencida(a) ? 'c-cr' : 'c-at', janelaContatoVencida(a) ? 'cr' : 'at', 'Não atende desde ' + quando(a.saude_sem_contato_desde));
+  if (a.saude_contato_em) return chip('c-ok', 'ok', 'Contato ' + dm(new Date(a.saude_contato_em)));
+  return chip(contatoAtrasado(a) ? 'c-cr' : 'c-at', contatoAtrasado(a) ? 'cr' : 'at', 'Contato até ' + dmh(a.saude_prazo_contato));
+}
+function chipPrazoAso(a) {
+  if (!fluxoSaude(a)) return '—';
+  const c = examesCompl(a); const d = c ? 10 : 5;
+  const rot = (c == null ? 'função fora da tabela · ' : '') + d + ' dias úteis';
+  if (!a.soc_cadastrado_em || !a.saude_prazo_aso) return `<span class="apoio" style="font-size:12px">${rot}</span>`;
+  return (prazoAsoPassa(a) ? chip('c-cr', 'cr', 'até ' + dm(a.saude_prazo_aso) + ': passa da integração') : '<span class="num">até ' + dm(a.saude_prazo_aso) + '</span>') + `<br><span class="apoio" style="font-size:12px">${rot}</span>`;
+}
 // Segurança do Trabalho: a Ordem de Serviço vale para todas as unidades (Josianny, 20/10/2026)
 const temOs = (a) => a.os_status !== 'nao_aplica';
 const minhaArea = () => (E.verComo ? (E.verComo.area_id || '') : (E.perfil && E.perfil.area_id) || '');
@@ -729,6 +766,15 @@ function listaAtencao() {
     if (a.etapa === 'docs_ok' && a.remuneracao !== 'ok') atencao.push([1, a, 'Falta a Remuneração validar a posição ' + (a.posicao || '')]);
     if (a.aso_status === 'inapto' && !a.declinou_em && !a.matricula) atencao.push([0, a, 'ASO inapto: a Saúde decide na ficha se remarca o exame ou cancela a admissão']);
     if (a.etapa === 'docs_ok' && !asoOk(a) && a.aso_status !== 'inapto') atencao.push([1, a, 'Documentação completa, falta o ASO']);
+    // fluxo da Saúde (SQL 26)
+    if (fluxoSaude(a) && pendenteSaude(a)) {
+      if (tem('rs', 'admissao') && !a.soc_cadastrado_em && a.aso_status === 'aguardando') atencao.push([1, a, 'Falta cadastrar no SOC: sem isso a Saúde não começa o contato']);
+      if (tem('saude', 'admissao') && contatoAtrasado(a)) atencao.push([0, a, 'Contato da Saúde atrasado: o prazo era ' + dmh(a.saude_prazo_contato) + ' (regra das 12h)']);
+      if (tem('saude', 'admissao') && janelaContatoVencida(a)) atencao.push([0, a, (a.aso_faltou_em ? 'Faltou ao exame' : 'Sem contato') + ' há mais de ' + (E.params?.saude_janela_contato_horas || '24') + 'h: enviar ao R&S']);
+      if (tem('rs', 'admissao') && a.saude_escalado_em) atencao.push([0, a, 'A Saúde enviou ao R&S (' + (MOTIVO_SAUDE[a.saude_escalado_motivo] || '') + '): decida na ficha']);
+      if (tem('saude', 'admissao') && a.vacina_status === 'pendente' && a.aso_status === 'agendado') atencao.push([1, a, 'Exame agendado e as vacinas ainda não comprovadas']);
+      if (tem('saude', 'admissao', 'rs') && prazoAsoPassa(a)) atencao.push([1, a, 'Prazo do ASO (' + (examesCompl(a) ? 10 : 5) + ' dias úteis) termina depois da integração']);
+    }
     if (tem('admissao') && chamadoTiAtrasado(a)) atencao.push([1, a, 'Chamado de TI ainda não aberto: o prazo da TI é até ' + dm(prazoChamadoTi(a))]);
     if (souSeguranca() && temOs(a) && a.os_status !== 'validada' && !a.declinou_em && a.etapa !== 'pronto') atencao.push([2, a, 'Ordem de Serviço da Segurança ainda não validada']);
     if (faltaLg(a)) atencao.push([1, a, 'ASO apto: falta a recrutadora movimentar no LG']);
@@ -1011,6 +1057,7 @@ function desenharFicha(a, docs, evs, arqs = []) {
    </div>
    <div class="caixa pilha"><h3>Checklist da admissão</h3><div class="docs">
     <div class="doc"><div><div class="dn">Exame admissional (ASO)</div><div class="dm">${chipAso(a)}${a.aso_restricao ? ` <span class="apoio" style="font-size:12px">Restrição: ${esc(a.aso_restricao)}</span>` : ''}${a.aso_status === 'inapto' && !a.declinou_em ? '<div class="motivo">Inapto: a Saúde decide aqui se o exame é refeito (preencha data, hora e local e clique em Remarcar) ou se a admissão é cancelada. A matrícula fica bloqueada. R&S e Admissão já foram avisados.</div>' : ''}</div></div><div class="acoes">${podeAso && !a.declinou_em ? `<select class="sel-doc" id="asoSel"><option value="aguardando" ${a.aso_status === 'aguardando' ? 'selected' : ''}>A agendar</option><option value="agendado" ${a.aso_status === 'agendado' ? 'selected' : ''}>Agendado</option><option value="apto" ${a.aso_status === 'apto' ? 'selected' : ''}>Apto</option><option value="apto_restricao" ${a.aso_status === 'apto_restricao' ? 'selected' : ''}>Apto com restrição</option><option value="inapto" ${a.aso_status === 'inapto' ? 'selected' : ''}>Inapto</option></select><input type="date" id="asoData" class="sel-doc" value="${a.aso_data || ''}" aria-label="Data do ASO"><input id="asoHora" class="sel-doc" style="width:70px" value="${esc(a.aso_hora || '')}" placeholder="hora" aria-label="Hora do exame"><input id="asoLocal" class="sel-doc" style="width:150px" value="${esc(a.aso_local || '')}" placeholder="ambulatório ou clínica" aria-label="Local do exame"><input id="asoRestr" class="sel-doc" style="width:150px" value="${esc(a.aso_restricao || '')}" placeholder="restrição, se houver" aria-label="Restrição"><button class="bt peq" data-act="salvarAso" data-id="${a.id}">Salvar</button>${a.aso_status === 'inapto' ? `<button class="bt peq pri" data-act="asoRemarcar" data-id="${a.id}" title="Exame refeito: volta para agendado com a data informada">Remarcar exame</button><button class="bt peq fan" data-act="asoCancelar" data-id="${a.id}" title="Cancela a admissão por ASO inapto; as áreas recebem só o aviso de cancelamento">Cancelar admissão</button>` : ''}` : ''}</div></div>
+    ${fichaSaude(a)}
     ${temOs(a) ? `<div class="doc"><div><div class="dn">Ordem de Serviço · Segurança do Trabalho</div><div class="dm">${chipOs(a)}${a.cbo ? ' ' + chip('c-ag', '', 'CBO ' + a.cbo) : ''}${a.os_validada_por ? ` <span class="apoio" style="font-size:12px">validada por ${esc(a.os_validada_por)}</span>` : ''}${a.os_status !== 'validada' ? '<div class="motivo">A Esteira só gera a OS no kit com os campos preenchidos. A Segurança valida na tela Segurança do Trabalho.</div>' : ''}</div></div><div class="acoes">${souSeguranca() && !a.declinou_em ? `<button class="bt peq" data-act="osAbrir" data-id="${a.id}">Editar OS</button>` : ''}</div></div>` : ''}
     ${exigeLg || a.lg_movimentado_em ? `<div class="doc"><div><div class="dn">Movimentado no LG (recrutadora)</div><div class="dm">${chipLg}${a.lg_movimentado_por ? ` <span class="apoio" style="font-size:12px">por ${esc(a.lg_movimentado_por)}</span>` : ''}${!a.lg_movimentado_em && a.lg_avisado_em ? ` <span class="apoio" style="font-size:12px">aviso à analista em ${quando(a.lg_avisado_em)}</span>` : ''}${!a.lg_movimentado_em && exigeLg ? '<div class="motivo">Sem a movimentação para a etapa "Admissão" no LG, o DP não registra.</div>' : ''}</div></div><div class="acoes">${podeRs && !a.declinou_em && !a.matricula ? (a.lg_movimentado_em ? `<button class="bt peq fan" data-act="lgDesfazer" data-id="${a.id}">Desfazer</button>` : `<button class="bt peq pri" data-act="lgMovimentado" data-id="${a.id}">Movimentei no LG</button>`) : ''}</div></div>` : ''}
     <div class="doc"><div><div class="dn">Remuneração · posição ${esc(a.posicao || '—')}</div><div class="dm">${chipRemun(a)}</div></div><div class="acoes">${podeRem && !a.declinou_em && a.remuneracao !== 'ok' ? `<button class="bt peq" data-act="remun" data-id="${a.id}" data-v="ok">Validada</button><button class="bt peq" data-act="remun" data-id="${a.id}" data-v="ocupada">Posição ocupada</button>` : ''}</div></div>
@@ -1129,16 +1176,56 @@ function laudosParaSaude() {
   if (!l.length) return '<div class="vazio">Nenhum candidato PCD em andamento.</div>';
   return `<div class="tab-wrap"><table><thead><tr><th>Pessoa</th><th>Deficiência</th><th>Integração</th><th></th></tr></thead><tbody>${l.map((a) => `<tr class="clic" data-act="ficha" data-id="${a.id}"><td><b>${esc(titulo(a.nome))}</b><br><span class="apoio" style="font-size:12px">${esc(a.cargo)} · ${esc(a.local)}</span></td><td>${esc(a.pcd)}</td><td class="num">${dmd(a.data_inicio)}</td><td><button class="bt peq" data-act="ficha" data-id="${a.id}">Abrir laudo</button></td></tr>`).join('')}</tbody></table></div>`;
 }
+// ficha: fluxo da Saúde (SOC → contato e vacinas → exame → parecer) e o que foi ao R&S
+function fichaSaude(a) {
+  if (!fluxoSaude(a) || a.declinou_em || a.matricula || !tem('rs', 'admissao', 'saude') || (asoOk(a) && !a.soc_cadastrado_em)) return '';
+  const saude = tem('saude', 'admissao'); const rs = tem('rs', 'admissao');
+  const vacs = (E.params?.vacinas_obrigatorias || '').split(';').map((x) => x.trim()).filter(Boolean);
+  const c = examesCompl(a);
+  const linhas = [];
+  linhas.push(`<div class="doc"><div><div class="dn">Cadastro no SOC</div><div class="dm">${chipSoc(a)}${a.soc_cadastrado_em ? ` <span class="apoio" style="font-size:12px">às ${hm(new Date(a.soc_cadastrado_em))}${a.soc_cadastrado_por ? ' · ' + esc(a.soc_cadastrado_por) : ''} · contato da Saúde até ${dmh(a.saude_prazo_contato)}</span>` : ' <span class="apoio" style="font-size:12px">Ao marcar, o candidato recebe o e-mail da etapa de exame médico e começa a contar o prazo de contato da Saúde.</span>'}${a.soc_erro ? `<div class="motivo">Erro apontado pela Saúde ${a.soc_erro_em ? 'em ' + quando(a.soc_erro_em) : ''}: ${esc(a.soc_erro)}. ${rs ? 'Corrija no SOC e marque "SOC corrigido".' : 'Aguardando o R&S corrigir.'}</div>` : ''}</div></div>
+    <div class="acoes">${!a.soc_cadastrado_em ? `<button class="bt peq pri" data-act="socMarcar" data-id="${a.id}">Marcar cadastrado no SOC</button>` : asoOk(a) ? '' : `<button class="bt peq" data-act="socDesmarcar" data-id="${a.id}" title="Desfaz a marcação (o e-mail ao candidato já enviado não volta)">Desmarcar</button>`}${a.soc_erro && rs ? `<button class="bt peq pri" data-act="rsSaude" data-d="soc_corrigido" data-id="${a.id}">SOC corrigido</button>` : ''}</div></div>`);
+  if (asoOk(a)) return linhas.join('');
+  if (a.soc_cadastrado_em) {
+    linhas.push(`<div class="doc"><div><div class="dn">Contato e vacinas (Saúde)</div><div class="dm">${chipContato(a)} ${chipVacina(a)}<div class="apoio" style="font-size:12px;margin-top:4px">Vacinas obrigatórias: ${esc(vacs.join(', ') || 'não definidas')}${E.params?.vacina_bloqueia_apto !== 'nao' ? ' · sem a comprovação o ASO apto não grava' : ''}${a.vacina_obs ? ' · ' + esc(a.vacina_obs) : ''}</div></div></div>
+    <div class="acoes">${saude && !a.saude_escalado_em ? `${a.saude_contato_em && !a.saude_sem_contato_desde ? '' : `<button class="bt peq pri" data-act="saudeContato" data-id="${a.id}">Contato feito</button>`}${a.saude_sem_contato_desde ? '' : `<button class="bt peq" data-act="saudeSemContato" data-id="${a.id}" title="Começa a janela de ${esc(E.params?.saude_janela_contato_horas || '24')}h de tentativas">Não atende</button>`}
+      <select class="sel-doc" id="vacSel"><option value="pendente" ${a.vacina_status === 'pendente' ? 'selected' : ''}>Vacinas pendentes</option><option value="comprovada" ${a.vacina_status === 'comprovada' ? 'selected' : ''}>Vacinas comprovadas</option><option value="recusada" ${a.vacina_status === 'recusada' ? 'selected' : ''}>Recusou a vacinação</option></select><input id="vacObs" class="sel-doc" style="width:160px" value="${esc(a.vacina_obs || '')}" placeholder="observação" aria-label="Observação da vacina"><button class="bt peq" data-act="saudeVacina" data-id="${a.id}">Salvar vacinas</button>` : ''}</div></div>`);
+    linhas.push(`<div class="doc"><div><div class="dn">Exames da função e clínica</div><div class="dm"><span>${a.exames_tabela ? esc(a.exames_tabela) : '<span class="apoio">Função não encontrada na tabela de exames: a Saúde define abaixo.</span>'}</span><div class="apoio" style="font-size:12px;margin-top:4px">Prazo do ASO: ${c ? '10' : '5'} dias úteis${a.saude_prazo_aso ? ', até ' + dm(a.saude_prazo_aso) : ''}${prazoAsoPassa(a) ? ' (passa da integração de ' + dm(a.data_inicio) + ')' : ''}${a.exames_complementares != null ? ' · ajustado pela Saúde' : ''} · ${plural(a.aso_remarcacoes || 0, 'remarcação', 'remarcações')} de ${remarcMax(a)} permitida${remarcMax(a) > 1 ? 's' : ''}${a.aso_modo ? ' · ' + esc(MODO_ASO[a.aso_modo]) + (a.aso_clinica ? ': ' + esc(a.aso_clinica) : '') : ''}</div></div></div>
+    <div class="acoes">${saude && !a.saude_escalado_em ? `<select class="sel-doc" id="complSel" aria-label="Exames complementares"><option value="" ${a.exames_complementares == null ? 'selected' : ''}>Conforme a tabela</option><option value="sim" ${a.exames_complementares === true ? 'selected' : ''}>Com complementares (10 dias)</option><option value="nao" ${a.exames_complementares === false ? 'selected' : ''}>Só clínico (5 dias)</option></select><button class="bt peq" data-act="saudeCompl" data-id="${a.id}">Salvar</button>
+      <select class="sel-doc" id="modoSel" aria-label="Onde faz o exame"><option value="">Onde faz o exame</option>${Object.entries(MODO_ASO).map(([k, v]) => `<option value="${k}" ${a.aso_modo === k ? 'selected' : ''}>${v}</option>`).join('')}</select><input id="modoClinica" class="sel-doc" style="width:160px" value="${esc(a.aso_clinica || '')}" placeholder="clínica e cidade" aria-label="Clínica"><button class="bt peq" data-act="saudeModo" data-id="${a.id}">Salvar</button>${a.aso_status === 'agendado' && !a.aso_faltou_em ? `<button class="bt peq fan" data-act="saudeFalta" data-id="${a.id}">Faltou ao exame</button>` : ''}` : ''}</div></div>`);
+  }
+  if (a.saude_escalado_em) {
+    linhas.push(`<div class="doc"><div><div class="dn">Enviado ao R&S</div><div class="dm"><div class="motivo">A Saúde enviou em ${quando(a.saude_escalado_em)}: ${esc(MOTIVO_SAUDE[a.saude_escalado_motivo] || a.saude_escalado_motivo || '')}.${a.saude_escalado_motivo === 'remarcacao_excedida' ? ' Custos de novo agendamento por falha do candidato recaem sobre a área solicitante.' : ''} ${a.saude_escalado_motivo === 'erro_soc' ? (rs ? 'Corrija o cadastro no SOC e clique em "SOC corrigido" acima.' : 'Aguardando o R&S corrigir o SOC.') : rs ? 'Decida: nova tentativa (a Saúde retoma o exame) ou declinar a vaga.' : 'Aguardando a decisão do R&S.'}</div></div></div>
+    <div class="acoes">${rs && a.saude_escalado_motivo !== 'erro_soc' ? `<button class="bt peq pri" data-act="rsSaude" data-d="nova_tentativa" data-id="${a.id}">Nova tentativa</button><button class="bt peq fan" data-act="rsSaude" data-d="declinar" data-id="${a.id}">Declinar a vaga</button>` : ''}</div></div>`);
+  } else if (saude && a.soc_cadastrado_em) {
+    const sugestao = (a.aso_remarcacoes || 0) >= remarcMax(a) ? 'remarcacao_excedida' : a.aso_faltou_em ? 'falta' : 'sem_contato';
+    linhas.push(`<div class="doc"><div><div class="dn">Enviar ao R&S</div><div class="dm apoio" style="font-size:12px">Sem contato ou falta depois de ${esc(E.params?.saude_janela_contato_horas || '24')}h de tentativas, ou nova remarcação além do limite: o R&S decide se segue ou declina. Erro no cadastro do SOC: o R&S corrige.${janelaContatoVencida(a) ? ' <b>A janela de tentativas já passou.</b>' : ''}</div></div>
+    <div class="acoes"><select class="sel-doc" id="escMotivo" aria-label="Motivo"><option value="sem_contato" ${sugestao === 'sem_contato' ? 'selected' : ''}>Sem contato há 24h</option><option value="falta" ${sugestao === 'falta' ? 'selected' : ''}>Faltou ao exame</option><option value="remarcacao_excedida" ${sugestao === 'remarcacao_excedida' ? 'selected' : ''}>Precisa remarcar de novo</option></select><input id="escTexto" class="sel-doc" style="width:150px" placeholder="detalhe (opcional)" aria-label="Detalhe"><button class="bt peq fan" data-act="saudeEscalar" data-id="${a.id}">Enviar ao R&S</button>
+      <input id="socErro" class="sel-doc" style="width:170px" placeholder="o que está errado no SOC" aria-label="Erro no SOC"><button class="bt peq" data-act="saudeErroSoc" data-id="${a.id}">Apontar erro no SOC</button></div></div>`);
+  }
+  return linhas.join('');
+}
 function filaSaude() {
   const l = vivas().filter((a) => !a.matricula && a.kit_status !== 'concluido').sort((x, y) => (x.data_inicio + (asoOk(x) ? '1' : '0') + x.local).localeCompare(y.data_inicio + (asoOk(y) ? '1' : '0') + y.local));
   if (!l.length) return '<div class="vazio">Ninguém esperando exame.</div>';
   const corte = (a) => a.corte_documentos ? Math.ceil((new Date(a.corte_documentos).getTime() - Date.now()) / 86400000) : null;
-  return `<div class="tab-wrap"><table><thead><tr><th>Pessoa</th><th>Cargo · local</th><th>Integração</th><th>Contato</th><th>Exame</th><th>Dias até o corte</th><th>LG</th></tr></thead><tbody>
-  ${l.map((a) => `<tr class="clic" data-act="ficha" data-id="${a.id}"><td><b>${esc(titulo(a.nome))}</b>${a.pcd !== 'Não' ? ' ' + chip('c-info', 'info', 'PCD') : ''}<br><span class="apoio num" style="font-size:12px">${a.cpf ? 'CPF ' + fmtCpf(a.cpf) : ''}</span></td><td>${esc(a.cargo)}<br><span class="apoio" style="font-size:12px">${esc(a.local)}${a.setor ? ' · ' + esc(a.setor) : ''}</span></td><td class="num">${dmd(a.data_inicio)}</td><td>${esc(a.telefone || '—')}<br><span class="apoio" style="font-size:12px">${esc(a.email || '')}</span></td><td>${chipAso(a)}${a.aso_restricao ? '<br><span class="apoio" style="font-size:12px">' + esc(a.aso_restricao) + '</span>' : ''}</td><td class="num">${corte(a) == null ? '—' : corte(a) < 0 ? chip('c-cr', 'cr', 'corte passou') : corte(a) <= 2 && !asoOk(a) ? chip('c-at', 'at', corte(a) + ' d') : corte(a) + ' d'}</td><td>${asoOk(a) ? (a.lg_movimentado_em ? chip('c-ok', 'ok', 'LG ' + dm(a.lg_movimentado_em)) : chip('c-ag', 'ag', 'LG pendente')) : '—'}</td></tr>`).join('')}
+  const fx = l.some(fluxoSaude);
+  return `<div class="tab-wrap"><table><thead><tr><th>Pessoa</th><th>Cargo · local</th><th>Integração</th>${fx ? '<th>SOC</th><th>Contato</th><th>Vacinas</th>' : '<th>Contato</th>'}<th>Exame</th>${fx ? '<th>Prazo do ASO</th>' : ''}<th>Dias até o corte</th><th>LG</th></tr></thead><tbody>
+  ${l.map((a) => `<tr class="clic" data-act="ficha" data-id="${a.id}"><td><b>${esc(titulo(a.nome))}</b>${a.pcd !== 'Não' ? ' ' + chip('c-info', 'info', 'PCD') : ''}<br><span class="apoio num" style="font-size:12px">${esc(a.telefone || '')}${a.cpf ? (a.telefone ? ' · ' : '') + 'CPF ' + fmtCpf(a.cpf) : ''}</span></td><td>${esc(a.cargo)}<br><span class="apoio" style="font-size:12px">${esc(a.local)}${a.setor ? ' · ' + esc(a.setor) : ''}</span></td><td class="num">${dmd(a.data_inicio)}</td>${fx ? `<td>${chipSoc(a)}</td><td>${asoOk(a) ? '—' : chipContato(a)}</td><td>${chipVacina(a)}</td>` : `<td>${esc(a.email || '—')}</td>`}<td>${chipAso(a)}${a.aso_modo ? '<br><span class="apoio" style="font-size:12px">' + esc(MODO_ASO[a.aso_modo]) + (a.aso_clinica ? ' · ' + esc(a.aso_clinica) : '') + '</span>' : ''}${a.aso_remarcacoes ? '<br><span class="apoio" style="font-size:12px">' + plural(a.aso_remarcacoes, 'remarcação', 'remarcações') + ' de ' + remarcMax(a) + '</span>' : ''}${a.aso_restricao ? '<br><span class="apoio" style="font-size:12px">' + esc(a.aso_restricao) + '</span>' : ''}</td>${fx ? `<td>${asoOk(a) ? '—' : chipPrazoAso(a)}</td>` : ''}<td class="num">${corte(a) == null ? '—' : corte(a) < 0 ? chip('c-cr', 'cr', 'corte passou') : corte(a) <= 2 && !asoOk(a) ? chip('c-at', 'at', corte(a) + ' d') : corte(a) + ' d'}</td><td>${asoOk(a) ? (a.lg_movimentado_em ? chip('c-ok', 'ok', 'LG ' + dm(new Date(a.lg_movimentado_em))) : chip('c-ag', 'ag', 'LG pendente')) : '—'}</td></tr>`).join('')}
   </tbody></table></div>`;
 }
-VIEWS.saude = () => `<div class="cab"><div class="t"><span class="olho">Saúde ocupacional</span><h1>Exame admissional</h1><p class="apoio">Quem precisa de exame, por turma. Clique na pessoa para agendar (data, hora e local: o candidato recebe o e-mail), registrar apto, apto com restrição ou inapto. Apto libera a matrícula e pede à recrutadora a movimentação no LG; inapto avisa o R&S e a Admissão, e a Saúde decide na ficha se remarca o exame ou cancela a admissão. O ASO oficial continua no SOC.</p></div></div>
+// parâmetros que a Saúde ajusta (SQL 26): a lista de vacinas e se ela bloqueia o apto
+function vacinasSaude() {
+  const pode = tem('saude', 'admissao', 'admin');
+  if (E.params?.vacinas_obrigatorias == null) return '';
+  return `<div class="caixa pilha"><h2>Vacinas obrigatórias</h2><p class="apoio">A lista vai no e-mail da etapa de exame médico e aparece na ficha. Separe as vacinas por ponto e vírgula. Com o bloqueio ligado, o ASO apto só grava depois de a vacinação ser registrada como comprovada.</p>
+   <div class="linha-flex" style="align-items:flex-end;flex-wrap:wrap"><div class="campo" style="flex:1;min-width:240px"><label for="vacLista">Vacinas</label><input id="vacLista" value="${esc(E.params?.vacinas_obrigatorias || '')}" ${pode ? '' : 'readonly'}></div>
+   <div class="campo"><label for="vacBloq">Bloqueia o apto</label><select id="vacBloq" class="sel-doc" ${pode ? '' : 'disabled'}><option value="sim" ${E.params?.vacina_bloqueia_apto !== 'nao' ? 'selected' : ''}>Sim</option><option value="nao" ${E.params?.vacina_bloqueia_apto === 'nao' ? 'selected' : ''}>Não, só registra</option></select></div>
+   ${pode ? '<button class="bt pri" data-act="saudeParam">Salvar</button>' : ''}</div></div>`;
+}
+VIEWS.saude = () => `<div class="cab"><div class="t"><span class="olho">Saúde ocupacional</span><h1>Exame admissional</h1><p class="apoio">${E.params?.vacinas_obrigatorias == null ? 'Quem precisa de exame, por turma. Clique na pessoa para agendar (data, hora e local: o candidato recebe o e-mail), registrar apto, apto com restrição ou inapto. Apto libera a matrícula e pede à recrutadora a movimentação no LG; inapto avisa o R&S e a Admissão, e a Saúde decide na ficha se remarca o exame ou cancela a admissão. O ASO oficial continua no SOC.' : `Fluxo da Saúde: o R&S cadastra no SOC; cadastro até 12h, a Saúde faz o contato no mesmo dia, depois das 12h no dia útil seguinte. No contato a Saúde confere as vacinas, agenda o exame (rede credenciada, clínica próxima ou reembolso) e dá o parecer. Prazo do ASO: 5 dias úteis só com exame clínico, 10 com exames complementares (pela tabela de exames da função). Sem contato ou falta por 24h, recusa de vacina, segunda remarcação ou erro no SOC vão para o R&S decidir. Clique na pessoa para registrar. O ASO oficial continua no SOC.`}</p></div></div>
  <div class="caixa pilha"><h2>Fila de agendamento</h2>${filaSaude()}</div>
+ ${vacinasSaude()}
  <div class="caixa pilha"><h2>Laudos PCD</h2><p class="apoio">Só a Saúde abre o laudo médico e decide a situação dele. A Admissão vê apenas se foi entregue.</p>${laudosParaSaude()}</div>`;
 // ----------------------------------------------------------- Segurança do Trabalho
 // Ordem de Serviço por pessoa (reunião de 15/10/2026): a matriz cargo → riscos/EPI/EPC
@@ -1547,10 +1634,49 @@ document.addEventListener('click', async (e) => {
       const p = { aso_status: st, aso_data: $('#asoData').value || null, aso_hora: ($('#asoHora')?.value || '').trim() || null, aso_local: ($('#asoLocal')?.value || '').trim() || null, aso_restricao: st === 'apto_restricao' ? ($('#asoRestr')?.value || '').trim() || null : null };
       if (st === 'agendado' && !p.aso_data) { toast('Informe a data do exame.', true); return; }
       if (st === 'apto_restricao' && !p.aso_restricao) { toast('Descreva a restrição.', true); return; }
+      if ((st === 'apto' || st === 'apto_restricao') && !asoOk(adm(id) || {}) && E.params?.vacina_bloqueia_apto !== 'nao' && adm(id)?.vacina_status && adm(id).vacina_status !== 'comprovada') { toast('O ASO apto fica bloqueado até a vacinação ser comprovada. Registre as vacinas antes.', true); return; }
       if (await tentar(() => api.atualizar(id, p), st === 'agendado' && adm(id)?.email ? 'ASO agendado. O candidato recebe o e-mail com data, hora e local.' : 'ASO atualizado')) { await recarregar(); if ($('.gaveta')) abrirFicha(id); else render(); }
       break;
     }
     case 'osAbrir': abrirOs(id); break;
+    // fluxo da Saúde (SQL 26)
+    case 'socMarcar': if (await tentar(async () => { if (!(await api.socMarcar(id))) throw new Error('Não foi possível marcar: a admissão foi cancelada.'); return true; }, adm(id)?.email ? 'Cadastrado no SOC. O candidato recebe o e-mail da etapa de exame médico.' : 'Cadastrado no SOC (candidato sem e-mail na ficha)')) await aposSaude(id); break;
+    case 'socDesmarcar': if (confirm('Desmarcar o cadastro no SOC?') && await tentar(() => api.socMarcar(id, true), 'Cadastro no SOC desmarcado')) await aposSaude(id); break;
+    case 'saudeContato': if (await tentar(() => api.saudeAcao(id, 'contato'), 'Contato registrado')) await aposSaude(id); break;
+    case 'saudeSemContato': if (await tentar(() => api.saudeAcao(id, 'sem_contato'), 'Registrado: tentativas por até ' + (E.params?.saude_janela_contato_horas || '24') + 'h')) await aposSaude(id); break;
+    case 'saudeFalta': if (confirm('Registrar que ' + titulo(adm(id)?.nome || '') + ' faltou ao exame?') && await tentar(() => api.saudeAcao(id, 'falta'), 'Falta registrada: tentativas por até ' + (E.params?.saude_janela_contato_horas || '24') + 'h')) await aposSaude(id); break;
+    case 'saudeVacina': {
+      const v = $('#vacSel').value; const obs = ($('#vacObs')?.value || '').trim();
+      if (v === 'recusada' && !confirm('Recusa de vacinação bloqueia o ASO e vai para o R&S decidir. Confirmar?')) return;
+      if (await tentar(() => api.saudeAcao(id, 'vacina', v, obs), v === 'recusada' ? 'Recusa registrada e enviada ao R&S' : 'Vacinação registrada')) await aposSaude(id);
+      break;
+    }
+    case 'saudeCompl': if (await tentar(() => api.saudeAcao(id, 'complementares', $('#complSel').value || null), 'Prazo do ASO atualizado')) await aposSaude(id); break;
+    case 'saudeModo': if (await tentar(() => api.saudeAcao(id, 'modo', $('#modoSel').value || null, ($('#modoClinica')?.value || '').trim()), 'Local do exame registrado')) await aposSaude(id); break;
+    case 'saudeEscalar': {
+      const m = $('#escMotivo').value;
+      if (!confirm('Enviar ao R&S (' + MOTIVO_SAUDE[m] + ')? A analista recebe o e-mail e decide na ficha.')) return;
+      if (await tentar(() => api.saudeAcao(id, 'escalar', m, ($('#escTexto')?.value || '').trim()), 'Enviado ao R&S')) await aposSaude(id);
+      break;
+    }
+    case 'saudeErroSoc': {
+      const tx = ($('#socErro')?.value || '').trim();
+      if (!tx) { toast('Descreva o que está errado no SOC.', true); return; }
+      if (await tentar(() => api.saudeAcao(id, 'erro_soc', null, tx), 'Erro enviado ao R&S')) await aposSaude(id);
+      break;
+    }
+    case 'rsSaude': {
+      const d = el.dataset.d; const nome = titulo(adm(id)?.nome || '');
+      if (d === 'declinar' && !confirm('Declinar a vaga de ' + nome + '? As áreas recebem o aviso de cancelamento.')) return;
+      if (await tentar(() => api.rsDecidirSaude(id, d), d === 'declinar' ? 'Vaga declinada' : d === 'soc_corrigido' ? 'SOC corrigido: a Saúde segue' : 'Nova tentativa: a Saúde retoma o exame')) await aposSaude(id);
+      break;
+    }
+    case 'saudeParam': {
+      const lista = ($('#vacLista')?.value || '').trim(); const bloq = $('#vacBloq').value;
+      if (!lista) { toast('Informe ao menos uma vacina.', true); return; }
+      if (await tentar(async () => { await api.saudeParametro('vacinas_obrigatorias', lista); return api.saudeParametro('vacina_bloqueia_apto', bloq); }, 'Vacinas obrigatórias salvas')) { await recarregar(); render(); }
+      break;
+    }
     case 'asoRemarcar': {
       const p = { data: $('#asoData')?.value || null, hora: ($('#asoHora')?.value || '').trim() || null, local: ($('#asoLocal')?.value || '').trim() || null };
       if (!p.data && !confirm('Sem data o exame volta para "a agendar". Continuar?')) return;
