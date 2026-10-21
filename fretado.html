@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Seu fretado Cimed</title>
+<meta name="robots" content="noindex">
+<style>
+:root{--am:#FFC600;--sobre-am:#16140C;--bg:#FBFAF5;--sup:#FFFFFF;--sup2:#F3F0E6;--linha:#E6E2D6;--tx:#16140C;--tx2:#3D3A30;--mudo:#6B675A;--ok:#1E6B45;--ok-bg:#E3F2E9;--info:#1F4E8C;--info-bg:#E2ECF8;--r:14px}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--bg:#121109;--sup:#1C1A12;--sup2:#24221A;--linha:#36332A;--tx:#F4F1E7;--tx2:#D6D1C2;--mudo:#A39E8D;--ok:#7BD3A2;--ok-bg:#16301F;--info:#8DB6F0;--info-bg:#172338}}
+:root[data-theme="dark"]{--bg:#121109;--sup:#1C1A12;--sup2:#24221A;--linha:#36332A;--tx:#F4F1E7;--tx2:#D6D1C2;--mudo:#A39E8D;--ok:#7BD3A2;--ok-bg:#16301F;--info:#8DB6F0;--info-bg:#172338}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px/1.5 Inter,ui-sans-serif,system-ui,-apple-system,'Segoe UI',Arial,sans-serif}
+header{background:var(--am);color:var(--sobre-am);padding:18px 16px}
+header .in,main{max-width:760px;margin:0 auto}
+header b{letter-spacing:.3em;font-size:17px}
+header h1{margin:4px 0 0;font-size:24px;line-height:1.2}
+main{padding:16px}
+.caixa{background:var(--sup);border:1px solid var(--linha);border-radius:var(--r);padding:16px;margin:0 0 14px}
+h2{font-size:18px;margin:0 0 6px}
+.apoio{color:var(--mudo);font-size:14px}
+.busca{display:flex;gap:8px;flex-wrap:wrap}
+.busca input{flex:1;min-width:0;min-height:46px;border:1px solid var(--linha);border-radius:10px;padding:10px 12px;font:inherit;background:var(--sup2);color:var(--tx)}
+button,.bt{min-height:44px;border:1px solid var(--linha);border-radius:10px;padding:8px 14px;font:inherit;font-weight:600;background:var(--sup);color:var(--tx);cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+.pri{background:var(--am);color:var(--sobre-am);border-color:var(--am)}
+.ponto{display:grid;grid-template-columns:58px minmax(0,1fr);gap:8px;padding:10px 0;border-top:1px solid var(--linha)}
+.ponto:first-child{border-top:0}
+.hora{font-weight:700;font-variant-numeric:tabular-nums}
+.ref{font-weight:600}
+.end{color:var(--mudo);font-size:13.5px;overflow-wrap:anywhere}
+.acoes{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.acoes a{min-height:36px;padding:6px 10px;font-size:13.5px}
+.chip{display:inline-block;border-radius:999px;padding:2px 10px;font-size:12.5px;font-weight:600;background:var(--info-bg);color:var(--info)}
+.chip.ok{background:var(--ok-bg);color:var(--ok)}
+details summary{cursor:pointer;font-weight:600;min-height:40px;display:flex;align-items:center}
+.vazio{color:var(--mudo);padding:8px 0}
+</style>
+</head>
+<body>
+<header><div class="in"><b>CIMED</b><h1>Seu fretado</h1></div></header>
+<main id="m"><div class="caixa">Carregando o itinerário…</div></main>
+<script type="module">
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const norm = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+const titulo = (s) => String(s || '').toLowerCase().replace(/(^|\s)(\S)/g, (m, a, b) => a + b.toUpperCase()).replace(/\b(Da|De|Do|Das|Dos|E)\b/g, (w) => w.toLowerCase());
+const mapa = (end) => 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(end);
+const rota = (end) => 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(end);
+// só os códigos curtos dos itinerários vêm no link (nada que identifique a pessoa)
+const cods = (new URLSearchParams(location.search).get('i') || '').split(',').map((x) => x.trim()).filter((x) => /^[0-9a-f]{8}$/.test(x)).slice(0, 4);
+let ITINS = [];
+
+function cartaoPonto(p, linha, outra) {
+  const end = String(p.endereco || '').replace(/, Brasil$/, '');
+  return `<div class="ponto"><div class="hora">${esc(p.horario || '')}</div><div><div class="ref">${esc(p.referencia || end)}${linha ? ` <span class="chip">${esc(titulo(linha))}${outra ? ' · outra linha do turno' : ''}</span>` : ''}</div>${p.bairro ? `<div class="apoio">${esc(p.bairro)}${p.cidade ? ' · ' + esc(p.cidade) : ''}</div>` : ''}${end ? `<div class="end">${esc(end)}</div><div class="acoes"><a class="bt" href="${esc(mapa(end))}" target="_blank" rel="noopener">Ver no mapa</a><a class="bt" href="${esc(rota(end))}" target="_blank" rel="noopener">Como chegar daqui</a></div>` : ''}</div></div>`;
+}
+function itinerario(i, aberto) {
+  const ps = Array.isArray(i.pontos) ? i.pontos : [];
+  return `<details class="caixa" ${aberto ? 'open' : ''}><summary>${esc(titulo(i.linha))} · ${esc(i.turno.toLowerCase())} · chega ${esc(i.chegada || '—')}</summary>
+    <p class="apoio" style="margin:4px 0 8px">${ps.length} pontos de embarque, na ordem do trajeto. Chegue alguns minutos antes do horário.</p>
+    ${ps.map((p) => cartaoPonto(p)).join('')}</details>`;
+}
+function pontuar(p, t) {
+  const b = norm(p.bairro), e = norm(p.endereco + ' ' + p.referencia), c = norm(p.cidade);
+  let s = 0;
+  if (t.bairro && b && b === t.bairro) s += 6;
+  if (t.bairro && b && (b.includes(t.bairro) || t.bairro.includes(b))) s += 3;
+  if (t.rua && t.rua.length >= 4 && e.includes(t.rua)) s += 8;
+  (t.palavras || []).forEach((w) => { if (w.length >= 3 && (e.includes(w) || b.includes(w))) s += 2; });
+  if (t.cidade && c && c === t.cidade) s += 1;
+  return s;
+}
+async function buscar(txt) {
+  const out = $('#res'); const dig = txt.replace(/\D/g, '');
+  let t = { palavras: norm(txt).split(' ').filter((w) => w.length >= 3) };
+  if (dig.length === 8) {
+    out.innerHTML = '<div class="vazio">Consultando o CEP…</div>';
+    try {
+      const r = await fetch(`https://viacep.com.br/ws/${dig}/json/`).then((x) => x.json());
+      if (r && !r.erro) {
+        t = { rua: norm(String(r.logradouro || '').replace(/^(rua|avenida|av|travessa|alameda|praca|rodovia)\s+/i, '')), bairro: norm(r.bairro), cidade: norm(r.localidade), palavras: norm(r.logradouro + ' ' + r.bairro).split(' ').filter((w) => w.length >= 4) };
+        out.dataset.local = [r.logradouro, r.bairro, r.localidade].filter(Boolean).join(', ');
+      } else { out.innerHTML = '<div class="vazio">CEP não encontrado. Tente digitar o nome da rua ou do bairro.</div>'; return; }
+    } catch (e) { out.innerHTML = '<div class="vazio">Não consegui consultar o CEP agora. Tente digitar o nome da rua ou do bairro.</div>'; return; }
+  } else out.dataset.local = '';
+  const todos = [];
+  ITINS.forEach((i) => (i.pontos || []).forEach((p) => todos.push({ p, i, s: pontuar(p, t) })));
+  const achados = todos.filter((x) => x.s > 0).sort((a, b) => b.s - a.s || Number(b.i.escolhido) - Number(a.i.escolhido)).slice(0, 8);
+  out.innerHTML = achados.length
+    ? `<p class="apoio">${out.dataset.local ? 'Perto de ' + esc(out.dataset.local) + ': ' : ''}os pontos que mais combinam com o que você digitou. Use "Como chegar daqui" para ver a distância a pé.</p>` + achados.map((x) => cartaoPonto(x.p, x.i.linha, !x.i.escolhido)).join('')
+    : '<div class="vazio">Nenhum ponto do seu turno nesse bairro ou rua. Veja a lista completa abaixo, ou fale com o Time de Admissão.</div>';
+}
+async function iniciar() {
+  const m = $('#m');
+  if (!cods.length) { m.innerHTML = '<div class="caixa">Link incompleto. Abra o link do e-mail do fretado de novo ou fale com o Time de Admissão.</div>'; return; }
+  try {
+    // teste local (teste/): os dados chegam prontos, sem consultar o banco
+    if (Array.isArray(window.FRETADO_DADOS)) { ITINS = window.FRETADO_DADOS; throw 'pronto'; }
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/fretado_publico`, { method: 'POST', headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ p_codigos: cods }) });
+    if (!r.ok) throw new Error(String(r.status));
+    ITINS = await r.json();
+  } catch (e) { if (e !== 'pronto') { m.innerHTML = '<div class="caixa">Não consegui carregar o itinerário agora. Tente de novo em alguns minutos.</div>'; return; } }
+  const meus = ITINS.filter((i) => i.escolhido);
+  if (!meus.length) { m.innerHTML = '<div class="caixa">Este itinerário não está mais disponível. Fale com o Time de Admissão.</div>'; return; }
+  const outros = ITINS.filter((i) => !i.escolhido);
+  m.innerHTML = `<div class="caixa"><h2>Ache o ponto mais perto de você</h2><p class="apoio" style="margin-top:0">Digite o seu CEP ou o nome da sua rua ou bairro. O CEP é consultado no ViaCEP, um serviço público de endereços; nada do que você digita fica guardado.</p>
+    <form class="busca" id="fBusca"><input id="q" inputmode="text" autocomplete="postal-code" placeholder="Ex.: 37550-000 ou Rua Exemplo, São João" aria-label="CEP, rua ou bairro"><button class="pri" type="submit">Buscar</button></form><div id="res" style="margin-top:10px"></div></div>
+    <h2 style="margin:18px 0 8px">Seu itinerário</h2>
+    ${meus.map((i) => itinerario(i, meus.length === 1)).join('')}
+    ${outros.length ? `<details class="caixa"><summary>Outras linhas do mesmo turno (${outros.length})</summary><p class="apoio">Se outro ponto ficar mais perto, avise o Time de Admissão para trocar a sua linha.</p>${outros.map((i) => itinerario(i, false)).join('')}</details>` : ''}
+    <p class="apoio">No primeiro dia, o convite da integração vale como passe no fretado.</p>`;
+  $('#fBusca').addEventListener('submit', (e) => { e.preventDefault(); const v = $('#q').value.trim(); if (v.length >= 3) buscar(v); });
+}
+iniciar();
+</script>
+</body>
+</html>

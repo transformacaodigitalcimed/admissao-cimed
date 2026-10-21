@@ -158,7 +158,10 @@ async function criarApi() {
     // Benefícios (SQL 28)
     async beneficiosCatalogo() { return ok(await sb.from('beneficios_catalogo').select('*').eq('ativo', true).order('ordem')); },
     async beneficiosPessoa() { return paginas(() => sb.from('beneficios_pessoa').select('*').order('admissao_id').order('beneficio')); },
-    async beneficioAtualizar(adms, beneficio, status, pendencia, plano) { return ok(await sb.rpc('beneficio_atualizar', { adms, p_beneficio: beneficio, p_status: status, p_pendencia: pendencia || null, p_plano: plano || null })); },
+    async beneficioAtualizar(adms, beneficio, status, pendencia, plano, wkf) { const a = { adms, p_beneficio: beneficio, p_status: status, p_pendencia: pendencia || null, p_plano: plano || null }; if (wkf) a.p_wkf = wkf; return ok(await sb.rpc('beneficio_atualizar', a)); },
+    // linhas de transporte do LG e itinerários do fretado (SQL 31)
+    async transporteLinhas() { return ok(await sb.from('transporte_linhas').select('codigo_lg,nome,fornecedor,unidade,tarifa,ativo').eq('ativo', true).order('codigo_lg')); },
+    async itinerarios() { return ok(await sb.from('fretado_itinerarios').select('*').eq('ativo', true).order('unidade').order('turno').order('linha')); },
     async dependentesTodos() { return paginas(() => sb.from('dependentes_visao').select('*').order('admissao_id').order('ordem').order('id')); },
     async opcoesTodas() { return paginas(() => sb.from('opcoes_beneficios').select('admissao_id,dados,recebido_em').order('admissao_id')); },
     async salvarBp(o) { return ok(await sb.from('bps').upsert(o).select('id')); },
@@ -318,12 +321,13 @@ const ETAPAS = [
 ];
 const ETAPA = Object.fromEntries(ETAPAS.map((e) => [e.id, e]));
 const GATILHO = { cadastro: 'Quando o R&S cadastra', docs_ok: 'Quando a documentação fica completa', matricula: 'Quando a matrícula é gerada', declinou: 'Quando a admissão é cancelada (declínio ou não comparecimento)', termo: 'Quando o Termo de Transparência tem resposta "Sim"' };
-const TIPO_EMAIL = { cadastro: 'Novo aprovado', boasvindas: 'Boas-vindas', cobranca: 'Cobrança', docs_ok: 'Documentação completa', matricula: 'Matrícula', lg: 'Movimentar no LG', convite: 'Convite da integração', turma: 'Lista da turma', beneficios_opcoes: 'Opções de benefícios', termo: 'Termo de Transparência', via_assinada: 'Via assinada do kit', aso: 'Exame admissional (ASO)', aso_inapto: 'ASO inapto', lg_cobranca: 'Cobrança: movimentar no LG', turma_concluida: 'Admissões concluídas', exame_etapa: 'Etapa de exame médico', saude_rs: 'Saúde → R&S', declinou: 'Admissão cancelada' };
+const TIPO_EMAIL = { cadastro: 'Novo aprovado', boasvindas: 'Boas-vindas', cobranca: 'Cobrança', docs_ok: 'Documentação completa', matricula: 'Matrícula', lg: 'Movimentar no LG', convite: 'Convite da integração', turma: 'Lista da turma', beneficios_opcoes: 'Opções de benefícios', termo: 'Termo de Transparência', via_assinada: 'Via assinada do kit', aso: 'Exame admissional (ASO)', aso_inapto: 'ASO inapto', lg_cobranca: 'Cobrança: movimentar no LG', itinerario: 'Itinerário do fretado', turma_concluida: 'Admissões concluídas', exame_etapa: 'Etapa de exame médico', saude_rs: 'Saúde → R&S', declinou: 'Admissão cancelada' };
 // a jornada de e-mails do colaborador, na ordem (os demais e-mails vão para as áreas e a equipe)
 const JORNADA_EMAILS = [
   ['boasvindas', 'Cadastro do aprovado pelo R&S', 'Boas-vindas: data da integração, lista de documentos, como enviar (LG), prazo do corte da turma, link do Código de Conduta e aviso de privacidade.'],
   ['cobranca', 'Todo dia, enquanto faltar documento (até o corte da turma)', 'Cobrança dos documentos que faltam ou precisam ser reenviados; também pelo botão "Cobrar" da ficha.'],
   ['exame_etapa', 'Cadastro no SOC marcado', 'Etapa de exame médico (card da Saúde): contato pelo WhatsApp, caderneta de vacinação com as vacinas do parâmetro vacinas_obrigatorias, não faltar, clínica parceira ou reembolso.'],
+  ['itinerario', 'Cadastro com linha de fretado (ou fretado na integração)', 'Itinerário do fretado: o da integração (administrativo) e o do turno, com o horário de cada ponto e o link do buscador do ponto mais perto (CEP, rua ou bairro).'],
   ['convite', 'Matrícula registrada', 'Convite da integração: data, hora, local (ou link do Teams) e quem procurar ao chegar; gestor e recrutadora em cópia.'],
   ['via_assinada', 'Colaborador assina o kit e escolhe e-mail', 'Via assinada do kit admissional em PDF, com o código de verificação.'],
 ];
@@ -370,6 +374,7 @@ const E = {
   turma: null, localF: '', modo: 'quadro', selDoc: null, selMail: null, previa: null,
   turmasCal: [], bps: [], dest: [], termos: [], depsNovo: [], turmaLista: null, locaisLista: null, soMatriculados: true, selTermo: null, matrizOs: [],
   verComo: null,
+  tLinhas: [], itins: null, itinUni: 'UNIDADE 1', itinTurno: '1º TURNO',
   listas: [], excecoes: [], notifs: [], regrasSind: [], benCat: [], benPessoa: [], depsTodos: [], opcTodas: [], benTurma: null, listaTipo: 'analista_rs', iniF: { setor: '', local: '', mes: '' }, sindTodos: false,
 };
 const param = (k, padrao = '') => (E.params[k] == null ? padrao : String(E.params[k]));
@@ -517,6 +522,7 @@ async function carregar() {
   calado(api.listas && (() => api.listas()), 'listas');
   calado(api.notificacoes && (() => api.notificacoes()), 'notifs');
   calado(api.regrasSindicato && (() => api.regrasSindicato()), 'regrasSind');
+  calado(api.transporteLinhas && (() => api.transporteLinhas()), 'tLinhas');
   if (tem('rs', 'admissao')) calado(api.excecoes && (() => api.excecoes()), 'excecoes');
   if (souBeneficios()) {
     calado(api.beneficiosCatalogo && (() => api.beneficiosCatalogo()), 'benCat');
@@ -789,6 +795,99 @@ const souBeneficios = () => tem('admissao') || (tem('especialista') && ['benefic
 // o que já está instalado no banco (cada SQL grava um parâmetro): sem ele, a tela fica como antes
 const temSql27 = () => E.params?.cobranca_imediata != null;
 const temSql28 = () => (E.benCat || []).length > 0;
+const temSql31 = () => (E.tLinhas || []).length > 0;
+// fretado (SQL 31): unidade dos itinerários por local; linhas "24 - FRETADO" do LG
+const UNID_FRETADO = { 'Pouso Alegre': 'UNIDADE 1', 'Fernão Dias': 'UNIDADE 2', 'Gráfica SSBV': 'SSBV' };
+const INTEG_FRETADO = ['Pouso Alegre', 'Fernão Dias'];   // fretado na integração: turno administrativo
+function linhasFretado(local) {
+  const u = UNID_FRETADO[local];
+  return (E.tLinhas || []).filter((l) => /^24\b/.test(l.fornecedor || '') && ((u && l.unidade === u) || (local === 'Pouso Alegre' && l.codigo_lg === 71) || (local === 'CD SC' && /CHAPEC/i.test(l.nome)) || (local === 'CD BA' && /BAHIA/i.test(l.nome))));
+}
+const nomeLinha = (l) => String(l.nome || '').replace(/^(UNIDADE [12]|SSBV)\s*-\s*/i, '').replace(/^FRETADO\s+/i, '');
+// cadastro: linhas do fretado do turno escolhido (itinerários) e as do administrativo para a integração
+function renderFretado() {
+  const wrap = $('#n_fretadoWrap'); if (!wrap) return;
+  const local = $('#n_local').value; const u = UNID_FRETADO[local];
+  const antes = $('#n_fretado')?.value || ''; const antesInteg = $('#n_frIntegSel')?.value || '';
+  const pessoa = { local, turno: valLista('n_turno'), escala: valLista('n_escala'), tipo_contrato: $('#n_tipo').value };
+  const doUni = u && E.itins ? E.itins.filter((i) => i.unidade === u) : [];
+  const op = (i, sel) => `<option value="${esc(i.chave)}" ${i.chave === sel ? 'selected' : ''}>${esc(titulo(i.linha))} · chega ${esc(i.chegada || '—')} · ${plural((i.pontos || []).length, 'parada', 'paradas')}${i.codigo_lg ? ' · LG ' + i.codigo_lg : ''}</option>`;
+  if (temSql31() && doUni.length) {
+    const ts = turnosItin(pessoa);
+    if (!ts.length) { wrap.innerHTML = '<select id="n_fretado" disabled><option value="">Escolha o turno (ou a escala 2x2x3) primeiro</option></select>'; $('#n_fretadoAj').textContent = 'As linhas do fretado dependem do turno.'; }
+    else {
+      let l = doUni.filter((i) => ts.includes(i.turno));
+      const turma = (String(pessoa.escala || '').match(/2X2X3\s*-?\s*([A-D])\b/i) || [])[1];
+      if (turma) { const lt = l.filter((i) => new RegExp('^TURMA ' + turma.toUpperCase() + '\\b').test(i.linha)); if (lt.length) l = lt; }
+      const grupos = [...new Set(l.map((i) => i.turno))];
+      wrap.innerHTML = `<select id="n_fretado" data-lista="fretado"><option value="">Não usa</option>${grupos.map((g) => (grupos.length > 1 ? `<optgroup label="${esc(g)}">` : '') + l.filter((i) => i.turno === g).map((i) => op(i, antes)).join('') + (grupos.length > 1 ? '</optgroup>' : '')).join('')}<option value="__outra">Outra (digitar)…</option></select><input id="n_fretado_outra" hidden placeholder="Linha ou bairro" style="margin-top:6px">`;
+      $('#n_fretadoAj').textContent = l.length ? `Linhas do ${ts.join(' / ').toLowerCase()} em ${local}. O colaborador recebe o itinerário por e-mail.` : 'Nenhuma linha de fretado neste turno.';
+    }
+  } else if (temSql31() && !linhasFretado(local).length) {
+    wrap.innerHTML = '<select id="n_fretado" disabled><option value="">Esta unidade não tem fretado</option></select>';
+    if ($('#n_fretadoAj')) $('#n_fretadoAj').textContent = 'Fretado só nas fábricas (Pouso Alegre, Fernão Dias, SSBV) e nas linhas do LG dos CDs de SC e BA.';
+  } else {
+    wrap.innerHTML = selFretado(local);
+    if ($('#n_fretadoAj')) $('#n_fretadoAj').textContent = temSql31() ? (linhasFretado(local).length ? 'Linhas do LG para esta unidade (sem itinerário cadastrado).' : 'Esta unidade não tem fretado.') : 'Benefícios cadastra no Rota para o QR Code.';
+  }
+  const box = $('#n_frIntegBox');
+  if (box) {
+    const adm = doUni.filter((i) => i.turno === 'ADMINISTRATIVO');
+    box.hidden = !INTEG_FRETADO.includes(local) || !adm.length;
+    const w = $('#n_frIntegWrap'); w.hidden = box.hidden || !$('#n_frInteg').checked;
+    w.innerHTML = `<select id="n_frIntegSel" style="margin-top:6px"><option value="">Escolha a linha do administrativo</option>${adm.map((i) => op(i, antesInteg)).join('')}</select>`;
+  }
+  mostrarOutras($('#fNovo'));
+}
+function selFretado(local, cod, txt) {
+  const ls = linhasFretado(local);
+  if (!ls.length) return selLista('n_fretado', 'fretado', txt || '', { filtro: local, vazio: 'Não usa', outra: true, ph: 'Linha ou bairro (vazio = não usa)' });
+  return `<select id="n_fretado" data-lista="fretado"><option value="">Não usa</option>${ls.map((l) => `<option value="${l.codigo_lg}" ${+cod === l.codigo_lg ? 'selected' : ''}>${esc(nomeLinha(l))} · LG ${l.codigo_lg}</option>`).join('')}<option value="__outra">Outra (digitar)…</option></select><input id="n_fretado_outra" hidden placeholder="Linha ou bairro" style="margin-top:6px">`;
+}
+// turno da admissão → turno(s) dos itinerários
+function turnosItin(a) {
+  if (a.tipo_contrato === 'Jovem aprendiz') return ['APRENDIZ'];
+  const e = String(a.escala || '').toUpperCase(); const tu = String(a.turno || '').toLowerCase();
+  if (/2X2X3/.test(e)) return ['2X2X3 - 1º TURNO', '2X2X3 - 2º TURNO'];
+  if (tu.startsWith('1')) return ['1º TURNO'];
+  if (tu.startsWith('2')) return ['2º TURNO'];
+  if (tu.startsWith('3')) return ['3º TURNO SEG-SAB', '3º TURNO DOM'];
+  if (tu.startsWith('adm')) return ['ADMINISTRATIVO'];
+  return [];
+}
+async function garantirItins() {
+  if (E.itins) return;
+  if (!api.itinerarios || !temSql31()) { E.itins = []; return; }
+  if (!E.itinsP) E.itinsP = api.itinerarios().then((r) => { E.itins = r || []; }).catch(() => { E.itins = []; }).finally(() => { E.itinsP = null; });
+  await E.itinsP;
+}
+function itinerariosDe(a) {
+  if (!E.itins) return [];
+  if (a.fretado_itin_chave) return E.itins.filter((i) => i.chave === a.fretado_itin_chave);
+  const u = UNID_FRETADO[a.local]; if (!u) return [];
+  const ts = turnosItin(a); const doTurno = E.itins.filter((i) => i.unidade === u && (!ts.length || ts.includes(i.turno)));
+  if (ts.includes('APRENDIZ')) return doTurno;
+  const turma = (String(a.escala || '').match(/2X2X3\s*-?\s*([A-D])\b/i) || [])[1];
+  if (turma) { const l = doTurno.filter((i) => new RegExp('^TURMA ' + turma.toUpperCase() + '\\b').test(i.linha)); if (l.length) return l; }
+  const alvo = semAcento(String(a.fretado || '').replace(/^(UNIDADE [12]|SSBV)\s*-\s*/i, ''));
+  const l = doTurno.filter((i) => (a.fretado_codigo && i.codigo_lg === a.fretado_codigo) || (alvo && (semAcento(i.linha).includes(alvo) || alvo.includes(semAcento(i.linha)))));
+  return l.length ? l : [];
+}
+const itinIntegDe = (a) => (a.fretado_integ && a.fretado_integ_chave && E.itins ? E.itins.filter((i) => i.chave === a.fretado_integ_chave) : []);
+function tabelaItin(i) {
+  const ps = Array.isArray(i.pontos) ? i.pontos : [];
+  return `<details class="itin"><summary><b>${esc(i.linha)}</b> · ${esc(i.turno)} · ${plural(ps.length, 'parada', 'paradas')} · ${ps[0] ? 'sai ' + esc(ps[0].horario || '') + ' · ' : ''}chega ${esc(i.chegada || '—')}${i.codigo_lg ? ' · LG ' + i.codigo_lg : ' · sem código no LG'}</summary>
+    <div class="tab-wrap"><table><thead><tr><th>Horário</th><th>Ponto</th><th>Bairro</th><th>Endereço</th></tr></thead><tbody>${ps.map((x) => `<tr><td class="num">${esc(x.horario || '')}</td><td>${esc(x.referencia || '')}</td><td>${esc(x.bairro || '')}</td><td style="font-size:12px">${esc(String(x.endereco || '').replace(/, Brasil$/, ''))}</td></tr>`).join('')}</tbody></table></div></details>`;
+}
+function blocoItinerario(a) {
+  if (!temSql31() || !UNID_FRETADO[a.local]) return '';
+  if (!a.fretado && !a.fretado_codigo && !a.fretado_itin_chave && !a.fretado_integ) return '<span class="apoio" style="font-size:12.5px">Sem fretado informado no cadastro.</span>';
+  if (!E.itins) return '<span class="apoio" style="font-size:12.5px">Carregando itinerários…</span>';
+  const l = itinerariosDe(a); const ig = itinIntegDe(a);
+  if (l.length || ig.length) return (ig.length ? '<b style="font-size:13px">Na integração</b>' + ig.map(tabelaItin).join('') : '') + (l.length ? '<b style="font-size:13px">No dia a dia</b>' + l.map(tabelaItin).join('') : '');
+  const ts = turnosItin(a);
+  return `<span class="apoio" style="font-size:12.5px">Sem itinerário para a linha ${esc(a.fretado || 'LG ' + a.fretado_codigo)}${ts.length ? ' no ' + esc(ts.join(' / ')) : ' (turno não informado)'}. Confira a linha e o turno, ou a tabela de linhas em Benefícios.</span>`;
+}
 // listas suspensas mantidas pela Admissão (SQL 27); filtro = unidade (linhas do fretado)
 const opcoesLista = (tipo, filtro) => (E.listas || []).filter((x) => x.tipo === tipo && x.ativo !== false && (filtro == null || !x.filtro || x.filtro === filtro)).map((x) => x.valor);
 // select da lista, com "Outra (digitar)"; sem lista cadastrada vira campo de texto
@@ -861,6 +960,7 @@ function listaAtencao() {
     if (resumo(a).analise) atencao.push([2, a, plural(resumo(a).analise, 'documento recebido para conferir', 'documentos recebidos para conferir')]);
     if ('docs_revisados_em' in a && !a.matricula && !a.docs_revisados_em && ['docs_ok', 'registro'].includes(a.etapa) && tem('admissao') && a.conferente_docs && semAcento(a.conferente_docs) === semAcento(E.perfil?.nome)) atencao.push([1, a, 'Revisão final dos documentos é sua: confira e dê o ok']);
     if ('docs_revisados_em' in a && !a.matricula && ['docs_ok', 'registro'].includes(a.etapa) && tem('admissao') && !a.conferente_docs) atencao.push([2, a, 'Documentação completa sem responsável pela conferência final']);
+    if (souBeneficios() && a.era_dependente_cimed && a.matricula && !a.declinou_em && (E.benPessoa || []).some((x) => x.admissao_id === a.id && ['saude_unimed', 'saude_sulamerica'].includes(x.beneficio) && !['enviado', 'ativo', 'cancelado', 'recusado'].includes(x.status))) atencao.push([1, a, 'Benefícios: era dependente de alguém da Cimed no plano, mover para titular no WKF']);
     if (souBeneficios() && (E.benPessoa || []).length && a.matricula && a.data_inicio <= iso(new Date())) {
       const bi = (E.benPessoa || []).filter((x) => x.admissao_id === a.id);
       if (bi.some((x) => ['saude_unimed', 'saude_sulamerica'].includes(x.beneficio) && ['escolhido', 'pronto'].includes(x.status))) atencao.push([0, a, 'Benefícios: inclusão no plano de saúde a enviar (D+1 da integração)']);
@@ -1013,6 +1113,24 @@ function opcoesTurma(local, sel, cpf) {
   return op.join('');
 }
 const textoCorte = (t) => (t ? `Inclusão até ${dmh(t.corte_inclusao)}${t.corte_remuneracao ? ' · Remuneração valida até ' + dmh(t.corte_remuneracao) : ''} · documentos, ASO e LG até ${dmh(t.corte_documentos)}` : '');
+// fretado do formulário: com as linhas do LG grava o código e o nome; sem elas, o texto
+function fretadoDoForm(local) {
+  const s = $('#n_fretado'); if (!s) return { fretado: null };
+  const integ = $('#n_frInteg') && !$('#n_frIntegBox').hidden && $('#n_frInteg').checked;
+  const extra = temSql31() ? { fretado_integ: !!integ, fretado_integ_chave: integ ? ($('#n_frIntegSel')?.value || null) : null, fretado_itin_chave: null } : {};
+  if (s.tagName === 'SELECT' && s.value.includes('|') && E.itins) {
+    const it = E.itins.find((x) => x.chave === s.value);
+    if (it) return Object.assign(extra, { fretado: titulo(it.linha), fretado_codigo: it.codigo_lg || null, fretado_itin_chave: it.chave });
+  }
+  if (Object.keys(extra).length) { const r = fretadoDoFormLg(s); return Object.assign(r, extra, { fretado_itin_chave: null }); }
+  return fretadoDoFormLg(s);
+}
+function fretadoDoFormLg(s) {
+  if (s.tagName === 'SELECT' && /^\d+$/.test(s.value) && temSql31()) { const l = (E.tLinhas || []).find((x) => x.codigo_lg === +s.value); return { fretado: l ? nomeLinha(l) : null, fretado_codigo: +s.value }; }
+  if (s.tagName === 'SELECT' && s.value.includes('|')) return { fretado: null, fretado_codigo: null };
+  const txt = valLista('n_fretado') || null;
+  return temSql31() ? { fretado: txt, fretado_codigo: null } : { fretado: txt };
+}
 const ITENS_TI = ['Notebook', 'Desktop', 'Usuário de rede', 'E-mail', 'Teams', 'SAP', 'Salesforce', 'Celular'];
 VIEWS.novo = () => {
   const opt = (arr, sel) => arr.map((v) => `<option ${v === sel ? 'selected' : ''}>${esc(v)}</option>`).join('');
@@ -1033,6 +1151,7 @@ VIEWS.novo = () => {
     <div class="campo"><label for="n_filhos">Filhos</label><input id="n_filhos" type="number" min="0" max="15" value="0" ${deps ? 'readonly title="Vem da lista de dependentes"' : ''}>${deps ? '<span class="ajuda">Contado pela lista de dependentes abaixo.</span>' : ''}</div>
     <div class="campo"><label for="n_tipo">Contratação</label><select id="n_tipo">${opt(['CLT', 'Jovem aprendiz', 'Estágio', 'Temporário'])}</select><span class="ajuda">Estágio vai como S-2300; aprendiz e estágio têm pacote de benefícios próprio.</span></div>
     <div class="campo" id="n_agenciaBox" hidden><label for="n_agencia">Agência</label><input id="n_agencia" placeholder="Agência do temporário"><span class="ajuda">Só para temporário: é contratado pela agência.</span></div>
+    ${temSql31() ? '<div class="campo l2"><label>Plano de saúde da Cimed</label><div class="marcas"><label><input type="checkbox" id="n_eradep"> Já é dependente de alguém da Cimed no plano (vai virar titular)</label></div><span class="ajuda">Benefícios move de dependente para titular no WKF da operadora.</span></div>' : ''}
     <div class="campo"><label for="n_pcd">PCD</label><select id="n_pcd">${opt(['Não', 'Auditiva', 'Física', 'Intelectual', 'Visual', 'Mental', 'Reabilitado'])}</select><span class="ajuda">O tipo só a Saúde, a Admissão e a Remuneração veem (cota e laudo).</span></div>
     ${deps ? `<div class="secao-form">Dependentes</div><div class="campo l4">${blocoDeps(E.depsNovo, 'n', true)}</div>` : ''}
     <div class="secao-form">Vaga</div>
@@ -1064,7 +1183,8 @@ VIEWS.novo = () => {
     <div class="campo"><label for="n_contato">Quem procurar ao chegar</label><input id="n_contato" placeholder="Nome e ramal"></div>
     <div class="secao-form">Para as áreas</div>
     <div class="campo"><label for="n_camisa">Tamanho de camisa</label><select id="n_camisa">${opt(['PP', 'P', 'M', 'G', 'GG', 'XGG', 'Não usa uniforme'], 'M')}</select></div>
-    <div class="campo"><label for="n_fretado">Linha do fretado</label><div id="n_fretadoWrap">${selLista('n_fretado', 'fretado', '', { filtro: 'Pouso Alegre', vazio: 'Não usa', outra: true, ph: 'Linha ou bairro (vazio = não usa)' })}</div><span class="ajuda">Benefícios cadastra no Rota para o QR Code.</span></div>
+    <div class="campo l2"><label for="n_fretado">Linha do fretado${temSql31() ? ' (pelo turno)' : ''}</label><div id="n_fretadoWrap">${selFretado('Pouso Alegre')}</div><span class="ajuda" id="n_fretadoAj">${temSql31() ? 'Só aparecem as linhas que atendem o turno escolhido. O colaborador recebe o itinerário por e-mail.' : 'Benefícios cadastra no Rota para o QR Code.'}</span></div>
+    ${temSql31() ? `<div class="campo l2" id="n_frIntegBox"><label>Fretado na integração</label><div class="marcas"><label><input type="checkbox" id="n_frInteg"> Precisará de fretado na integração? (turno administrativo)</label></div><div id="n_frIntegWrap" hidden></div><span class="ajuda">Só Pouso Alegre e Fernão Dias. O e-mail leva o itinerário da integração e o do turno.</span></div>` : ''}
     <div class="campo"><label for="n_cd_entrega">CD de entrega do equipamento</label><input id="n_cd_entrega" placeholder="Só para o comercial"><span class="ajuda">A TI não entrega em casa: vai para o CD mais perto.</span></div>
     <div class="campo l2"><label>Usa veículo da frota?</label><div class="marcas"><label><input type="checkbox" id="n_frota"> Sim, vai dirigir carro da empresa</label><label><input type="checkbox" id="n_motorista"> Motorista profissional (dirigir é a função)</label></div><span class="ajuda">Frotas separa o veículo; motorista profissional pede CNH com EAR e toxicológico.</span></div>
     <div class="campo l4"><label>Equipamentos e acessos</label><div class="marcas" id="n_ti">${itensTi.map((x) => `<label><input type="checkbox" value="${esc(x)}"> ${esc(x)}</label>`).join('')}</div><span class="ajuda">A TI recebe a previsão agora; a Admissão abre o chamado com a matrícula usando estes dados.</span></div>
@@ -1097,12 +1217,14 @@ POS.novo = () => {
     refazTurmas(); const l = localDe($('#n_local').value);
     if (!diasManual) $('#n_dias').value = l.dias || 1;
     if (!horaManual) $('#n_hora').value = l.hora || '08:00';
-    $('#n_fretadoWrap').innerHTML = selLista('n_fretado', 'fretado', '', { filtro: l.nome, vazio: 'Não usa', outra: true, ph: 'Linha ou bairro (vazio = não usa)' });
+    renderFretado();
     // comercial: notebook e celular sempre (reunião com a TI, 15/10/2026)
     if (l.tipo === 'comercial') $('#n_ti').querySelectorAll('input').forEach((c) => { if (['Notebook', 'Celular', 'E-mail', 'Teams', 'Salesforce'].includes(c.value)) c.checked = true; });
     upd();
   });
   $('#n_cpf').addEventListener('change', () => { refazTurmas(); upd(); });
+  f.addEventListener('change', (e) => { if (['n_turno', 'n_escala', 'n_escala_outra', 'n_tipo', 'n_frInteg'].includes(e.target.id)) renderFretado(); });
+  garantirItins().then(renderFretado);
   $('#n_dias').addEventListener('input', () => { diasManual = true; });
   $('#n_hora').addEventListener('input', () => { horaManual = true; });
   $('#n_nr12').addEventListener('change', () => { nr12Manual = true; });
@@ -1125,6 +1247,7 @@ POS.novo = () => {
     ['n_cargo', 'n_req'].forEach((id) => { if (!v(id)) marca(id, 'Obrigatório.'); });
     if (!motivo) marca('n_motivoBox', 'Escolha: aumento de quadro ou substituição.');
     if (opcoesLista('analista_rs').length && !valLista('n_analista')) marca('n_analista', 'Escolha a analista responsável.');
+    if ($('#n_frInteg') && !$('#n_frIntegBox').hidden && $('#n_frInteg').checked && !$('#n_frIntegSel')?.value) marca('n_frInteg', 'Escolha a linha do fretado da integração.');
     const turmaSel = v('n_turma'); let turma_id = null, data_inicio = null;
     if (turmaSel === 'outra') { if (!v('n_inicio')) marca('n_inicio', 'Informe a data de início.'); data_inicio = v('n_inicio'); }
     else if (turmaSel.startsWith('data:')) data_inicio = turmaSel.slice(5);
@@ -1147,10 +1270,11 @@ POS.novo = () => {
       dias_integ: +v('n_dias') || null, hora_integ: v('n_hora') || null,
       turno: valLista('n_turno') || null, nr12: $('#n_nr12').checked, substituicao: motivo === 'subst', pessoa_substituida: motivo === 'subst' ? v('n_subst_nome') || null : null,
       formato_integ: v('n_formato') || null, link_ou_endereco: v('n_link') || null, contato_chegada: v('n_contato') || null,
-      camisa: v('n_camisa'), fretado: valLista('n_fretado') || null, usa_frota: $('#n_frota').checked, motorista_profissional: $('#n_motorista').checked,
+      camisa: v('n_camisa'), ...fretadoDoForm(v('n_local')), usa_frota: $('#n_frota').checked, motorista_profissional: $('#n_motorista').checked,
       agencia: v('n_tipo') === 'Temporário' ? v('n_agencia') || null : null,
       ti_itens: [...document.querySelectorAll('#n_ti input:checked')].map((x) => x.value),
       ...($('#n_sind') ? { sindicato: v('n_sind') || null } : {}),
+      ...($('#n_eradep') ? { era_dependente_cimed: $('#n_eradep').checked } : {}),
     }));
     if (novo && deps.length) {
       for (const d of deps) await tentar(() => api.salvarDependente({ admissao_id: novo.id, nome: d.nome.trim(), parentesco: d.parentesco, nasc: d.nasc || null, cpf: (d.cpf || '').replace(/\D/g, '') || null, universitario: !!d.universitario, plano_saude: !!d.plano_saude, odonto: !!d.odonto, salario_familia: !!d.salario_familia }));
@@ -1158,7 +1282,7 @@ POS.novo = () => {
     $('#n_salvar') && ($('#n_salvar').disabled = false);
     if (novo) {
       E.depsNovo = [];
-      toast('Aprovado cadastrado. ' + (avisadas('cadastro', novo) || 'Nenhuma área com e-mail para avisar ainda.') + (novo.email ? ' A lista de documentos foi para a fila do candidato.' : ' Sem e-mail: combine o envio dos documentos pelo WhatsApp.'));
+      toast('Aprovado cadastrado. ' + (avisadas('cadastro', novo) || 'Nenhuma área com e-mail para avisar ainda.') + (novo.email ? ' A lista de documentos foi para a fila do candidato.' + (novo.fretado_itin_chave || novo.fretado_integ ? ' O itinerário do fretado também.' : '') : ' Sem e-mail: combine o envio dos documentos pelo WhatsApp.'));
       E.view = 'painel'; E.turma = novo.data_inicio; await recarregar(); abrirFicha(novo.id);
     }
   });
@@ -1267,6 +1391,7 @@ async function abrirFicha(id) {
     tem('rs', 'admissao') ? tentar(() => api.termoRecebido(id)) : null,
   ]);
   E.acessosFicha = acs || [];
+  if ((a.fretado || a.fretado_codigo || a.fretado_itin_chave || a.fretado_integ) && UNID_FRETADO[a.local]) await garantirItins();
   E.fichaAberta = id; E.docsFicha = docs || []; E.depsFicha = (deps || []).map((d) => Object.assign({}, d)); E.opcFicha = opc || null; E.termoFicha = termo || null;
   desenharFicha(a, docs || [], evs || [], arqs || []);
 }
@@ -1337,6 +1462,7 @@ function desenharFicha(a, docs, evs, arqs = []) {
      <div class="linha-flex">${E.termoFicha ? chip('c-ok', 'ok', 'Termo de Transparência assinado ' + dm(new Date(E.termoFicha.em))) + '<span class="apoio" style="font-size:12px">As respostas só o Compliance abre.</span>' : chip('c-ag', 'ag', 'Termo de Transparência ainda não assinado')}</div>
      ${E.opcFicha ? `<div class="pilha" style="gap:4px"><span class="apoio" style="font-size:12.5px">Escolhas de benefícios feitas no kit (${quando(E.opcFicha.recebido_em)}${E.opcFicha.avisado_em ? ', Benefícios avisado' : ''}):</span><div class="grade g2" style="gap:4px 16px;font-size:13px">${resumoOpcoes(E.opcFicha.dados) || '<span class="apoio">nenhuma escolha registrada</span>'}</div></div>` : '<span class="apoio" style="font-size:12.5px">As escolhas de benefícios chegam aqui quando o kit é assinado.</span>'}
      <div class="linha-flex" style="align-items:flex-start"><div style="flex:1;min-width:240px"><b>Dossiê</b><div class="apoio" style="font-size:12.5px">Baixa um .zip com o kit assinado e os documentos renomeados (MATRÍCULA - NOME/NN Documento), a ficha e as escolhas de benefícios. O laudo PCD fica fora. ${ligado('expurgo_exige_dossie') ? 'O descarte de 30 dias só roda depois disto.' : ''}</div>${a.arquivado_em ? `<div class="apoio" style="font-size:12.5px">Arquivado em ${quando(a.arquivado_em)} por ${esc(a.arquivado_por || '')}.</div>` : ''}</div><button class="bt ${a.arquivado_em ? '' : 'pri'}" data-act="dossie" data-id="${a.id}">${a.arquivado_em ? 'Exportar de novo' : 'Exportar dossiê (.zip)'}</button></div></div>` : ''}
+   ${(a.fretado || a.fretado_codigo || a.fretado_itin_chave || a.fretado_integ) && UNID_FRETADO[a.local] && temSql31() ? `<div class="caixa pilha" style="gap:6px"><h3>Fretado · itinerários</h3>${blocoItinerario(a)}</div>` : ''}
    ${dp && (E.acessosFicha || []).length ? `<div class="caixa pilha" style="gap:6px"><h3>Quem abriu documentos</h3>${E.acessosFicha.map((x) => `<span class="apoio" style="font-size:12.5px">${esc((docs.find((d) => d.tipo === x.tipo) || {}).nome || x.tipo)} · ${esc(x.quem)} · ${quando(x.em)}</span>`).join('')}</div>` : ''}
    <div class="caixa pilha"><h3>Linha do tempo</h3><div class="tempo">${evs.map((h) => `<div class="ev"><span class="pt"></span><div>${esc(textoEvento(h.texto))}<small>${quando(h.em)} · ${esc(h.quem)}</small></div></div>`).join('') || '<span class="apoio">Sem registros.</span>'}</div>
     ${tem('rs', 'admissao', 'saude', 'remuneracao') ? `<form id="fObs" class="linha-flex"><input id="obsTx" maxlength="1000" placeholder="${comentario ? 'Comentar · escreva @Nome Sobrenome para avisar alguém (acende o sino dela)' : 'Escrever uma observação (fica com seu nome e a hora)'}" style="flex:1;min-width:200px;border:1px solid var(--linha);border-radius:10px;padding:9px 12px;background:var(--sup)"><button class="bt" type="submit">${comentario ? 'Comentar' : 'Anotar'}</button></form>` : ''}</div>
@@ -1407,13 +1533,13 @@ function textoEvento(t) {
 }
 
 // pergunta dentro da página (o navegador do Claude e alguns ambientes bloqueiam prompt())
-function perguntar(tit, dica) {
+function perguntar(tit, dica, padrao = 'A analista pediu um novo envio') {
   return new Promise((ok) => {
     const div = document.createElement('div'); div.className = 'modal-veu';
     div.innerHTML = `<form class="modal" role="dialog" aria-modal="true"><h2>${esc(tit)}</h2><input id="pTx" class="sel-doc" style="min-height:42px" placeholder="${esc(dica)}"><div class="linha-flex" style="justify-content:flex-end"><button type="button" class="bt" id="pNao">Cancelar</button><button class="bt pri">Confirmar</button></div></form>`;
     document.body.appendChild(div); div.querySelector('#pTx').focus();
     div.querySelector('#pNao').onclick = () => { div.remove(); ok(null); };
-    div.querySelector('form').onsubmit = (e) => { e.preventDefault(); const v = div.querySelector('#pTx').value.trim(); div.remove(); ok(v || 'A analista pediu um novo envio'); };
+    div.querySelector('form').onsubmit = (e) => { e.preventDefault(); const v = div.querySelector('#pTx').value.trim(); div.remove(); ok(v || padrao); };
   });
 }
 
@@ -1818,7 +1944,7 @@ VIEWS.beneficios = () => {
   const cellFam = (a, fam) => { const l = benDe(a.id).filter((x) => benCat(x.beneficio).familia === fam); if (!l.length) return '<span class="apoio">—</span>'; const pior = l.slice().sort((x, y) => BEN_ORDEM.indexOf(x.status) - BEN_ORDEM.indexOf(y.status))[0]; return `<span title="${esc(l.map((x) => benCat(x.beneficio).nome + ': ' + (BEN_ST[x.status] || [])[2]).join('\n'))}">${chipBen(pior.status)}</span>`; };
   return `<div class="cab"><div class="t"><span class="olho">Benefícios</span><h1>Benefícios da turma</h1><p class="apoio">O pacote previsto de cada pessoa pelo grupo do Painel de Benefícios (fábrica, escritórios SP, comercial, CD, aprendiz, estagiário), desde o cadastro. Com a matrícula, os itens esperam a escolha do kit; quando o kit é assinado, as escolhas chegam aqui. Marque cada item até ficar ativo. Valores e regras finas continuam no Painel; o LG segue sendo o registro oficial.</p></div></div>
   <div class="filtros"><label class="olho" for="bTurma">Turma</label><select id="bTurma"><option value="todas" ${E.benTurma === 'todas' ? 'selected' : ''}>Todas</option>${datas.map((d) => `<option value="${d}" ${d === E.benTurma ? 'selected' : ''}>${dmd(d)}</option>`).join('')}</select>
-    <span style="flex:1"></span><button class="bt peq" data-act="benCsv" data-k="saude">Inclusão saúde e odonto (.csv)</button><button class="bt peq" data-act="benCsv" data-k="fretado">Fretado · Rota (.csv)</button><button class="bt peq" data-act="benCsv" data-k="vt">Vale-transporte (.csv)</button><button class="bt peq" data-act="benCsv" data-k="tudo">Checklist completo (.csv)</button></div>
+    <span style="flex:1"></span><button class="bt peq" data-act="benCsv" data-k="saude" title="O LG gera o WKF; esta planilha confere quem entra e o que falta">Conferência para o WKF · saúde e odonto (.csv)</button><button class="bt peq" data-act="benCsv" data-k="fretado">Fretado · Rota (.csv)</button><button class="bt peq" data-act="benCsv" data-k="vt">Vale-transporte (.csv)</button><button class="bt peq" data-act="benCsv" data-k="tudo">Checklist completo (.csv)</button></div>
   <div class="grade g4">
     <div class="caixa kpi"><b class="num">${ps.length}</b><span>pessoas na seleção</span><small class="apoio" style="font-size:12px">${k((a) => a.matricula)} com matrícula</small></div>
     <div class="caixa kpi"><b class="num">${k((a) => opcDe(a.id))}</b><span>escolhas do kit recebidas</span><small class="apoio" style="font-size:12px">${k((a) => depsDe(a.id).length)} com dependentes</small></div>
@@ -1826,29 +1952,46 @@ VIEWS.beneficios = () => {
     <div class="caixa kpi"><b class="num">${k((a) => situacaoBen(benDe(a.id))[2] === 'Com pendência')}</b><span>com pendência</span><small class="apoio" style="font-size:12px">${fretadoAtivar} fretado(s) sem QR Code confirmado</small></div>
   </div>
   <div class="caixa pilha"><div class="linha-flex" style="gap:6px"><b style="flex:1">Marcar vários de uma vez</b><select id="bLoteBen" class="sel-doc">${(E.benCat || []).map((c) => `<option value="${esc(c.codigo)}">${esc(c.nome)}</option>`).join('')}</select><select id="bLoteSt" class="sel-doc">${['enviado', 'ativo', 'pronto', 'recusado'].map((s) => `<option value="${s}">${BEN_ST[s][2]}</option>`).join('')}</select><button class="bt peq pri" data-act="benLote">Aplicar aos marcados</button></div>
-   ${ps.length ? `<div class="tab-wrap"><table><thead><tr><th><input type="checkbox" id="bTodos" aria-label="Marcar todos"></th><th>Pessoa</th><th>Grupo</th>${FAMILIAS_BEN.map(([, n]) => `<th>${esc(n)}</th>`).join('')}<th>Dependentes</th><th>Situação</th></tr></thead><tbody>${ps.map((a) => { const s = situacaoBen(benDe(a.id)); const d = depsDe(a.id); return `<tr><td>${a.declinou_em ? '' : `<input type="checkbox" data-bsel="${a.id}" aria-label="Marcar ${esc(titulo(a.nome))}">`}</td><td class="clic" data-act="benAbrir" data-id="${a.id}"><b>${esc(titulo(a.nome))}</b>${a.declinou_em ? ' ' + chip('c-cr', 'cr', 'cancelada') : ''}<br><span class="apoio" style="font-size:12px">${esc(a.cargo)} · ${esc(a.local)}${a.matricula ? ' · ' + esc(a.matricula) : ''}</span></td><td style="font-size:12px">${esc(grupoBen(a))}</td>${FAMILIAS_BEN.map(([f]) => `<td>${cellFam(a, f)}</td>`).join('')}<td class="num">${d.length || '—'}</td><td>${chip(s[0], s[1], s[2])}</td></tr>`; }).join('')}</tbody></table></div>` : '<div class="vazio">Ninguém com pacote de benefícios nesta seleção.</div>'}</div>`;
+   ${ps.length ? `<div class="tab-wrap"><table><thead><tr><th><input type="checkbox" id="bTodos" aria-label="Marcar todos"></th><th>Pessoa</th><th>Grupo</th>${FAMILIAS_BEN.map(([, n]) => `<th>${esc(n)}</th>`).join('')}<th>Dependentes</th><th>Situação</th></tr></thead><tbody>${ps.map((a) => { const s = situacaoBen(benDe(a.id)); const d = depsDe(a.id); return `<tr><td>${a.declinou_em ? '' : `<input type="checkbox" data-bsel="${a.id}" aria-label="Marcar ${esc(titulo(a.nome))}">`}</td><td class="clic" data-act="benAbrir" data-id="${a.id}"><b>${esc(titulo(a.nome))}</b>${a.declinou_em ? ' ' + chip('c-cr', 'cr', 'cancelada') : ''}<br><span class="apoio" style="font-size:12px">${esc(a.cargo)} · ${esc(a.local)}${a.matricula ? ' · ' + esc(a.matricula) : ''}</span></td><td style="font-size:12px">${esc(grupoBen(a))}</td>${FAMILIAS_BEN.map(([f]) => `<td>${cellFam(a, f)}</td>`).join('')}<td class="num">${d.length || '—'}</td><td>${chip(s[0], s[1], s[2])}</td></tr>`; }).join('')}</tbody></table></div>` : '<div class="vazio">Ninguém com pacote de benefícios nesta seleção.</div>'}</div>
+  ${painelFretado()}`;
 };
 // grupo do Painel (o mesmo do banco, beneficios_grupo)
 function grupoBen(a) {
+  if (a.tipo_contrato === 'Jovem aprendiz' && localDe(a.local).tipo === 'fabrica') return a.local === 'Fernão Dias' ? 'Aprendiz Unidade 2 (fretado)' : 'Aprendiz fábrica (VT)';
   const tp = localDe(a.local).tipo;
   if (a.tipo_contrato === 'Temporário') return 'Temporário (a definir)';
   if (a.tipo_contrato === 'Jovem aprendiz') return tp === 'fabrica' ? 'Aprendiz Pouso' : tp === 'cd' && a.local !== 'CD SP' ? 'Aprendiz CD' : 'Aprendiz SP';
   if (a.tipo_contrato === 'Estágio') return tp === 'fabrica' ? 'Estagiário Pouso' : 'Estagiário escritórios';
   return ({ fabrica: 'Pouso · SSBV', sp: 'Escritórios SP', comercial: 'Comercial', cd: 'CD ' + String(a.local || '').replace('CD ', '') })[tp] || 'A definir';
 }
+// fretado: as linhas do LG e os itinerários por unidade e turno (SQL 31), para consulta
+function painelFretado() {
+  if (!temSql31()) return '';
+  if (!E.itins) { if (!E.itinsP) garantirItins().then(() => { if (E.view === 'beneficios') render(); }); return '<div class="caixa pilha"><h2>Fretado · linhas e itinerários</h2><span class="apoio">Carregando…</span></div>'; }
+  const unis = ['UNIDADE 1', 'UNIDADE 2', 'SSBV']; const turnos = [...new Set(E.itins.filter((i) => i.unidade === E.itinUni).map((i) => i.turno))].sort();
+  if (!turnos.includes(E.itinTurno)) E.itinTurno = turnos[0] || '';
+  const l = E.itins.filter((i) => i.unidade === E.itinUni && i.turno === E.itinTurno);
+  const semItin = linhasFretado(E.itinUni === 'UNIDADE 1' ? 'Pouso Alegre' : E.itinUni === 'UNIDADE 2' ? 'Fernão Dias' : 'Gráfica SSBV').filter((x) => !E.itins.some((i) => i.codigo_lg === x.codigo_lg));
+  return `<div class="caixa pilha"><h2>Fretado · linhas e itinerários</h2><p class="apoio" style="font-size:12.5px">Linhas do LG (24 - FRETADO) e os itinerários de ida por unidade e turno, enviados por Benefícios em 21/10/2026. Unidade 1 = Pouso Alegre (Site I), Unidade 2 = Fernão Dias (Site II). Pontos técnicos de correção de trajeto não aparecem.</p>
+    <div class="filtros"><label class="olho" for="itUni">Unidade</label><select id="itUni">${unis.map((u) => `<option ${u === E.itinUni ? 'selected' : ''}>${u}</option>`).join('')}</select><label class="olho" for="itTurno">Turno</label><select id="itTurno">${turnos.map((x) => `<option ${x === E.itinTurno ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select><button class="bt peq" data-act="benItinFiltro">Ver</button></div>
+    ${l.map(tabelaItin).join('') || '<div class="vazio">Sem itinerário para este turno.</div>'}
+    ${semItin.length ? `<p class="apoio" style="font-size:12px">Linhas do LG desta unidade sem itinerário enviado: ${semItin.map((x) => esc(nomeLinha(x)) + ' (LG ' + x.codigo_lg + ')').join(', ')}.</p>` : ''}</div>`;
+}
 POS.beneficios = () => {
   $('#bTurma')?.addEventListener('change', (e) => { E.benTurma = e.target.value; render(); });
   $('#bTodos')?.addEventListener('change', (e) => document.querySelectorAll('[data-bsel]').forEach((c) => { c.checked = e.target.checked; }));
 };
-function abrirBen(id) {
+async function abrirBen(id) {
   const a = adm(id); if (!a) return;
+  if ((a.fretado || a.fretado_codigo || a.fretado_itin_chave || a.fretado_integ) && UNID_FRETADO[a.local]) await garantirItins();
   const its = benDe(id).slice().sort((x, y) => (benCat(x.beneficio).ordem || 0) - (benCat(y.beneficio).ordem || 0));
   const deps = depsDe(id); const opc = opcDe(id);
   const alerta = (d) => (d.parentesco === 'Filho(a)' || d.parentesco === 'Enteado(a)') && d.idade != null ? (d.idade >= 24 ? 'acima de 24: não entra no plano' : d.idade >= 21 && !d.universitario ? 'de 21 a 24: só universitário com declaração' : d.idade >= 21 ? 'universitário: declaração semestral' : '') : (['Pai', 'Mãe'].includes(d.parentesco) ? 'pais: só no odonto SulAmérica' : '');
   $('#camada').innerHTML = `<div class="veu" data-act="fechar"><aside class="gaveta" data-pare="1"><div class="pilha">
-   <div class="linha-flex" style="align-items:flex-start"><div class="pilha" style="flex:1;gap:6px"><span class="olho">Benefícios · ${esc(grupoBen(a))}</span><h2 style="font-size:22px">${esc(titulo(a.nome))}</h2><span class="apoio">${esc(a.cargo)} · ${esc(a.local)} · integração ${dmd(a.data_inicio)}${a.matricula ? ' · matrícula ' + esc(a.matricula) : ' · sem matrícula ainda'}${a.cpf ? ' · CPF ' + fmtCpf(a.cpf) : ''}</span><span class="apoio">${esc(a.estado_civil || '')}${a.fretado ? ' · fretado: ' + esc(a.fretado) : ''}${a.turno ? ' · ' + esc(a.turno) : ''}</span></div><button class="bt" data-act="fechar">Fechar</button></div>
-   <div class="caixa pilha"><h3>Pacote e checklist</h3><div class="docs">${its.map((x) => { const c = benCat(x.beneficio); return `<div class="doc"><div><div class="dn">${esc(c.nome)}${c.natureza === 'compulsorio' ? ' <span class="apoio" style="font-weight:400">· compulsório</span>' : c.natureza === 'regra' ? ' <span class="apoio" style="font-weight:400">· pela regra do grupo</span>' : ''}</div><div class="dm">${chipBen(x.status)}${x.plano ? ' · ' + esc(x.plano) : ''} <span class="apoio" style="font-size:12px">${esc(c.vigencia || '')}</span>${x.pendencia ? `<div class="motivo">${esc(x.pendencia)}</div>` : ''}${x.atualizado_por && x.atualizado_por !== 'Sistema' ? `<div class="motivo">${esc(x.atualizado_por)} · ${quando(x.atualizado_em)}</div>` : ''}</div></div>
+   <div class="linha-flex" style="align-items:flex-start"><div class="pilha" style="flex:1;gap:6px"><span class="olho">Benefícios · ${esc(grupoBen(a))}</span><h2 style="font-size:22px">${esc(titulo(a.nome))}</h2><span class="apoio">${esc(a.cargo)} · ${esc(a.local)} · integração ${dmd(a.data_inicio)}${a.matricula ? ' · matrícula ' + esc(a.matricula) : ' · sem matrícula ainda'}${a.cpf ? ' · CPF ' + fmtCpf(a.cpf) : ''}</span><span class="apoio">${esc(a.estado_civil || '')}${a.fretado ? ' · fretado: ' + esc(a.fretado) + (a.fretado_codigo ? ' (LG ' + a.fretado_codigo + ')' : '') : ''}${a.turno ? ' · ' + esc(a.turno) : ''}</span>${a.era_dependente_cimed ? `<div class="motivo">Já era dependente de alguém da Cimed no plano: mover de dependente para titular no WKF da operadora.</div>` : ''}</div><button class="bt" data-act="fechar">Fechar</button></div>
+   <div class="caixa pilha"><h3>Pacote e checklist</h3><div class="docs">${its.map((x) => { const c = benCat(x.beneficio); return `<div class="doc"><div><div class="dn">${esc(c.nome)}${c.natureza === 'compulsorio' ? ' <span class="apoio" style="font-weight:400">· compulsório</span>' : c.natureza === 'regra' ? ' <span class="apoio" style="font-weight:400">· pela regra do grupo</span>' : ''}</div><div class="dm">${chipBen(x.status)}${x.plano ? ' · ' + esc(x.plano) : ''} <span class="apoio" style="font-size:12px">${esc(c.vigencia || '')}</span>${x.wkf_ref ? `<div class="motivo">WKF: ${esc(x.wkf_ref)}${x.enviado_em ? ' · enviado ' + quando(x.enviado_em) : ''}</div>` : ''}${x.pendencia ? `<div class="motivo">${esc(x.pendencia)}</div>` : ''}${x.atualizado_por && x.atualizado_por !== 'Sistema' ? `<div class="motivo">${esc(x.atualizado_por)} · ${quando(x.atualizado_em)}</div>` : ''}</div></div>
      <div class="acoes" data-benbox="${esc(x.beneficio)}"><select class="sel-doc" data-f="st" aria-label="Situação">${x.status === 'previsto' ? '<option value="previsto" selected disabled>Previsto (sem matrícula)</option>' : ''}${['aguardando_escolha', 'escolhido', 'recusado', 'pendente_documento', 'pronto', 'enviado', 'ativo', 'com_pendencia', 'cancelado'].map((s) => `<option value="${s}" ${s === x.status ? 'selected' : ''}>${BEN_ST[s][2]}</option>`).join('')}</select><input class="sel-doc" data-f="plano" value="${esc(x.plano || '')}" placeholder="plano" style="width:120px" aria-label="Plano"><input class="sel-doc" data-f="pend" value="${esc(x.pendencia || '')}" placeholder="pendência" style="width:140px" aria-label="Pendência"><button class="bt peq" data-act="benSalvar" data-id="${a.id}" data-b="${esc(x.beneficio)}">Salvar</button></div></div>`; }).join('') || '<div class="vazio">Sem pacote previsto (temporário ou local a definir).</div>'}</div></div>
+   ${(a.fretado || a.fretado_codigo || a.fretado_itin_chave || a.fretado_integ) && UNID_FRETADO[a.local] && temSql31() ? `<div class="caixa pilha" style="gap:6px"><h3>Fretado · itinerários</h3>${blocoItinerario(a)}</div>` : ''}
    <div class="caixa pilha"><h3>Dependentes · ${deps.length}</h3>${deps.length ? `<div class="tab-wrap"><table><thead><tr><th>Nome</th><th>Parentesco</th><th>Idade</th><th>CPF</th><th>Plano</th><th>Odonto</th><th>Regra</th></tr></thead><tbody>${deps.map((d) => `<tr><td>${esc(titulo(d.nome))}</td><td>${esc(d.parentesco)}</td><td class="num">${d.idade ?? '—'}</td><td class="num">${d.cpf ? fmtCpf(d.cpf) : '—'}</td><td>${d.plano_saude ? 'sim' : '—'}</td><td>${d.odonto ? 'sim' : '—'}</td><td style="font-size:12px">${esc(alerta(d))}</td></tr>`).join('')}</tbody></table></div>` : '<span class="apoio">Nenhum dependente informado no cadastro.</span>'}</div>
    <div class="caixa pilha"><h3>Escolhas feitas no kit</h3>${opc ? `<span class="apoio" style="font-size:12.5px">Recebidas em ${quando(opc.recebido_em)}</span><div class="grade g2" style="gap:4px 16px;font-size:13px">${resumoOpcoes(opc.dados) || '<span class="apoio">nenhuma escolha registrada</span>'}</div>` : '<span class="apoio">Chegam aqui quando o colaborador assina o kit.</span>'}</div>
    ${tem('rs', 'admissao') ? `<div><button class="bt" data-act="ficha" data-id="${a.id}">Abrir a ficha completa</button></div>` : ''}
@@ -1865,13 +2008,18 @@ function exportarBen(k) {
   if (k === 'saude') {
     const linhas = [];
     ps.forEach((a) => benDe(a.id).filter((x) => ['saude', 'odonto'].includes(benCat(x.beneficio).familia) && !['recusado', 'cancelado', 'previsto'].includes(x.status)).forEach((x) => {
-      linhas.push([a.matricula || '', titulo(a.nome), a.cpf || '', a.nasc || '', 'Titular', benCat(x.beneficio).nome, x.plano || '', a.local, a.cargo, dm(a.data_inicio), (BEN_ST[x.status] || [])[2]]);
-      depsDe(a.id).filter((d) => (benCat(x.beneficio).familia === 'saude' ? d.plano_saude : d.odonto)).forEach((d) => linhas.push([a.matricula || '', titulo(d.nome), d.cpf || '', d.nasc || '', d.parentesco, benCat(x.beneficio).nome, x.plano || '', a.local, a.cargo, dm(a.data_inicio), 'dependente']));
+      const faltaT = [!a.matricula && 'matrícula', !a.cpf && 'CPF', !a.nasc && 'nascimento', !a.sexo && 'sexo', !a.estado_civil && 'estado civil'].filter(Boolean);
+      linhas.push([a.matricula || '', titulo(a.nome), a.cpf || '', a.nasc || '', a.sexo || '', a.estado_civil || '', 'Titular', benCat(x.beneficio).nome, x.plano || '', a.local, a.cc_codigo || '', dm(a.data_inicio), (BEN_ST[x.status] || [])[2], x.wkf_ref || '', [faltaT.length ? 'falta: ' + faltaT.join(', ') : '', a.era_dependente_cimed ? 'era dependente: mover para titular' : ''].filter(Boolean).join(' · ')]);
+      depsDe(a.id).filter((d) => (benCat(x.beneficio).familia === 'saude' ? d.plano_saude : d.odonto)).forEach((d) => {
+        const faltaD = [!d.cpf && 'CPF', !d.nasc && 'nascimento'].filter(Boolean);
+        const regra = (d.parentesco === 'Filho(a)' || d.parentesco === 'Enteado(a)') && d.idade >= 21 ? (d.idade >= 24 ? 'acima de 24: não entra' : d.universitario ? 'universitário: declaração semestral' : 'de 21 a 24: só universitário') : ['Pai', 'Mãe'].includes(d.parentesco) && benCat(x.beneficio).codigo !== 'odonto_sulamerica' ? 'pais: só no odonto SulAmérica' : '';
+        linhas.push([a.matricula || '', titulo(d.nome), d.cpf || '', d.nasc || '', '', '', d.parentesco, benCat(x.beneficio).nome, x.plano || '', a.local, a.cc_codigo || '', dm(a.data_inicio), 'dependente', x.wkf_ref || '', [faltaD.length ? 'falta: ' + faltaD.join(', ') : '', regra].filter(Boolean).join(' · ')]);
+      });
     }));
-    return baixarCsvSimples(`beneficios-saude-odonto-${sufixo}.csv`, ['Matrícula', 'Nome', 'CPF', 'Nascimento', 'Parentesco', 'Benefício', 'Plano', 'Local', 'Cargo', 'Integração', 'Situação'], linhas);
+    return baixarCsvSimples(`conferencia-wkf-saude-odonto-${sufixo}.csv`, ['Matrícula', 'Nome', 'CPF', 'Nascimento', 'Sexo', 'Estado civil', 'Parentesco', 'Benefício', 'Plano', 'Local', 'Centro de custo', 'Integração', 'Situação', 'WKF', 'Alertas'], linhas);
   }
-  if (k === 'fretado') return baixarCsvSimples(`fretado-rota-${sufixo}.csv`, ['Matrícula', 'Nome', 'Unidade', 'Turno', 'Linha / ponto', 'Telefone', 'Integração', 'Situação'],
-    ps.filter((a) => benDe(a.id).some((x) => x.beneficio === 'fretado' && !['recusado', 'cancelado'].includes(x.status))).map((a) => [a.matricula || '', titulo(a.nome), a.local, a.turno || '', a.fretado || '', a.telefone || '', dm(a.data_inicio), (BEN_ST[benDe(a.id).find((x) => x.beneficio === 'fretado').status] || [])[2]]));
+  if (k === 'fretado') return baixarCsvSimples(`fretado-${sufixo}.csv`, ['Matrícula', 'Nome', 'Unidade', 'Turno', 'Código da linha no LG', 'Linha', 'Itinerário (turno)', 'Chegada', 'Telefone', 'Integração', 'Situação'],
+    ps.filter((a) => benDe(a.id).some((x) => x.beneficio === 'fretado' && !['recusado', 'cancelado'].includes(x.status))).map((a) => { const it = itinerariosDe(a)[0]; return [a.matricula || '', titulo(a.nome), a.local, a.turno || '', a.fretado_codigo || '', a.fretado || '', it ? it.turno : '', it ? it.chegada || '' : '', a.telefone || '', dm(a.data_inicio), (BEN_ST[benDe(a.id).find((x) => x.beneficio === 'fretado').status] || [])[2]]; }));
   if (k === 'vt') return baixarCsvSimples(`vale-transporte-${sufixo}.csv`, ['Matrícula', 'Nome', 'CPF', 'Nascimento', 'Local', 'Integração', 'Meio (kit)', 'Passagens por dia (kit)', 'Valor da passagem (kit)', 'Situação'],
     ps.filter((a) => benDe(a.id).some((x) => x.beneficio === 'vt' && !['recusado', 'cancelado'].includes(x.status))).map((a) => { const o = (opcDe(a.id) || {}).dados || {}; return [a.matricula || '', titulo(a.nome), a.cpf || '', a.nasc || '', a.local, dm(a.data_inicio), o.vt_meio || '', o.vt_qtd || '', o.vt_valor || '', (BEN_ST[benDe(a.id).find((x) => x.beneficio === 'vt').status] || [])[2]]; }));
   return baixarCsvSimples(`beneficios-checklist-${sufixo}.csv`, ['Matrícula', 'Nome', 'Local', 'Grupo', 'Integração', 'Benefício', 'Situação', 'Plano', 'Pendência', 'Atualizado por', 'Em'],
@@ -2109,18 +2257,23 @@ document.addEventListener('click', async (e) => {
       if (!st || st === 'previsto') { toast('Escolha a situação. Antes da matrícula o item fica como previsão.', true); return; }
       const pend = box.querySelector('[data-f="pend"]').value.trim(); const plano = box.querySelector('[data-f="plano"]').value.trim();
       const antes = benDe(id).find((x) => x.beneficio === b) || {};
-      if (await tentar(() => api.beneficioAtualizar([id], b, st, pend, plano && plano !== (antes.plano || '') ? plano : null), 'Benefício atualizado')) { await recarregar(); abrirBen(id); }
+      let wkf = null;
+      if (st === 'enviado' && antes.status !== 'enviado' && temSql31() && ['saude', 'odonto'].includes(benCat(b).familia)) { wkf = await perguntar('Em qual WKF foi enviado?', 'Ex.: WKF Unimed 14/10/2026 (deixe vazio se não souber)', ''); if (wkf === null) return; }
+      if (await tentar(() => api.beneficioAtualizar([id], b, st, pend, plano && plano !== (antes.plano || '') ? plano : null, wkf), 'Benefício atualizado')) { await recarregar(); abrirBen(id); }
       break;
     }
     case 'benLote': {
       const ids = [...document.querySelectorAll('[data-bsel]:checked')].map((c) => c.dataset.bsel);
       if (!ids.length) { toast('Marque as pessoas na tabela.', true); return; }
       const b = $('#bLoteBen').value; const st = $('#bLoteSt').value;
-      const n = await tentar(() => api.beneficioAtualizar(ids, b, st));
+      let wkf = null;
+      if (st === 'enviado' && temSql31() && ['saude', 'odonto'].includes(benCat(b).familia)) { wkf = await perguntar('Em qual WKF foram enviados?', 'Ex.: WKF Unimed 14/10/2026 (deixe vazio se não souber)', ''); if (wkf === null) return; }
+      const n = await tentar(() => api.beneficioAtualizar(ids, b, st, null, null, wkf));
       if (n != null) { toast(plural(n, 'item atualizado', 'itens atualizados') + (n < ids.length ? ' (quem não tem este benefício ficou de fora)' : '')); await recarregar(); }
       break;
     }
-    case 'benCsv': exportarBen(el.dataset.k); break;
+    case 'benCsv': if (el.dataset.k === 'fretado') await garantirItins(); exportarBen(el.dataset.k); break;
+    case 'benItinFiltro': E.itinUni = $('#itUni').value; E.itinTurno = $('#itTurno').value; render(); break;
     // fluxo da Saúde (SQL 26)
     case 'socMarcar': if (await tentar(async () => { if (!(await api.socMarcar(id))) throw new Error('Não foi possível marcar: a admissão foi cancelada.'); return true; }, adm(id)?.email ? 'Cadastrado no SOC. O candidato recebe o e-mail da etapa de exame médico.' : 'Cadastrado no SOC (candidato sem e-mail na ficha)')) await aposSaude(id); break;
     case 'socDesmarcar': if (confirm('Desmarcar o cadastro no SOC?') && await tentar(() => api.socMarcar(id, true), 'Cadastro no SOC desmarcado')) await aposSaude(id); break;

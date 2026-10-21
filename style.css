@@ -525,3 +525,8 @@ td{padding:8px 10px}
 .funil .barra.dupla i{height:50%;border-radius:0}
 .funil .barra.dupla i:first-child{background:var(--amarelo)}
 .funil .barra.dupla i:last-child{background:var(--info)}
+/* itinerário do fretado (SQL 31) */
+details.itin{border:1px solid var(--linha);border-radius:10px;padding:8px 10px;background:var(--sup)}
+details.itin+details.itin{margin-top:6px}
+details.itin summary{cursor:pointer;font-size:13px}
+details.itin .tab-wrap{margin-top:8px}
