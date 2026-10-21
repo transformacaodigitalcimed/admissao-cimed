@@ -180,6 +180,9 @@ async function criarApi() {
     async dependentesTodos() { return paginas(() => sb.from('dependentes_visao').select('*').order('admissao_id').order('ordem').order('id')); },
     async opcoesTodas() { return paginas(() => sb.from('opcoes_beneficios').select('admissao_id,dados,recebido_em').order('admissao_id')); },
     async salvarBp(o) { return ok(await sb.from('bps').upsert(o).select('id')); },
+    async feriados() { return ok(await sb.from('feriados').select('*').order('data')); },
+    async salvarFeriado(o) { return ok(await sb.from('feriados').upsert(o).select('data')); },
+    async apagarFeriado(data, escopo) { return ok(await sb.from('feriados').delete().eq('data', data).eq('escopo', escopo)); },
     async apagarBp(id) { return ok(await sb.from('bps').delete().eq('id', id)); },
     async areasDestino() { return ok(await sb.from('areas_destino').select('*').order('area_id').order('unidade')); },
     async salvarAreaDestino(o) { return ok(await sb.from('areas_destino').upsert(o).select('id')); },
@@ -263,6 +266,8 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const DIA = 864e5;
 const dias = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
 const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+// dia útil: segunda a sexta, fora dos feriados ativos da tabela (SQL 38)
+const diaUtil = (d, local) => d.getDay() % 6 !== 0 && !(E.feriados || []).some((f) => f.ativo && f.data === iso(d) && (f.escopo === 'todas' || f.escopo === local));
 const deIso = (s) => { if (!s) return null; const [a, m, d] = String(s).slice(0, 10).split('-').map(Number); return new Date(a, m - 1, d); };
 const dm = (s) => { const d = typeof s === 'string' ? deIso(s) : s; return d ? String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0') : '—'; };
 const dmd = (s) => { const d = typeof s === 'string' ? deIso(s) : s; return d ? dias[d.getDay()] + ' ' + dm(d) : '—'; };
@@ -531,6 +536,7 @@ async function carregar() {
   if (tem('especialista', 'admissao')) tarefas.push(api.entregas().then((r) => (E.entregas = r || [])));
   if (tem('rs', 'admissao')) {
     tarefas.push(api.turmas().then((r) => (E.turmasCal = r || [])));
+    if (api.feriados) tarefas.push(api.feriados().then((r) => (E.feriados = r || [])).catch(() => (E.feriados = null)));
     tarefas.push(api.bps().then((r) => (E.bps = r || [])));
     if (api.areasDestino) tarefas.push(api.areasDestino().then((r) => (E.areaDest = r || [])).catch(() => (E.areaDest = null)));
     tarefas.push(api.destinatariosTurma().then((r) => (E.dest = r || [])));
@@ -933,10 +939,12 @@ const SIND_ST = { pendente: ['c-ag', 'ag', 'Sindicato não informado'], conforme
 const chipSind = (a) => { const s = SIND_ST[a.sindicato_status] || SIND_ST.pendente; return chip(s[0], s[1], s[2]); };
 function chipOs(a) { if (!temOs(a)) return ''; return a.os_status === 'validada' ? chip('c-ok', 'ok', 'OS validada' + (a.os_validada_em ? ' ' + dm(new Date(a.os_validada_em)) : '')) : (a.os_atividades || a.os_riscos || a.os_epi) ? chip('c-ag', 'ag', 'OS pré-preenchida, falta validar') : chip('c-at', 'at', 'OS sem dados'); }
 // TI: o chamado precisa sair com antecedência (prazo_ti_horas do local; 48 h, CDs 72 h), em dias úteis
+// matrícula só depois da conferência final dos documentos (Josianny, 21/10/2026; SQL 38)
+const faltaConferencia = (a) => 'docs_revisados_em' in a && !a.docs_revisados_em && (E.feriados != null);
 function prazoChamadoTi(a) {
   if (!(a.ti_itens || []).length || !a.data_inicio) return null;
   const horas = localDe(a.local).prazo_ti_horas || 48; let d = deIso(a.data_inicio); let uteis = Math.ceil(horas / 24);
-  while (uteis > 0) { d = new Date(d.getTime() - 86400000); if (d.getDay() !== 0 && d.getDay() !== 6) uteis--; }
+  while (uteis > 0) { d = new Date(d.getTime() - 86400000); if (diaUtil(d, a.local)) uteis--; }
   return d;
 }
 const chamadoTiAtrasado = (a) => { const p = prazoChamadoTi(a); return !!p && !a.chamado_ti && !a.declinou_em && a.kit_status !== 'concluido' && p.getTime() - Date.now() < 86400000; };
@@ -1376,7 +1384,7 @@ function etapasFluxo(a) {
   const inc = (t && t.corte_inclusao) || a.corte_inclusao || null;
   const rem = (t && t.corte_remuneracao) || a.corte_remuneracao || inc;
   const doc = a.corte_documentos || (a.data_inicio ? corteA(a).toISOString() : null);
-  const vespera = (() => { const d = deIso(a.data_inicio); if (!d) return null; do { d.setDate(d.getDate() - 1); } while (d.getDay() % 6 === 0); d.setHours(18, 0, 0, 0); return d.toISOString(); })();
+  const vespera = (() => { const d = deIso(a.data_inicio); if (!d) return null; do { d.setDate(d.getDate() - 1); } while (!diaUtil(d, a.local)); d.setHours(18, 0, 0, 0); return d.toISOString(); })();
   const dia1 = (() => { const d = deIso(a.data_inicio); if (!d) return null; d.setHours(18, 0, 0, 0); return d.toISOString(); })();
   const ti = prazoChamadoTi(a);
   const e = [
@@ -1558,7 +1566,7 @@ function desenharFicha(a, docs, evs, arqs = []) {
     ${temOs(a) ? `<div class="doc"><div><div class="dn">Ordem de Serviço · Segurança do Trabalho</div><div class="dm">${chipOs(a)}${a.cbo ? ' ' + chip('c-ag', '', 'CBO ' + a.cbo) : ''}${a.os_validada_por ? ` <span class="apoio" style="font-size:12px">validada por ${esc(a.os_validada_por)}</span>` : ''}${a.os_status !== 'validada' ? '<div class="motivo">A Esteira só gera a OS no kit com os campos preenchidos. A Segurança valida na tela Segurança do Trabalho.</div>' : ''}</div></div><div class="acoes">${souSeguranca() && !a.declinou_em ? `<button class="bt peq" data-act="osAbrir" data-id="${a.id}">Editar OS</button>` : ''}</div></div>` : ''}
     ${exigeLg || a.lg_movimentado_em ? `<div class="doc"><div><div class="dn">Movimentado no LG (recrutadora)</div><div class="dm">${chipLg}${a.lg_movimentado_por ? ` <span class="apoio" style="font-size:12px">por ${esc(a.lg_movimentado_por)}</span>` : ''}${!a.lg_movimentado_em && a.lg_avisado_em ? ` <span class="apoio" style="font-size:12px">aviso à analista em ${quando(a.lg_avisado_em)}</span>` : ''}${!a.lg_movimentado_em && a.lg_cobrado_em ? ` <span class="apoio" style="font-size:12px">· cobrada em ${quando(a.lg_cobrado_em)}${a.lg_cobrancas > 1 ? ' (' + a.lg_cobrancas + ' vezes)' : ''}</span>` : ''}${!a.lg_movimentado_em && exigeLg ? '<div class="motivo">Sem a movimentação para a etapa "Admissão" no LG, o DP não registra.</div>' : ''}</div></div><div class="acoes">${podeRs && !a.declinou_em && !a.matricula ? (a.lg_movimentado_em ? `<button class="bt peq fan" data-act="lgDesfazer" data-id="${a.id}">Desfazer</button>` : `<button class="bt peq pri" data-act="lgMovimentado" data-id="${a.id}">Movimentei no LG</button>`) : ''}${dp && 'lg_cobrancas' in a && !a.declinou_em && !a.matricula && !a.lg_movimentado_em && asoOk(a) ? `<button class="bt peq" data-act="cobrarLg" data-id="${a.id}" title="E-mail à analista de R&S responsável, e o sino dela acende">Cobrar a recrutadora</button>` : ''}</div></div>` : ''}
     <div class="doc"><div><div class="dn">Remuneração · posição ${esc(a.posicao || '—')}</div><div class="dm">${chipRemun(a)}</div></div><div class="acoes">${podeRem && !a.declinou_em && a.remuneracao !== 'ok' ? `<button class="bt peq" data-act="remun" data-id="${a.id}" data-v="ok">Validada</button><button class="bt peq" data-act="remun" data-id="${a.id}" data-v="ocupada">Posição ocupada</button>` : ''}</div></div>
-    <div class="doc"><div><div class="dn">${a.tipo_contrato === 'Estágio' ? 'Cadastro do estágio e eSocial (S-2300)' : 'Matrícula e eSocial'}</div><div class="dm">${a.matricula ? chip('c-esc', '', a.matricula) + (a.esocial_enviado_em ? ' ' + chip('c-ok', 'ok', 'eSocial ' + dm(a.esocial_enviado_em) + (a.esocial_evento ? ' · ' + a.esocial_evento.split(' ')[0] : '')) : ' ' + chip('c-ag', 'ag', 'eSocial não registrado')) + (a.chamado_ti ? ' ' + chip('c-ag', '', 'Chamado TI ' + a.chamado_ti) : '') + ` <span class="apoio" style="font-size:12px">${esc(avisadas('matricula', a) || 'Nenhuma área com e-mail cadastrado para este momento.')}</span>` : a.etapa === 'registro' ? 'Pronto para registrar no LG' : 'Libera com documentos, ASO apto, remuneração ok' + (exigeLg ? ' e LG movimentado' : '')}</div></div><div class="acoes">${dp && a.etapa === 'registro' ? `<input id="matIn" class="sel-doc" style="width:110px" inputmode="numeric" placeholder="Matrícula" aria-label="Matrícula"><button class="bt peq pri" data-act="matricular" data-id="${a.id}">Registrar</button>` : ''}${dp && a.matricula && !a.declinou_em ? `<input type="date" id="esocialData" class="sel-doc" value="${a.esocial_enviado_em || ''}" aria-label="eSocial enviado em"><select id="esocialEv" class="sel-doc" aria-label="Evento"><option value="">Evento</option>${ESOCIAL.map((x) => `<option ${x === a.esocial_evento ? 'selected' : ''}>${x}</option>`).join('')}</select>${inputFicha('chamadoIn', 'Nº do chamado TI', `value="${esc(a.chamado_ti || '')}" style="width:130px"`)}<button class="bt peq" data-act="salvarRegistro" data-id="${a.id}">Salvar</button>${(a.ti_itens || []).length ? `<button class="bt peq" data-act="copiarChamado" data-id="${a.id}" title="Texto pronto para abrir o chamado no Jira">Copiar texto do chamado</button>` : ''}` : ''}</div></div>
+    <div class="doc"><div><div class="dn">${a.tipo_contrato === 'Estágio' ? 'Cadastro do estágio e eSocial (S-2300)' : 'Matrícula e eSocial'}</div><div class="dm">${a.matricula ? chip('c-esc', '', a.matricula) + (a.esocial_enviado_em ? ' ' + chip('c-ok', 'ok', 'eSocial ' + dm(a.esocial_enviado_em) + (a.esocial_evento ? ' · ' + a.esocial_evento.split(' ')[0] : '')) : ' ' + chip('c-ag', 'ag', 'eSocial não registrado')) + (a.chamado_ti ? ' ' + chip('c-ag', '', 'Chamado TI ' + a.chamado_ti) : '') + ` <span class="apoio" style="font-size:12px">${esc(avisadas('matricula', a) || 'Nenhuma área com e-mail cadastrado para este momento.')}</span>` : a.etapa === 'registro' ? 'Pronto para registrar no LG' : 'Libera com documentos, ASO apto, remuneração ok' + (exigeLg ? ' e LG movimentado' : '')}</div></div><div class="acoes">${dp && a.etapa === 'registro' && !faltaConferencia(a) ? `<input id="matIn" class="sel-doc" style="width:110px" inputmode="numeric" placeholder="Matrícula" aria-label="Matrícula"><button class="bt peq pri" data-act="matricular" data-id="${a.id}">Registrar</button>` : dp && a.etapa === 'registro' ? '<span class="apoio" style="font-size:12px">Falta a conferência final dos documentos</span>' : ''}${dp && a.matricula && !a.declinou_em ? `<input type="date" id="esocialData" class="sel-doc" value="${a.esocial_enviado_em || ''}" aria-label="eSocial enviado em"><select id="esocialEv" class="sel-doc" aria-label="Evento"><option value="">Evento</option>${ESOCIAL.map((x) => `<option ${x === a.esocial_evento ? 'selected' : ''}>${x}</option>`).join('')}</select>${inputFicha('chamadoIn', 'Nº do chamado TI', `value="${esc(a.chamado_ti || '')}" style="width:130px"`)}<button class="bt peq" data-act="salvarRegistro" data-id="${a.id}">Salvar</button>${(a.ti_itens || []).length ? `<button class="bt peq" data-act="copiarChamado" data-id="${a.id}" title="Texto pronto para abrir o chamado no Jira">Copiar texto do chamado</button>` : ''}` : ''}</div></div>
     <div class="doc"><div><div class="dn">Para as áreas</div><div class="dm">Camisa ${esc(a.camisa || '—')} · ${a.fretado ? 'Fretado ' + esc(a.fretado) : 'Sem fretado'} · ${(a.ti_itens || []).length ? 'TI: ' + esc(a.ti_itens.join(', ')) + (a.cd_entrega ? ' (entrega no ' + esc(a.cd_entrega) + ')' : '') + (prazoChamadoTi(a) && !a.chamado_ti && !a.declinou_em ? ' · ' + chip(chamadoTiAtrasado(a) ? 'c-cr' : 'c-at', chamadoTiAtrasado(a) ? 'cr' : 'at', 'chamado TI até ' + dm(prazoChamadoTi(a))) : '') : 'Sem equipamento'}${a.usa_frota ? ' · Frota' + (a.frota_tipo ? ' (' + esc(FROTA_TIPO[a.frota_tipo] || a.frota_tipo) + ')' : '') : ''}${a.turno ? ' · ' + esc(a.turno) : ''}${a.cc_codigo || a.cc_nome ? ' · CC ' + esc([a.cc_codigo, a.cc_nome].filter(Boolean).join(' ')) : ''}${a.substituicao ? ' · Substitui ' + esc(a.pessoa_substituida || '(não informado)') : ''}</div></div></div>
    </div></div>
    ${ligado('dependentes_ativo') && tem('rs', 'admissao', 'saude', 'remuneracao') ? `<div class="caixa pilha"><div class="linha-flex"><h3 style="flex:1">Dependentes · ${plural(E.depsFicha.length, 'cadastrado', 'cadastrados')}</h3>${podeRs && !a.declinou_em ? `<button class="bt peq pri" data-act="fDepSalvar" data-id="${a.id}">Salvar dependentes</button>` : ''}</div>${blocoDeps(E.depsFicha, 'f', podeRs && !a.declinou_em)}<p class="apoio" style="font-size:12px">Os documentos de cada dependente entram na lista abaixo. Benefícios recebe o resumo no cadastro, na matrícula e quando o kit é assinado.</p></div>` : ''}
@@ -1658,8 +1666,18 @@ VIEWS.documentos = () => {
   return `<div class="cab"><div class="t"><span class="olho">ADM de Pessoal</span><h1>Documentos</h1><p class="apoio">Quem ainda não está com a documentação completa, do corte mais próximo para o mais distante. Abra a ficha para enviar os arquivos: a IA confere se cada um é o documento certo e a analista confirma. A cobrança automática sai todo dia útil às 9h, uma vez por pessoa, só com o que falta e até o corte.</p></div></div>
   ${fila.length ? `<div class="tab-wrap"><table class="t-docs"><thead><tr><th>Pessoa</th><th>Turma</th><th>Etapa</th><th>Conferidos</th><th>O que falta</th><th>Cobranças</th></tr></thead><tbody>
   ${fila.map((a) => { const r = resumo(a); return `<tr class="clic" data-act="ficha" data-id="${a.id}"><td><b>${esc(titulo(a.nome))}</b><br><span class="apoio" style="font-size:12px">${esc(a.local)}</span></td><td class="num">${dmd(a.data_inicio)}${foraCorte(a) ? '<br>' + chip('c-cr', 'cr', 'Fora do corte') : ''}</td><td>${chipEtapa(a)}</td><td class="num">${r.ok}/${r.total}${r.analise ? '<br>' + chip('c-info', 'info', r.analise + ' para conferir') : ''}</td><td style="font-size:12.5px">${esc((r.pendentes || []).join(', ') || '—')}</td><td><div class="cobr">${(r.pendentes || []).length && a.email ? `<button class="bt peq" data-act="cobrar" data-id="${a.id}">Cobrar</button>` : ''}<span class="apoio">${a.cobrancas ? plural(a.cobrancas, 'enviada', 'enviadas') + (a.ultima_cobranca ? ' · ' + quando(a.ultima_cobranca) : '') : 'nenhuma ainda'}</span></div></td></tr>`; }).join('')}
-  </tbody></table></div>` : '<div class="vazio">Ninguém com documentação pendente.</div>'}`;
+  </tbody></table></div>` : '<div class="vazio">Ninguém com documentação pendente.</div>'}
+  ${blocoMatricula()}`;
 };
+function blocoMatricula() {
+  const l = vivas().filter((a) => !a.matricula && ['docs_ok', 'registro'].includes(a.etapa)).sort((x, y) => x.data_inicio.localeCompare(y.data_inicio));
+  if (!l.length) return '';
+  const falta = (a) => a.etapa === 'registro' ? (faltaConferencia(a) ? 'Conferência final dos documentos' : '') : [!asoOk(a) && 'ASO apto', a.remuneracao !== 'ok' && 'Remuneração', ligado('exige_lg_movimentado') && !a.lg_movimentado_em && 'Movimentar no LG'].filter(Boolean).join(' · ') || 'Conferir na ficha';
+  return `<div class="caixa pilha" style="margin-top:14px"><h2>Matrícula</h2><p class="apoio">Documentação completa. A matrícula sai quando a Admissão lança aqui o número gerado no LG, depois da conferência final dos documentos, do ASO apto, da remuneração validada${ligado('exige_lg_movimentado') ? ' e do LG movimentado' : ''}.</p>
+   <div class="tab-wrap"><table><thead><tr><th>Pessoa</th><th>Turma</th><th>Falta</th><th>Matrícula</th></tr></thead><tbody>
+   ${l.map((a) => { const f = falta(a); return `<tr><td><b class="clic" data-act="ficha" data-id="${a.id}">${esc(titulo(a.nome))}</b><br><span class="apoio" style="font-size:12px">${esc(a.cargo)} · ${esc(a.local)}</span></td><td class="num">${dmd(a.data_inicio)}</td><td>${f ? chip('c-at', 'at', f) : chip('c-ok', 'ok', 'Pronto')}</td><td>${f ? '' : `<div class="linha-flex" style="gap:6px"><input class="sel-doc" data-mat="${a.id}" style="width:110px" inputmode="numeric" placeholder="Matrícula" aria-label="Matrícula de ${esc(titulo(a.nome))}"><button class="bt peq pri" data-act="matricularL" data-id="${a.id}">Registrar</button></div>`}</td></tr>`; }).join('')}
+   </tbody></table></div></div>`;
+}
 
 // --------------------------------------------------------- remuneração
 VIEWS.remuneracao = () => {
@@ -1936,8 +1954,8 @@ function cronogramaTurmas() {
 function sugerirCortes() {
   const d = $('#tnData')?.value; if (!d) return;
   const base = deIso(d); const ajusta = (dias, h) => { const x = new Date(base.getTime() - dias * DIA); x.setHours(h, 0, 0, 0); return paraLocal(x.toISOString()); };
-  // cronograma do Time de Admissão: inclusão 5 dias úteis antes, às 12h; a Remuneração valida até o fim do mesmo dia (feriado: ajuste à mão)
-  const uteis = (k, h, m = 0) => { const x = new Date(base); let n = k; while (n > 0) { x.setDate(x.getDate() - 1); if (x.getDay() % 6) n--; } x.setHours(h, m, 0, 0); return paraLocal(x.toISOString()); };
+  // cronograma do Time de Admissão: inclusão 5 dias úteis antes, às 12h; a Remuneração valida até o fim do mesmo dia (pula feriado da tabela)
+  const uteis = (k, h, m = 0) => { const x = new Date(base); let n = k; while (n > 0) { x.setDate(x.getDate() - 1); if (diaUtil(x)) n--; } x.setHours(h, m, 0, 0); return paraLocal(x.toISOString()); };
   if (!$('#tnInc').value) $('#tnInc').value = uteis(5, 12);
   if (!$('#tnRem').value) $('#tnRem').value = uteis(5, 23, 59);
   if (!$('#tnDoc').value) $('#tnDoc').value = ajusta(4, 12);
@@ -1961,8 +1979,19 @@ VIEWS.cronograma = () => {
   return `<div class="cab"><div class="t"><span class="olho">Admissão</span><h1>Cronograma e corte</h1><p class="apoio">As datas de integração e de corte de cada turma, cadastradas pelo Time de Admissão. Substitui o e-mail "Cronograma admissões" do mês: a recrutadora consulta aqui, e o cadastro mostra o corte da data escolhida. ${temSql27() ? 'Depois do corte o cadastro trava; exceção aprovada, só o Time de Admissão libera, por CPF.' : ''}</p></div></div>
   ${tem('admissao') ? cronogramaTurmas() : leitura}
   ${temSql27() && tem('admissao') ? excecoesBox() : ''}
+  ${E.feriados ? feriadosBox() : ''}
   ${temSql27() && !tem('admissao') && minhas.length ? `<div class="caixa pilha"><h2>Exceções liberadas</h2><div class="tab-wrap"><table><thead><tr><th>CPF</th><th>Nome</th><th>Turma</th><th>Situação</th></tr></thead><tbody>${minhas.map((x) => `<tr><td class="num">${fmtCpf(x.cpf)}</td><td>${esc(titulo(x.nome || ''))}</td><td class="num">${dmd(x.data_inicio)}</td><td>${x.usada_em ? chip('c-ok', 'ok', 'usada ' + dm(new Date(x.usada_em))) : chip('c-at', 'at', 'liberada: pode cadastrar')}</td></tr>`).join('')}</tbody></table></div></div>` : ''}`;
 };
+function feriadosBox() {
+  const hoje = iso(new Date()); const pode = tem('admissao');
+  const l = (E.feriados || []).filter((f) => f.data >= hoje.slice(0, 4) + '-01-01');
+  const locais = ['todas', ...E.locais.map((x) => x.nome)];
+  return `<div class="caixa pilha"><h2>Feriados</h2><p class="apoio">Os prazos em dias úteis (exame e contato da Saúde, chamado da TI, cortes sugeridos) pulam os feriados ligados. Os nacionais já estão aqui; carnaval e Corpus Christi entram desligados, como ponto facultativo. Inclua os municipais de cada unidade.</p>
+   <div class="tab-wrap"><table><thead><tr><th>Data</th><th>Feriado</th><th>Vale para</th><th>Situação</th>${pode ? '<th></th>' : ''}</tr></thead><tbody>
+   ${l.map((f) => `<tr><td class="num">${dmd(f.data)}/${f.data.slice(0, 4)}</td><td>${esc(f.nome)}</td><td>${esc(f.escopo === 'todas' ? 'Todas as unidades' : f.escopo)}</td><td>${f.ativo ? chip('c-ok', 'ok', 'Conta') : chip('c-ag', 'ag', 'Desligado')}</td>${pode ? `<td><div class="linha-flex" style="gap:6px"><button class="bt peq" data-act="ferTog" data-d="${f.data}" data-e="${esc(f.escopo)}">${f.ativo ? 'Desligar' : 'Ligar'}</button><button class="bt peq fan" data-act="ferApagar" data-d="${f.data}" data-e="${esc(f.escopo)}">Apagar</button></div></td>` : ''}</tr>`).join('')}
+   </tbody></table></div>
+   ${pode ? `<div class="linha-flex"><input type="date" id="ferData" class="sel-doc" aria-label="Data do feriado"><input id="ferNome" class="sel-doc" placeholder="Nome do feriado" style="flex:1;min-width:180px"><select id="ferEsc" class="sel-doc" aria-label="Vale para">${locais.map((x) => `<option value="${esc(x)}">${esc(x === 'todas' ? 'Todas as unidades' : x)}</option>`).join('')}</select><button class="bt peq pri" data-act="ferIncluir">Incluir</button></div>` : ''}</div>`;
+}
 function excecoesBox() {
   const hoje = iso(new Date());
   const ts = E.turmasCal.filter((t) => t.ativo && t.data >= hoje).sort((x, y) => x.data.localeCompare(y.data));
@@ -2467,6 +2496,12 @@ document.addEventListener('click', async (e) => {
     }
     case 'mosApagar': if (await tentar(() => api.apagarMatrizOs(+id || id), 'Linha removida')) await recarregar(); break;
     case 'remun': if (await tentar(() => api.atualizar(id, { remuneracao: el.dataset.v }), el.dataset.v === 'ok' ? 'Remuneração validada' : 'Marcada como posição ocupada')) { await recarregar(); if ($('.gaveta')) abrirFicha(id); } break;
+    case 'matricularL': {
+      const v = (document.querySelector(`[data-mat="${id}"]`)?.value || '').trim();
+      if (!/^\d{3,10}$/.test(v)) { toast('Digite a matrícula gerada no LG, só números.', true); return; }
+      if (await tentar(() => api.atualizar(id, { matricula: v }), 'Matrícula registrada. ' + (avisadas('matricula', adm(id)) || 'Nenhuma área com e-mail para avisar.'))) { await recarregar(); render(); }
+      break;
+    }
     case 'matricular': {
       const v = ($('#matIn')?.value || '').trim();
       if (!/^\d{3,10}$/.test(v)) { toast('Digite a matrícula gerada no LG, só números.', true); return; }
@@ -2562,6 +2597,13 @@ document.addEventListener('click', async (e) => {
       if (!o.nome || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(o.email)) { toast('Informe o nome e um e-mail válido.', true); return; }
       if (await tentar(() => api.salvarBp(Object.assign({ ativo: true }, o)), 'BP salvo')) await recarregar(); break;
     }
+    case 'ferIncluir': {
+      const data = $('#ferData').value, nome = $('#ferNome').value.trim(), escopo = $('#ferEsc').value;
+      if (!data || !nome) { toast('Informe a data e o nome do feriado.', true); return; }
+      if (await tentar(() => api.salvarFeriado({ data, nome, escopo, ativo: true }), 'Feriado incluído')) await recarregar(); break;
+    }
+    case 'ferTog': { const f = E.feriados.find((x) => x.data === el.dataset.d && x.escopo === el.dataset.e); if (f && await tentar(() => api.salvarFeriado({ data: f.data, escopo: f.escopo, nome: f.nome, ativo: !f.ativo }))) await recarregar(); break; }
+    case 'ferApagar': if (confirm('Apagar este feriado?') && await tentar(() => api.apagarFeriado(el.dataset.d, el.dataset.e), 'Feriado apagado')) await recarregar(); break;
     case 'bpApagar': if (await tentar(() => api.apagarBp(+id || id), 'BP removido')) await recarregar(); break;
     case 'adestSalvar': {
       const box = document.querySelector(`[data-adest="${el.dataset.i}"]`); const atual = E.areaDest[+el.dataset.i];
