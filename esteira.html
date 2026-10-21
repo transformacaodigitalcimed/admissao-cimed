@@ -6932,8 +6932,7 @@ function renderColab(){
     /* Termo de Confidencialidade: antes do documento, o Termo de Compromisso com o Codigo de Conduta (Josianny, 21/10/2026) */
     if(/confidencialidade/.test(doc.chave)){
       h += '<div class="doc-card"><h4 style="margin:0 0 8px">TERMO DE COMPROMISSO</h4>'
-        + '<p style="margin:0 0 8px">Declaro que recebi, li, tive ciência e compreendi o Código de Conduta da CIMED.</p>'
-        + '<p style="margin:0 0 10px">Comprometo-me a cumpri-lo integralmente nas minhas atividades relacionadas à CIMED, inclusive respeitando o compromisso de não divulgação de informações confidenciais, seja durante ou após a vigência do meu vínculo com a CIMED. Ainda, concordo em cumprir a legislação vigente, todas as políticas e instruções normativas internas adotadas pela CIMED, e agir com boa-fé e de maneira ética perante a órgãos e agentes públicos e/ou privados.</p>'
+        + TXT_COMPROMISSO.map((x, i)=>'<p style="margin:0 0 ' + (i ? 10 : 8) + 'px">' + esc(x) + '</p>').join('')
         + '<a class="b peq" href="' + esc(TERMO_URL) + '" target="_blank" rel="noopener">Ler o Código de Conduta</a></div>';
     }
     /* Termo de Transparencia: primeiro as perguntas; depois de tudo respondido,
@@ -7021,6 +7020,14 @@ function renderColab(){
 }
 
 /* todas as perguntas do termo respondidas (e comentario quando Sim) */
+/* Termo de Compromisso com o Codigo de Conduta: na tela, antes do Termo de Confidencialidade,
+   e numa folha do kit assinado, para o colaborador guardar (Josianny, 21/10/2026) */
+const TXT_COMPROMISSO = [
+  'Declaro que recebi, li, tive ciência e compreendi o Código de Conduta da CIMED.',
+  'Comprometo-me a cumpri-lo integralmente nas minhas atividades relacionadas à CIMED, inclusive respeitando o compromisso de não divulgação de informações confidenciais, seja durante ou após a vigência do meu vínculo com a CIMED. Ainda, concordo em cumprir a legislação vigente, todas as políticas e instruções normativas internas adotadas pela CIMED, e agir com boa-fé e de maneira ética perante a órgãos e agentes públicos e/ou privados.'
+];
+const kitTemConfidencialidade = (k)=>(k.indice || []).some(it=>/confidencialidade/.test(chaveDoc(it.nome)));
+
 function termoRespondido(st){
   const r = (st && st.resp) || {};
   if(r.codigo_conduta_ciente !== 'Sim') return false;
@@ -7759,6 +7766,27 @@ async function assinar(p, k, st, quem){
       });
       y -= 10;
     });
+  }
+
+  if(stDepois.colab && kitTemConfidencialidade(k)){
+    const pc = doc.addPage([595.28,841.89]);
+    const W = 595.28, L = 56, tx = rgb(0.11,0.106,0.07);
+    pc.drawRectangle({x:0,y:841.89-70,width:W,height:70,color:rgb(0.984,0.769,0)});
+    pc.drawText('TERMO DE COMPROMISSO', {x:L,y:841.89-42,size:12,font:neg,color:rgb(0.078,0.075,0.031)});
+    let y = 841.89-108;
+    pc.drawText(limpoPDF(p.nome+'  |  CPF '+cpfTxt(p.cpf)+'  |  '+(p.unidade||p.perfil)), {x:L,y:y,size:10,font:reg,color:rgb(0.3,0.29,0.22)});
+    y -= 34;
+    TXT_COMPROMISSO.forEach(par=>{
+      quebrar(limpoPDF(par), reg, 11, W-2*L).forEach(l=>{ pc.drawText(l, {x:L,y:y,size:11,font:reg,color:tx}); y -= 16; });
+      y -= 10;
+    });
+    y -= 6;
+    pc.drawText('Código de Conduta da CIMED:', {x:L,y:y,size:9.5,font:neg,color:tx}); y -= 14;
+    quebrar(limpoPDF(TERMO_URL).replace(/\//g, '/ '), reg, 9, W-2*L).forEach(l=>{ pc.drawText(l.replace(/\/ /g, '/'), {x:L,y:y,size:9,font:reg,color:rgb(0.12,0.31,0.55)}); y -= 12; });
+    y -= 22;
+    const c = stDepois.colab;
+    pc.drawText(limpoPDF('Aceito eletronicamente por ' + p.nome + ', CPF ' + cpfTxt(p.cpf) + ', ao assinar o kit admissional'), {x:L,y:y,size:9.5,font:reg,color:rgb(0.35,0.34,0.26)}); y -= 14;
+    pc.drawText(limpoPDF('em ' + hojeTxt(new Date(c.em)) + (c.codigo ? '  |  código ' + c.codigo : '') + '. A assinatura está na página de assinaturas.'), {x:L,y:y,size:9.5,font:reg,color:rgb(0.35,0.34,0.26)});
   }
 
   // página de assinaturas
