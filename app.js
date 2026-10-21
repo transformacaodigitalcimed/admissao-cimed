@@ -1191,6 +1191,7 @@ function cartao(a) {
   if (['docs_ok', 'registro'].includes(a.etapa)) { chips.push(chipAso(a)); chips.push(chipRemun(a)); }
   if (['assinatura', 'pronto'].includes(a.etapa)) chips.push(chip('c-esc', '', a.matricula || ''));
   if (foraCorte(a)) chips.unshift(chip('c-cr', 'cr', 'Fora do corte'));
+  if (a.teste) chips.unshift(chip('c-ia', 'info', 'TESTE'));
   return `<button class="cartao ${risco(a) ? 'risco' : ''}" data-act="ficha" data-id="${a.id}"><span class="nm">${esc(titulo(a.nome))}</span><span class="sub">${esc(a.cargo)} · ${esc(a.local)}</span><span class="chips">${chips.join('')}</span><span class="sub num">Integração ${dmd(a.data_inicio)}${a.cobrancas ? ' · ' + plural(a.cobrancas, 'cobrança', 'cobranças') : ''}</span>${a.declinou_em ? '' : fluxoMini(a)}</button>`;
 }
 function quadro(lista) {
@@ -1200,7 +1201,7 @@ function quadro(lista) {
 }
 function tabela(lista) {
   return `<div class="tab-wrap"><table><thead><tr><th>Nome</th><th>Cargo · setor</th><th>Integração</th><th>R&amp;S</th><th>Etapa</th><th>Fluxo</th><th>Documentos</th><th>ASO</th><th>Remuneração</th><th>Matrícula</th><th>DP</th><th>TI</th><th>Camisa</th><th>Fretado</th></tr></thead><tbody>
-  ${lista.map((a) => `<tr class="clic" data-act="ficha" data-id="${a.id}"><td><b>${esc(titulo(a.nome))}</b></td><td>${esc(a.cargo)}<br><span class="apoio" style="font-size:12px">${esc(a.setor || '')}</span></td><td class="num">${dmd(a.data_inicio)}<br><span class="apoio" style="font-size:12px">${esc(a.integ || '')} ${esc(a.hora_integ || '')}</span></td><td>${esc(a.analista_rs || '')}<br><span class="apoio" style="font-size:11.5px">incluído ${quando(a.criado_em)}</span></td><td>${chipEtapa(a)}</td><td>${a.declinou_em ? '—' : fluxoMini(a)}</td><td>${a.declinou_em ? '—' : chipDocs(a)}</td><td>${a.declinou_em ? '—' : chipAso(a)}</td><td>${a.declinou_em ? '—' : chipRemun(a)}</td><td class="num">${esc(a.matricula || '—')}</td><td>${esc(a.analista_dp || '—')}</td><td>${(a.ti_itens || []).length ? esc(a.ti_itens.join(', ')) : '—'}</td><td>${esc(a.camisa || '—')}</td><td>${esc(a.fretado || '—')}</td></tr>`).join('')}
+  ${lista.map((a) => `<tr class="clic" data-act="ficha" data-id="${a.id}"><td><b>${esc(titulo(a.nome))}</b>${a.teste ? ' ' + chip('c-ia', 'info', 'TESTE') : ''}</td><td>${esc(a.cargo)}<br><span class="apoio" style="font-size:12px">${esc(a.setor || '')}</span></td><td class="num">${dmd(a.data_inicio)}<br><span class="apoio" style="font-size:12px">${esc(a.integ || '')} ${esc(a.hora_integ || '')}</span></td><td>${esc(a.analista_rs || '')}<br><span class="apoio" style="font-size:11.5px">incluído ${quando(a.criado_em)}</span></td><td>${chipEtapa(a)}</td><td>${a.declinou_em ? '—' : fluxoMini(a)}</td><td>${a.declinou_em ? '—' : chipDocs(a)}</td><td>${a.declinou_em ? '—' : chipAso(a)}</td><td>${a.declinou_em ? '—' : chipRemun(a)}</td><td class="num">${esc(a.matricula || '—')}</td><td>${esc(a.analista_dp || '—')}</td><td>${(a.ti_itens || []).length ? esc(a.ti_itens.join(', ')) : '—'}</td><td>${esc(a.camisa || '—')}</td><td>${esc(a.fretado || '—')}</td></tr>`).join('')}
   </tbody></table></div>`;
 }
 
@@ -1305,7 +1306,7 @@ function desenharFicha(a, docs, evs, arqs = []) {
   const comentario = !!api.comentar && temSql27();
   $('#camada').innerHTML = `<div class="veu" data-act="fechar"><aside class="gaveta" role="dialog" aria-modal="true" aria-label="Ficha" data-pare="1">
    <div class="linha-flex" style="align-items:flex-start"><div class="pilha" style="flex:1;gap:6px"><span class="olho">Ficha do candidato</span><h2 style="font-size:24px">${esc(titulo(a.nome))}</h2><span class="apoio">${esc(a.cargo)}${a.setor ? ' · ' + esc(a.setor) : ''} · ${esc(a.local)}${a.cc_codigo ? ' · CC ' + esc(a.cc_codigo) : ''}</span>
-    <div class="linha-flex">${chipEtapa(a)}${foraCorte(a) ? chip('c-cr', 'cr', 'Fora do corte') : ''}${a.pcd !== 'Não' ? chip('c-info', 'info', 'PCD') : ''}${a.tipo_contrato !== 'CLT' ? chip('c-info', 'info', a.tipo_contrato + (a.agencia ? ' · ' + a.agencia : '')) : ''}${a.nasc && idade(a.nasc) < 18 ? chip('c-at', 'at', 'Menor de idade' + (l.tipo === 'fabrica' ? ' em fábrica' : '')) : ''}${a.motorista_profissional ? chip('c-info', 'info', 'Motorista profissional') : ''}${a.formato_integ === 'online' ? chip('c-ag', '', 'Integração on-line') : ''}${a.nr12 ? chip('c-ag', '', 'NR-12') : ''}${a.arquivado_em ? chip('c-ok', 'ok', 'Dossiê arquivado') : ''}${a.origem === 'importacao' ? chip('c-ag', '', 'Veio da planilha') : ''}</div></div>
+    <div class="linha-flex">${a.teste ? chip('c-ia', 'info', 'TESTE · e-mails só para ' + (E.params?.teste_email || 'a admin')) : ''}${chipEtapa(a)}${foraCorte(a) ? chip('c-cr', 'cr', 'Fora do corte') : ''}${a.pcd !== 'Não' ? chip('c-info', 'info', 'PCD') : ''}${a.tipo_contrato !== 'CLT' ? chip('c-info', 'info', a.tipo_contrato + (a.agencia ? ' · ' + a.agencia : '')) : ''}${a.nasc && idade(a.nasc) < 18 ? chip('c-at', 'at', 'Menor de idade' + (l.tipo === 'fabrica' ? ' em fábrica' : '')) : ''}${a.motorista_profissional ? chip('c-info', 'info', 'Motorista profissional') : ''}${a.formato_integ === 'online' ? chip('c-ag', '', 'Integração on-line') : ''}${a.nr12 ? chip('c-ag', '', 'NR-12') : ''}${a.arquivado_em ? chip('c-ok', 'ok', 'Dossiê arquivado') : ''}${a.origem === 'importacao' ? chip('c-ag', '', 'Veio da planilha') : ''}</div></div>
     <button class="bt" data-act="fechar">Fechar</button></div>
    ${inc ? `<p class="apoio" style="font-size:12.5px;margin:0">Incluído por <b>${esc(a.incluido_por || inc.quem)}</b> em ${quando(inc.em)}${a.origem === 'importacao' ? ' (importação da planilha)' : ''}${a.analista_rs ? ' · analista responsável: ' + esc(a.analista_rs) : ''}</p>` : ''}
    ${!a.declinou_em ? fluxoVisual(a) : ''}
@@ -1648,7 +1649,7 @@ function planilhaLista(l) {
 }
 VIEWS.turma = () => {
   const ds = datasTurma(); if (!E.turmaLista || !ds.includes(E.turmaLista)) E.turmaLista = ds.find((d) => d >= iso(new Date())) || ds[ds.length - 1] || null;
-  const doDia = vivas().filter((a) => a.data_inicio === E.turmaLista);
+  const doDia = vivas().filter((a) => a.data_inicio === E.turmaLista && !a.teste);
   const locaisDia = [...new Set(doDia.map((a) => a.local))].sort();
   if (!E.locaisLista || !E.locaisLista.length || E.locaisLista.some((x) => !locaisDia.includes(x))) E.locaisLista = locaisDia.slice();
   const cal = E.turmasCal.filter((t) => t.ativo && t.data === E.turmaLista);
