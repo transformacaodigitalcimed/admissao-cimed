@@ -34,6 +34,7 @@ button,.bt{min-height:44px;border:1px solid var(--linha);border-radius:10px;padd
 .acoes a{min-height:36px;padding:6px 10px;font-size:13.5px}
 .chip{display:inline-block;border-radius:999px;padding:2px 10px;font-size:12.5px;font-weight:600;background:var(--info-bg);color:var(--info)}
 .chip.ok{background:var(--ok-bg);color:var(--ok)}
+.dist{font-size:12.5px;font-weight:700;color:var(--ok);margin-top:2px}
 details summary{cursor:pointer;font-weight:600;min-height:40px;display:flex;align-items:center}
 .vazio{color:var(--mudo);padding:8px 0}
 </style>
@@ -53,10 +54,49 @@ const rota = (end) => 'https://www.google.com/maps/dir/?api=1&destination=' + en
 // só os códigos curtos dos itinerários vêm no link (nada que identifique a pessoa)
 const cods = (new URLSearchParams(location.search).get('i') || '').split(',').map((x) => x.trim()).filter((x) => /^[0-9a-f]{8}$/.test(x)).slice(0, 4);
 let ITINS = [];
+// distância em linha reta (fórmula de haversine), em metros
+function distancia(a, b) {
+  const R = 6371000, rad = (x) => x * Math.PI / 180;
+  const dLat = rad(b.lat - a.lat), dLon = rad(b.lon - a.lon);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+const fmtDist = (m) => (m < 1000 ? '~' + (Math.round(m / 10) * 10) + ' m' : '~' + (m / 1000).toFixed(1).replace('.', ',') + ' km');
+const temEscolhido = () => ITINS.some((i) => i.escolhido);
+const comCoord = () => ITINS.some((i) => (i.pontos || []).some((p) => typeof p.lat === 'number'));
+// área dos pontos do turno: a busca no mapa fica restrita à região do fretado
+function caixaPontos() {
+  let n = 90, s = -90, l = -180, o = 180;
+  ITINS.forEach((i) => (i.pontos || []).forEach((p) => { if (typeof p.lat !== 'number') return; n = Math.min(n, p.lat); s = Math.max(s, p.lat); o = Math.min(o, p.lon); l = Math.max(l, p.lon); }));
+  return n > s ? null : [o - 0.08, s + 0.08, l + 0.08, n - 0.08];
+}
+// endereço → coordenadas pelo OpenStreetMap (só a rua e o bairro; o número da casa não vai)
+async function localizar(q) {
+  const cx = caixaPontos(); const ps = new URLSearchParams({ q, format: 'json', limit: '1', countrycodes: 'br' });
+  if (cx) { ps.set('viewbox', cx.join(',')); ps.set('bounded', '1'); }
+  const r = await fetch('https://nominatim.openstreetmap.org/search?' + ps.toString(), { headers: { 'Accept-Language': 'pt-BR' } }).then((x) => x.json());
+  return r && r[0] ? { lat: +r[0].lat, lon: +r[0].lon } : null;
+}
+function porDistancia(origem, rotulo, termos) {
+  const out = $('#res'); const todos = [];
+  ITINS.forEach((i) => (i.pontos || []).forEach((p) => { if (typeof p.lat === 'number') todos.push({ p, i, d: distancia(origem, p) }); }));
+  todos.sort((a, b) => a.d - b.d);
+  // um ponto por endereço (o mesmo ponto aparece em linhas diferentes)
+  const vistos = new Set(); const lista = [];
+  for (const x of todos) { const k = norm(x.p.endereco || x.p.referencia); if (vistos.has(k)) continue; vistos.add(k); lista.push(x); if (lista.length >= 10) break; }
+  // pontos que o mapa não localizou, mas que combinam com a rua ou o bairro digitado
+  const semCoord = [];
+  if (termos) ITINS.forEach((i) => (i.pontos || []).forEach((p) => { if (typeof p.lat === 'number') return; const s = pontuar(p, termos); const k = norm(p.endereco || p.referencia); if (s > 0 && !vistos.has(k)) { vistos.add(k); semCoord.push({ p, i, s }); } }));
+  semCoord.sort((a, b) => b.s - a.s);
+  out.innerHTML = lista.length || semCoord.length
+    ? `<p class="apoio">${rotulo ? esc(rotulo) + ': ' : ''}pontos do seu turno do mais perto para o mais longe (distância em linha reta). Use "Como chegar daqui" para ver o caminho a pé.</p>` + lista.map((x) => cartaoPonto(x.p, x.i.linha, temEscolhido() && !x.i.escolhido, x.d)).join('')
+      + (semCoord.length ? '<p class="apoio" style="margin-top:12px">Também combinam com o que você digitou (sem distância calculada):</p>' + semCoord.slice(0, 5).map((x) => cartaoPonto(x.p, x.i.linha, temEscolhido() && !x.i.escolhido)).join('') : '')
+    : '<div class="vazio">Não consegui calcular a distância. Digite o nome do seu bairro.</div>';
+}
 
-function cartaoPonto(p, linha, outra) {
+function cartaoPonto(p, linha, outra, dist) {
   const end = String(p.endereco || '').replace(/, Brasil$/, '');
-  return `<div class="ponto"><div class="hora">${esc(p.horario || '')}</div><div><div class="ref">${esc(p.referencia || end)}${linha ? ` <span class="chip">${esc(titulo(linha))}${outra ? ' · outra linha do turno' : ''}</span>` : ''}</div>${p.bairro ? `<div class="apoio">${esc(p.bairro)}${p.cidade ? ' · ' + esc(p.cidade) : ''}</div>` : ''}${end ? `<div class="end">${esc(end)}</div><div class="acoes"><a class="bt" href="${esc(mapa(end))}" target="_blank" rel="noopener">Ver no mapa</a><a class="bt" href="${esc(rota(end))}" target="_blank" rel="noopener">Como chegar daqui</a></div>` : ''}</div></div>`;
+  return `<div class="ponto"><div class="hora">${esc(p.horario || '')}${dist != null ? `<div class="dist">${fmtDist(dist)}</div>` : ''}</div><div><div class="ref">${esc(p.referencia || end)}${linha ? ` <span class="chip">${esc(titulo(linha))}${outra ? ' · outra linha do turno' : ''}</span>` : ''}</div>${p.bairro ? `<div class="apoio">${esc(p.bairro)}${p.cidade ? ' · ' + esc(p.cidade) : ''}</div>` : ''}${end ? `<div class="end">${esc(end)}</div><div class="acoes"><a class="bt" href="${esc(mapa(end))}" target="_blank" rel="noopener">Ver no mapa</a><a class="bt" href="${esc(rota(end))}" target="_blank" rel="noopener">Como chegar daqui</a></div>` : ''}</div></div>`;
 }
 function itinerario(i, aberto) {
   const ps = Array.isArray(i.pontos) ? i.pontos : [];
@@ -87,14 +127,27 @@ async function buscar(txt) {
       if (r && !r.erro) {
         t = { rua: norm(String(r.logradouro || '').replace(/^(rua|avenida|av|travessa|alameda|praca|rodovia)\s+/i, '')), bairro: norm(r.bairro), cidade: norm(r.localidade), palavras: palavrasDe(r.logradouro + ' ' + r.bairro) };
         out.dataset.local = [r.logradouro, r.bairro, r.localidade].filter(Boolean).join(', ');
+        if (comCoord()) {
+          out.innerHTML = '<div class="vazio">Calculando as distâncias…</div>';
+          try {
+            const o = (await localizar([r.logradouro, r.bairro, r.localidade, r.uf].filter(Boolean).join(', '))) || (await localizar([r.bairro, r.localidade, r.uf].filter(Boolean).join(', ')));
+            if (o) { porDistancia(o, 'Perto de ' + out.dataset.local, t); return; }
+          } catch (e) { /* sem mapa: segue pela busca por nome */ }
+        }
       } else { out.innerHTML = '<div class="vazio">CEP não encontrado. Tente digitar o nome da rua ou do bairro.</div>'; return; }
     } catch (e) { out.innerHTML = '<div class="vazio">Não consegui consultar o CEP agora. Tente digitar o nome da rua ou do bairro.</div>'; return; }
-  } else out.dataset.local = '';
+  } else {
+    out.dataset.local = '';
+    if (comCoord()) {
+      out.innerHTML = '<div class="vazio">Calculando as distâncias…</div>';
+      try { const o = await localizar(txt); if (o) { porDistancia(o, 'Perto de ' + txt, t); return; } } catch (e) { /* segue pela busca por nome */ }
+    }
+  }
   const todos = [];
   ITINS.forEach((i) => (i.pontos || []).forEach((p) => todos.push({ p, i, s: pontuar(p, t) })));
   const achados = todos.filter((x) => x.s > 0).sort((a, b) => b.s - a.s || Number(b.i.escolhido) - Number(a.i.escolhido)).slice(0, 8);
   out.innerHTML = achados.length
-    ? `<p class="apoio">${out.dataset.local ? 'Perto de ' + esc(out.dataset.local) + ': ' : ''}os pontos que mais combinam com o que você digitou. Use "Como chegar daqui" para ver a distância a pé.</p>` + achados.map((x) => cartaoPonto(x.p, x.i.linha, !x.i.escolhido)).join('')
+    ? `<p class="apoio">${out.dataset.local ? 'Perto de ' + esc(out.dataset.local) + ': ' : ''}os pontos que mais combinam com o que você digitou. Use "Como chegar daqui" para ver a distância a pé.</p>` + achados.map((x) => cartaoPonto(x.p, x.i.linha, temEscolhido() && !x.i.escolhido)).join('')
     : `<div class="vazio">Nenhum ponto do seu turno com esse nome de rua ou bairro. Bairros atendidos no seu turno: ${esc(bairrosAtendidos().join(', '))}. Digite o mais perto de você, ou veja a lista completa abaixo.</div>`;
 }
 function bairrosAtendidos() {
@@ -102,27 +155,74 @@ function bairrosAtendidos() {
   ITINS.forEach((i) => (i.pontos || []).forEach((p) => { const b = String(p.bairro || '').trim(); if (b && !m.has(norm(b))) m.set(norm(b), titulo(b)); }));
   return [...m.values()].sort((a, b) => a.localeCompare(b, 'pt-BR'));
 }
-async function iniciar() {
-  const m = $('#m');
-  if (!cods.length) { m.innerHTML = '<div class="caixa">Link incompleto. Abra o link do e-mail do fretado de novo ou fale com o Time de Admissão.</div>'; return; }
+async function rpc(nome, corpo) {
+  const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${nome}`, { method: 'POST', headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify(corpo || {}) });
+  if (!r.ok) throw new Error(String(r.status));
+  return r.json();
+}
+const UNI_NOME = { 'UNIDADE 1': 'Unidade 1 · Pouso Alegre (Site I)', 'UNIDADE 2': 'Unidade 2 · Fernão Dias (Site II)', 'SSBV': 'SSBV · São Sebastião da Bela Vista' };
+const TURNO_NOME = (x) => ({ '1º TURNO': '1º turno', '2º TURNO': '2º turno', '3º TURNO SEG-SAB': '3º turno (segunda a sábado)', '3º TURNO DOM': '3º turno (domingo)', 'ADMINISTRATIVO': 'Administrativo', '2X2X3 - 1º TURNO': 'Escala 2x2x3 · dia', '2X2X3 - 2º TURNO': 'Escala 2x2x3 · noite', 'APRENDIZ': 'Aprendiz' })[x] || x;
+// caixa da busca (mesma nos dois modos)
+function caixaBusca() {
+  return `<div class="caixa"><h2>Ache o ponto mais perto de você</h2><p class="apoio" style="margin-top:0">Digite o CEP da sua rua (com ou sem traço), ou o nome da rua ou do bairro, por exemplo "São Geraldo" ou "Avenida Ayrton Senna". O CEP é consultado no ViaCEP e a rua é localizada no mapa do OpenStreetMap (serviços públicos), só para calcular a distância; nada do que você digita fica guardado.</p>
+    <form class="busca" id="fBusca"><input id="q" inputmode="text" autocomplete="postal-code" placeholder="CEP da sua rua, nome da rua ou do bairro" aria-label="CEP, rua ou bairro"><button class="pri" type="submit">Buscar</button></form>${comCoord() && navigator.geolocation ? '<button type="button" id="btGps" style="margin-top:8px">Usar minha localização</button>' : ''}<div id="res" style="margin-top:10px"></div></div>`;
+}
+function ligarBusca() {
+  $('#fBusca').addEventListener('submit', (e) => { e.preventDefault(); const v = $('#q').value.trim(); if (v.length >= 3) buscar(v); });
+  $('#btGps')?.addEventListener('click', () => {
+    $('#res').innerHTML = '<div class="vazio">Pegando a sua localização (o celular pede permissão)…</div>';
+    navigator.geolocation.getCurrentPosition((pos) => porDistancia({ lat: pos.coords.latitude, lon: pos.coords.longitude }, 'Perto de onde você está'),
+      () => { $('#res').innerHTML = '<div class="vazio">Não consegui a sua localização. Digite o CEP ou o nome do bairro.</div>'; }, { enableHighAccuracy: true, timeout: 15000 });
+  });
+}
+// link do e-mail: o itinerário da pessoa em destaque
+async function modoPessoal(m) {
   try {
     // teste local (teste/): os dados chegam prontos, sem consultar o banco
-    if (Array.isArray(window.FRETADO_DADOS)) { ITINS = window.FRETADO_DADOS; throw 'pronto'; }
-    const r = await fetch(`${SUPABASE_URL}/rest/v1/rpc/fretado_publico`, { method: 'POST', headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${SUPABASE_ANON_KEY}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ p_codigos: cods }) });
-    if (!r.ok) throw new Error(String(r.status));
-    ITINS = await r.json();
-  } catch (e) { if (e !== 'pronto') { m.innerHTML = '<div class="caixa">Não consegui carregar o itinerário agora. Tente de novo em alguns minutos.</div>'; return; } }
+    ITINS = Array.isArray(window.FRETADO_DADOS) ? window.FRETADO_DADOS : await rpc('fretado_publico', { p_codigos: cods });
+  } catch (e) { m.innerHTML = '<div class="caixa">Não consegui carregar o itinerário agora. Tente de novo em alguns minutos.</div>'; return; }
   const meus = ITINS.filter((i) => i.escolhido);
   if (!meus.length) { m.innerHTML = '<div class="caixa">Este itinerário não está mais disponível. Fale com o Time de Admissão.</div>'; return; }
   const outros = ITINS.filter((i) => !i.escolhido);
-  m.innerHTML = `<div class="caixa"><h2>Ache o ponto mais perto de você</h2><p class="apoio" style="margin-top:0">Digite o CEP da sua rua (com ou sem traço), ou o nome da rua ou do bairro, por exemplo "São Geraldo" ou "Avenida Ayrton Senna". O CEP é consultado no ViaCEP, um serviço público de endereços; nada do que você digita fica guardado.</p>
-    <form class="busca" id="fBusca"><input id="q" inputmode="text" autocomplete="postal-code" placeholder="CEP da sua rua, nome da rua ou do bairro" aria-label="CEP, rua ou bairro"><button class="pri" type="submit">Buscar</button></form><div id="res" style="margin-top:10px"></div></div>
+  m.innerHTML = caixaBusca() + `
     <h2 style="margin:18px 0 8px">Seu itinerário</h2>
     ${meus.map((i) => itinerario(i, meus.length === 1)).join('')}
     ${outros.length ? `<details class="caixa"><summary>Outras linhas do mesmo turno (${outros.length})</summary><p class="apoio">Se outro ponto ficar mais perto, avise o Time de Admissão para trocar a sua linha.</p>${outros.map((i) => itinerario(i, false)).join('')}</details>` : ''}
     <p class="apoio">No primeiro dia, o convite da integração vale como passe no fretado.</p>`;
-  $('#fBusca').addEventListener('submit', (e) => { e.preventDefault(); const v = $('#q').value.trim(); if (v.length >= 3) buscar(v); });
+  ligarBusca();
 }
+// link geral: o candidato escolhe a unidade e o turno e vê todas as linhas
+const estiloSel = 'flex:1;min-height:46px;border:1px solid var(--linha);border-radius:10px;padding:8px;font:inherit;background:var(--sup2);color:var(--tx)';
+async function modoGeral(m) {
+  let turnos;
+  try { turnos = Array.isArray(window.FRETADO_TURNOS) ? window.FRETADO_TURNOS : await rpc('fretado_publico_turnos'); }
+  catch (e) { m.innerHTML = '<div class="caixa">Não consegui carregar as linhas agora. Tente de novo em alguns minutos.</div>'; return; }
+  const unis = [...new Set(turnos.map((x) => x.unidade))].sort();
+  const ps = new URLSearchParams(location.hash.slice(1));
+  const uni = unis.includes(ps.get('u')) ? ps.get('u') : '';
+  m.innerHTML = `<div class="caixa"><h2>Qual é a sua unidade e o seu turno?</h2><p class="apoio" style="margin-top:0">Escolha para ver as linhas do fretado e achar o ponto mais perto da sua casa.</p>
+    <div class="busca" style="margin-bottom:8px"><select id="selU" aria-label="Unidade" style="${estiloSel}"><option value="">Unidade</option>${unis.map((u) => `<option value="${esc(u)}" ${u === uni ? 'selected' : ''}>${esc(UNI_NOME[u] || u)}</option>`).join('')}</select></div>
+    <div class="busca"><select id="selT" aria-label="Turno" style="${estiloSel}"></select></div></div><div id="area"></div>`;
+  const preencherTurnos = () => {
+    const u = $('#selU').value; const ts = turnos.filter((x) => x.unidade === u);
+    $('#selT').innerHTML = '<option value="">' + (u ? 'Turno' : 'Escolha a unidade primeiro') + '</option>' + ts.map((x) => `<option value="${esc(x.turno)}" ${x.turno === ps.get('t') ? 'selected' : ''}>${esc(TURNO_NOME(x.turno))} · ${x.linhas} linha${x.linhas === 1 ? '' : 's'}</option>`).join('');
+  };
+  const carregar = async () => {
+    const u = $('#selU').value, tu = $('#selT').value; const area = $('#area');
+    if (!u || !tu) { area.innerHTML = ''; return; }
+    history.replaceState(null, '', location.pathname + location.search + '#u=' + encodeURIComponent(u) + '&t=' + encodeURIComponent(tu));
+    area.innerHTML = '<div class="caixa">Carregando as linhas…</div>';
+    try { ITINS = Array.isArray(window.FRETADO_DADOS) ? window.FRETADO_DADOS.filter((i) => i.unidade === u && i.turno === tu).map((i) => Object.assign({}, i, { escolhido: false })) : await rpc('fretado_publico_turno', { p_unidade: u, p_turno: tu }); }
+    catch (e) { area.innerHTML = '<div class="caixa">Não consegui carregar as linhas agora.</div>'; return; }
+    area.innerHTML = caixaBusca() + `<h2 style="margin:18px 0 8px">Linhas do ${esc(TURNO_NOME(tu).toLowerCase())} · ${ITINS.length}</h2>${ITINS.map((i) => itinerario(i, false)).join('')}
+      <p class="apoio">Achou o seu ponto? Conte à sua recrutadora qual é a linha, para ela registrar no seu cadastro.</p>`;
+    ligarBusca();
+  };
+  $('#selU').addEventListener('change', () => { preencherTurnos(); carregar(); });
+  $('#selT').addEventListener('change', carregar);
+  preencherTurnos(); if (uni && ps.get('t')) carregar();
+}
+function iniciar() { const m = $('#m'); if (cods.length) modoPessoal(m); else modoGeral(m); }
 iniciar();
 </script>
 </body>
