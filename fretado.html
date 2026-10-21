@@ -148,7 +148,7 @@ async function buscar(txt) {
             if (o) { porDistancia(o, 'Perto de ' + out.dataset.local, t); return; }
           } catch (e) { /* sem mapa: segue pela busca por nome */ }
         }
-      } else { out.innerHTML = '<div class="vazio">CEP não encontrado. Tente digitar o nome da rua ou do bairro.</div>'; return; }
+      } else { out.innerHTML = '<div class="vazio">' + (dig.endsWith('000') ? 'Esse CEP é da cidade inteira, sem rua nem bairro.' : 'CEP não encontrado.') + ' Digite o nome da sua rua ou do seu bairro, ou use a sua localização.</div>'; return; }
     } catch (e) { out.innerHTML = '<div class="vazio">Não consegui consultar o CEP agora. Tente digitar o nome da rua ou do bairro.</div>'; return; }
   } else {
     out.dataset.local = '';
