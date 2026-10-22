@@ -93,20 +93,28 @@ function porDistancia(origem, rotulo, termos) {
     const g = grupos.get(k); if (!g.itins.includes(x.i)) { g.itins.push(x.i); g.horas.push(x.p.horario || ''); }
   }
   const todosG = [...grupos.values()];
-  const perto = todosG.filter((g) => g.d <= RAIO_M).slice(0, 15);
+  // o CEP não traz o número da casa: o mapa devolve um ponto qualquer da rua, que pode ser longa.
+  // Ponto na mesma rua entra sempre, marcado "na sua rua" (CEP 37552-475, 22/10/2026)
+  const rua = termos && termos.rua && termos.rua.length >= 4 ? termos.rua : '';
+  // só o trecho da rua no endereço (antes do " - bairro"): "Rua São João" não casa com o bairro Jardim São João
+  const naRua = (g) => !!rua && norm(String(g.p.endereco || '').split(' - ')[0]).includes(rua);
+  const perto = todosG.filter((g) => g.d <= RAIO_M || naRua(g)).slice(0, 15);
+  const qtdRua = perto.filter(naRua).length;
   // nada no raio: mostra os 3 mais próximos, avisando a distância
   const alem = perto.length ? [] : todosG.slice(0, 3);
   const vistos = new Set(grupos.keys());
   // pontos que o mapa não localizou, mas que combinam com a rua ou o bairro digitado
   const semCoord = [];
-  if (termos) ITINS.forEach((i) => (i.pontos || []).forEach((p) => { if (typeof p.lat === 'number') return; const s = pontuar(p, termos); const k = norm(p.endereco || p.referencia); if (s > 0 && !vistos.has(k)) { vistos.add(k); semCoord.push({ p, i, s }); } }));
+  // pelo CEP, só combinação forte (mesma rua ou mesmo bairro); palavra solta do bairro trazia ponto sem relação
+  const minimo = rua ? 6 : 1;
+  if (termos) ITINS.forEach((i) => (i.pontos || []).forEach((p) => { if (typeof p.lat === 'number') return; const s = pontuar(p, termos); const k = norm(p.endereco || p.referencia); if (s >= minimo && !vistos.has(k)) { vistos.add(k); semCoord.push({ p, i, s }); } }));
   semCoord.sort((a, b) => b.s - a.s);
   const cartaoG = (g) => g.itins.length === 1
-    ? cartaoPonto(g.p, titulo(g.itins[0].linha), temEscolhido() && !g.itins[0].escolhido, g.d)
-    : cartaoPonto(Object.assign({}, g.p, { horario: '' }), g.itins.map((i, n) => titulo(i.linha) + (g.horas[n] ? ' ' + g.horas[n] : '')).join(' · '), temEscolhido() && !g.itins.some((i) => i.escolhido), g.d);
+    ? cartaoPonto(naRua(g) ? Object.assign({}, g.p, { naRua: true }) : g.p, titulo(g.itins[0].linha), temEscolhido() && !g.itins[0].escolhido, g.d)
+    : cartaoPonto(Object.assign({}, g.p, { horario: '', naRua: naRua(g) }), g.itins.map((i, n) => titulo(i.linha) + (g.horas[n] ? ' ' + g.horas[n] : '')).join(' · '), temEscolhido() && !g.itins.some((i) => i.escolhido), g.d);
   const rot = rotulo ? esc(rotulo) + ': ' : '';
   let h = '';
-  if (perto.length) h = `<p class="apoio">${rot}${perto.length === 1 ? 'o ponto' : perto.length + ' pontos'} do fretado a até ${RAIO_M} m, do mais perto para o mais longe (distância em linha reta). Use "Como chegar daqui" para ver o caminho a pé.</p>` + perto.map(cartaoG).join('');
+  if (perto.length) h = `<p class="apoio">${rot}${perto.length === 1 ? 'o ponto' : perto.length + ' pontos'} do fretado ${qtdRua ? (qtdRua === perto.length ? 'na sua rua' : 'na sua rua e a até ' + RAIO_M + ' m') : 'a até ' + RAIO_M + ' m'}, do mais perto para o mais longe (distância em linha reta${qtdRua ? '; sem o número da casa, a distância na mesma rua é aproximada' : ''}). Use "Como chegar daqui" para ver o caminho a pé.</p>` + perto.map(cartaoG).join('');
   else if (alem.length) h = `<div class="vazio">${rot}nenhum ponto do fretado a até ${RAIO_M} m. Os mais próximos:</div>` + alem.map(cartaoG).join('');
   if (semCoord.length) h += '<p class="apoio" style="margin-top:12px">Também combinam com o que você digitou (sem distância calculada):</p>' + semCoord.slice(0, 5).map((x) => cartaoPonto(x.p, titulo(x.i.linha), temEscolhido() && !x.i.escolhido)).join('');
   out.innerHTML = h || '<div class="vazio">Não consegui calcular a distância. Digite o nome do seu bairro.</div>';
@@ -114,7 +122,7 @@ function porDistancia(origem, rotulo, termos) {
 
 function cartaoPonto(p, linha, outra, dist) {
   const end = String(p.endereco || '').replace(/, Brasil$/, '').replace(/,(\s*,)+/g, ',');
-  return `<div class="ponto"><div class="hora">${esc(p.horario || '')}${dist != null ? `<div class="dist">${p.aprox ? fmtDist(Math.max(100, Math.ceil(dist / 100) * 100)) + ' <span style="font-weight:400;color:var(--mudo)">(aprox.)</span>' : fmtDist(dist)}</div>` : ''}</div><div><div class="ref">${esc(p.referencia || end)}${linha ? ` <span class="chip">${esc(linha)}${outra ? ' · outra linha do turno' : ''}</span>` : ''}</div>${p.bairro ? `<div class="apoio">${esc(p.bairro)}${p.cidade ? ' · ' + esc(p.cidade) : ''}</div>` : ''}${end ? `<div class="end">${esc(end)}</div><div class="acoes"><a class="bt" href="${esc(mapa(end))}" target="_blank" rel="noopener">Ver no mapa</a><a class="bt" href="${esc(rota(end))}" target="_blank" rel="noopener">Como chegar daqui</a></div>` : ''}</div></div>`;
+  return `<div class="ponto"><div class="hora">${esc(p.horario || '')}${dist != null ? `<div class="dist">${p.naRua ? 'na sua rua' : p.aprox ? fmtDist(Math.max(100, Math.ceil(dist / 100) * 100)) + ' <span style="font-weight:400;color:var(--mudo)">(aprox.)</span>' : fmtDist(dist)}</div>` : ''}</div><div><div class="ref">${esc(p.referencia || end)}${linha ? ` <span class="chip">${esc(linha)}${outra ? ' · outra linha do turno' : ''}</span>` : ''}</div>${p.bairro ? `<div class="apoio">${esc(p.bairro)}${p.cidade ? ' · ' + esc(p.cidade) : ''}</div>` : ''}${end ? `<div class="end">${esc(end)}</div><div class="acoes"><a class="bt" href="${esc(mapa(end))}" target="_blank" rel="noopener">Ver no mapa</a><a class="bt" href="${esc(rota(end))}" target="_blank" rel="noopener">Como chegar daqui</a></div>` : ''}</div></div>`;
 }
 function itinerario(i, aberto) {
   const ps = Array.isArray(i.pontos) ? i.pontos : [];
