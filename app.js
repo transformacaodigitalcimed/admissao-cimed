@@ -2835,4 +2835,18 @@ $('#arquivoDoc').addEventListener('change', async (e) => { const fs = [...e.targ
 $('#arquivoXlsx').addEventListener('change', async (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) { try { await lerPlanilha(f); } catch (err) { toast('Não consegui ler esta planilha: ' + err.message, true); } } });
 setInterval(() => { if (E.perfil && !$('#camada').innerHTML && !document.querySelector('.modal-veu') && ['inicio', 'painel', 'documentos', 'entregas', 'emails', 'compliance'].includes(E.view)) recarregar(); }, 120000);
 
+// versão publicada: o navegador pode guardar o index.html antigo e mostrar a tela de antes.
+// O versao.txt diz qual é a atual; se for mais nova, busca o index de novo e recarrega (uma vez por versão).
+const VERSAO = 64;
+async function conferirVersao() {
+  try {
+    const nova = parseInt(await (await fetch('versao.txt', { cache: 'no-store' })).text(), 10);
+    if (!(nova > VERSAO)) return;
+    const chave = 'recarregou-' + nova;
+    try { if (sessionStorage.getItem(chave)) return; sessionStorage.setItem(chave, '1'); } catch { /* sem armazenamento: recarrega mesmo assim */ }
+    await Promise.all(['index.html', './'].map((u) => fetch(u, { cache: 'reload' }).catch(() => null)));
+    location.reload();
+  } catch { /* sem rede ou sem o arquivo (ambiente de teste): segue */ }
+}
+conferirVersao(); setInterval(conferirVersao, 10 * 60 * 1000);
 iniciar();
