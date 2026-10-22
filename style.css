@@ -530,3 +530,99 @@ details.itin{border:1px solid var(--linha);border-radius:10px;padding:8px 10px;b
 details.itin+details.itin{margin-top:6px}
 details.itin summary{cursor:pointer;font-size:13px}
 details.itin .tab-wrap{margin-top:8px}
+
+/* =====================================================================
+   FORMULÁRIOS (22/10/2026): Cadastrar aprovado e Editar cadastro.
+   Opções (.marcas) com caixa de seleção do tamanho certo, campos da mesma
+   altura, seções com marcador amarelo, erros em vermelho e celular com toque de 44px.
+   ===================================================================== */
+:root{--ativo-borda:#E8C548}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--ativo-borda:#8A7220}}
+:root[data-theme="dark"]{--ativo-borda:#8A7220}
+
+/* grade e seções */
+.form{gap:18px 16px;align-items:start}
+.form > .secao-form{display:flex;align-items:center;gap:10px;font-size:15.5px;margin-top:10px;padding-top:24px;color:var(--tx)}
+.form > .secao-form::before{content:"";flex:none;width:4px;height:18px;border-radius:4px;background:var(--amarelo)}
+.form > .secao-form:first-child{margin-top:0;padding-top:0}
+
+/* rótulo, campo, ajuda, erro */
+.campo{gap:6px}
+.campo > label{line-height:1.3}
+.campo input:not([type=checkbox]):not([type=radio]),.campo select,.campo textarea{min-height:42px;border-radius:10px;padding:9px 12px;line-height:1.35;transition:border-color .15s,box-shadow .15s}
+.campo select{padding-right:8px}
+.campo input::placeholder,.campo textarea::placeholder{color:var(--mudo);opacity:.75}
+.campo input:not([type=checkbox]):not([type=radio]):focus,.campo select:focus,.campo textarea:focus{outline:none;border-color:var(--amarelo);box-shadow:0 0 0 3px var(--ativo)}
+.campo input[readonly]{background:var(--sup2);color:var(--tx2);cursor:default;text-overflow:ellipsis}
+.campo .ajuda{font-size:12px;line-height:1.45}
+.campo .ajuda:empty{display:none}
+.campo .erro{display:flex;align-items:flex-start;gap:6px;font-size:12.5px;line-height:1.4}
+.campo .erro::before{content:"!";flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;margin-top:1px;border-radius:50%;background:var(--cr);color:var(--sup);font-size:11px;font-weight:800}
+.campo:has(> .erro) > input,.campo:has(> .erro) > select,.campo:has(> .erro) .marcas label{border-color:var(--cr)}
+
+/* opções (caixa de seleção e rádio em pílula) */
+.marcas{gap:8px}
+.marcas label{display:inline-flex;align-items:center;gap:8px;min-height:38px;padding:7px 14px;border:1px solid var(--linha);border-radius:999px;background:var(--sup);font-size:13px;font-weight:500;color:var(--tx);line-height:1.35;cursor:pointer;transition:background-color .15s,border-color .15s}
+.marcas label:hover{border-color:var(--mudo)}
+.marcas input[type=checkbox],.marcas input[type=radio]{flex:none;width:16px;height:16px;min-height:0;margin:0;padding:0;border:0;border-radius:0;background:none;box-shadow:none;accent-color:var(--tx);cursor:pointer}
+.marcas label:has(input:checked){background:var(--ativo);border-color:var(--ativo-borda)}
+@supports selector(:has(*)){
+  .marcas input:focus-visible{outline:none}
+  .marcas label:has(input:focus-visible){outline:3px solid var(--amarelo);outline-offset:2px}
+}
+/* dentro do formulário: mesma altura e cantos dos campos, para alinhar na linha */
+.campo .marcas label{min-height:42px;padding:9px 14px;border-radius:10px;font-size:13.5px}
+.campo .marcas label:has(.erro){display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;column-gap:8px;row-gap:4px;background:var(--cr-bg);border-color:var(--cr)}
+.campo .marcas label .erro{grid-column:1 / -1}
+.campo .marcas#n_ti label,.campo .marcas#e_ti label,.campo .marcas#n_motivoBox label{white-space:nowrap}
+.campo .marcas#n_ti,.campo .marcas#e_ti{gap:6px}
+.campo .marcas#n_ti label,.campo .marcas#e_ti label{padding-inline:11px;gap:7px}
+/* "Uso do carro" aparece logo abaixo/ao lado de "Usa veículo da frota?" */
+@media (min-width:1101px){#n_frotaTipoBox{grid-column:3 / span 2}}
+
+/* integração: sem a "Data de início", o Formato ocupa duas colunas e a linha fecha */
+@media (min-width:521px){#n_inicioBox[hidden] ~ .campo:has(> #n_formato){grid-column:span 2}}
+
+/* dependentes: dados na 1ª linha, o que a pessoa recebe na 2ª */
+.deps{gap:10px}
+.deps:has(.dep-linha) > .apoio{display:none}
+.dep-linha:not(.so-leitura){grid-template-columns:minmax(0,1.7fr) minmax(0,1fr) 156px 156px auto;gap:10px;padding:12px;border-radius:12px;background:var(--sup2)}
+.dep-linha:not(.so-leitura) .marcas{grid-column:1 / -1;grid-row:2}
+.dep-linha:not(.so-leitura) > button{grid-column:5;grid-row:1}
+.dep-linha input:not([type=checkbox]),.dep-linha select{min-height:40px;border-radius:10px;padding:8px 10px;font-size:13.5px;background:var(--sup)}
+.dep-linha input:not([type=checkbox]):focus,.dep-linha select:focus{outline:none;border-color:var(--amarelo);box-shadow:0 0 0 3px var(--ativo)}
+.dep-linha .marcas label,.campo .dep-linha .marcas label{min-height:34px;padding:6px 12px;font-size:12.5px;border-radius:999px}
+.campo .deps + .linha-flex{margin-top:10px;align-items:flex-start;flex-wrap:nowrap}
+.campo .deps + .linha-flex .bt{flex:none}
+.campo .deps + .linha-flex .ajuda{padding-top:6px}
+
+/* rodapé do formulário */
+.rodape-form{justify-content:flex-end;gap:12px;margin-top:24px;padding-top:18px;border-top:1px solid var(--linha)}
+.rodape-form #n_resumo{flex:1;min-width:220px;font-size:13px}
+.rodape-form #n_resumo:empty{display:none}
+.rodape-form .bt.pri{min-height:44px;padding:10px 22px;font-size:14px}
+
+@media (max-width:1100px){
+  .dep-linha:not(.so-leitura){grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+  .dep-linha:not(.so-leitura) .marcas{grid-row:auto}
+  .dep-linha:not(.so-leitura) > button{grid-column:1 / -1;grid-row:auto;justify-self:end}
+}
+@media (max-width:860px){
+  .campo input:not([type=checkbox]):not([type=radio]),.campo select,.dep-linha input:not([type=checkbox]),.dep-linha select{min-height:44px;font-size:16px}
+  .marcas label,.campo .marcas label,.dep-linha .marcas label,.campo .dep-linha .marcas label{min-height:44px}
+  .marcas input[type=checkbox],.marcas input[type=radio]{width:18px;height:18px}
+  .rodape-form .bt.pri{min-height:48px}
+}
+@media (max-width:520px){
+  .form{gap:16px}
+  .caixa:has(> .form){padding:16px}
+  .campo .marcas{display:grid;grid-template-columns:minmax(0,1fr)}
+  .campo .marcas#n_ti,.campo .marcas#e_ti,.campo .marcas#n_motivoBox{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .campo .marcas label{white-space:normal}
+  .dep-linha:not(.so-leitura){padding:10px}
+  .dep-linha:not(.so-leitura){grid-template-columns:minmax(0,1fr)}
+  .dep-linha:not(.so-leitura) .marcas{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+  .campo .deps + .linha-flex{flex-wrap:wrap}
+  .rodape-form{margin-top:20px}
+  .rodape-form .bt.pri{width:100%}
+}

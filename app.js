@@ -1181,9 +1181,9 @@ VIEWS.novo = () => {
     <div class="campo"><label for="n_civil">Estado civil</label><select id="n_civil">${opt(['Solteiro(a)', 'Casado(a)', 'União estável', 'Divorciado(a)', 'Viúvo(a)'])}</select><span class="ajuda">Casado(a) ou união estável: certidão, RG e SUS do cônjuge.</span></div>
     <div class="campo"><label for="n_filhos">Filhos</label><input id="n_filhos" type="number" min="0" max="15" value="0" ${deps ? 'readonly title="Vem da lista de dependentes"' : ''}>${deps ? '<span class="ajuda">Contado pela lista de dependentes abaixo.</span>' : ''}</div>
     <div class="campo"><label for="n_tipo">Contratação</label><select id="n_tipo">${opt(['CLT', 'Jovem aprendiz', 'Estágio', 'Temporário'])}</select><span class="ajuda">Estágio vai como S-2300; aprendiz e estágio têm pacote de benefícios próprio.</span></div>
+    <div class="campo"><label for="n_pcd">PCD</label><select id="n_pcd">${opt(['Não', 'Auditiva', 'Física', 'Intelectual', 'Visual', 'Mental', 'Reabilitado'])}</select><span class="ajuda">O tipo só a Saúde, a Admissão e a Remuneração veem (cota e laudo).</span></div>
     <div class="campo" id="n_agenciaBox" hidden><label for="n_agencia">Agência</label><input id="n_agencia" placeholder="Agência do temporário"><span class="ajuda">Só para temporário: é contratado pela agência.</span></div>
     ${temSql31() ? '<div class="campo l2"><label>Plano de saúde da Cimed</label><div class="marcas"><label><input type="checkbox" id="n_eradep"> Já é dependente de alguém da Cimed no plano (vai virar titular)</label></div><span class="ajuda">Benefícios move de dependente para titular no WKF da operadora.</span></div>' : ''}
-    <div class="campo"><label for="n_pcd">PCD</label><select id="n_pcd">${opt(['Não', 'Auditiva', 'Física', 'Intelectual', 'Visual', 'Mental', 'Reabilitado'])}</select><span class="ajuda">O tipo só a Saúde, a Admissão e a Remuneração veem (cota e laudo).</span></div>
     ${deps ? `<div class="secao-form">Dependentes</div><div class="campo l4">${blocoDeps(E.depsNovo, 'n', true)}</div>` : ''}
     <div class="secao-form">Vaga</div>
     <div class="campo"><label for="n_cargo">Cargo</label><input id="n_cargo"></div>
@@ -1211,16 +1211,16 @@ VIEWS.novo = () => {
     <div class="campo"><label for="n_hora">Horário da integração</label><input id="n_hora" value="${esc(l0.hora || '08:00')}" placeholder="08:00"></div>
     <div class="campo"><label for="n_formato">Formato</label><select id="n_formato"><option value="">Padrão do local</option><option value="presencial">Presencial</option><option value="online">On-line (Teams)</option></select></div>
     <div class="campo l2"><label for="n_link">Link do Teams ou endereço</label><input id="n_link" placeholder="Padrão da turma, se houver"><span class="ajuda">Vai no convite ao candidato.</span></div>
-    <div class="campo"><label for="n_contato">Quem procurar ao chegar</label><input id="n_contato" placeholder="Nome e ramal"></div>
+    <div class="campo l2"><label for="n_contato">Quem procurar ao chegar</label><input id="n_contato" placeholder="Nome e ramal"></div>
     <div class="secao-form">Para as áreas</div>
     <div class="campo"><label for="n_camisa">Tamanho de camisa</label><select id="n_camisa">${opt(['PP', 'P', 'M', 'G', 'GG', 'XGG', 'Não usa uniforme'], 'M')}</select></div>
+    <div class="campo"><label for="n_cd_entrega">CD de entrega do equipamento</label><input id="n_cd_entrega" placeholder="Só para o comercial"><span class="ajuda">A TI não entrega em casa: vai para o CD mais perto.</span></div>
     <div class="campo l2"><label for="n_fretado">Linha do fretado${temSql31() ? ' (pelo turno)' : ''}</label><div id="n_fretadoWrap">${selFretado('Pouso Alegre')}</div><span class="ajuda" id="n_fretadoAj">${temSql31() ? 'Só aparecem as linhas que atendem o turno escolhido. O colaborador recebe o itinerário por e-mail.' : 'Benefícios cadastra no Rota para o QR Code.'}</span></div>
     ${temSql31() ? `<div class="campo l2" id="n_frIntegBox"><label>Fretado na integração</label><div class="marcas"><label><input type="checkbox" id="n_frInteg"> Precisará de fretado na integração? (turno administrativo)</label></div><div id="n_frIntegWrap" hidden></div><span class="ajuda">Só Pouso Alegre e Fernão Dias. O e-mail leva o itinerário da integração e o do turno.</span></div>` : ''}
-    <div class="campo"><label for="n_cd_entrega">CD de entrega do equipamento</label><input id="n_cd_entrega" placeholder="Só para o comercial"><span class="ajuda">A TI não entrega em casa: vai para o CD mais perto.</span></div>
     <div class="campo l2"><label>Usa veículo da frota?</label><div class="marcas"><label><input type="checkbox" id="n_frota"> Sim, vai dirigir carro da empresa</label><label><input type="checkbox" id="n_motorista"> Motorista profissional (dirigir é a função)</label></div><span class="ajuda">Frotas separa o veículo; motorista profissional pede CNH com EAR e toxicológico.</span></div>
     ${temSql35() ? `<div class="campo l2" id="n_frotaTipoBox" hidden><label for="n_frota_tipo">Uso do carro</label><select id="n_frota_tipo"><option value="">Escolha</option>${Object.entries(FROTA_TIPO).map(([k, x]) => `<option value="${k}">${esc(x)}</option>`).join('')}</select><span class="ajuda" id="n_frotaAj">Frotas recebe o aviso já no cadastro. Prazo da política: 2 dias no comercial, 30 no benefício. A pessoa envia a CNH definitiva e o extrato de pontos.</span></div>` : ''}
     <div class="campo l4"><label>Equipamentos e acessos</label><div class="marcas" id="n_ti">${itensTi.map((x) => `<label><input type="checkbox" value="${esc(x)}"> ${esc(x)}</label>`).join('')}</div><span class="ajuda">A TI recebe a previsão agora; a Admissão abre o chamado com a matrícula usando estes dados.</span></div>
-  </div><div class="linha-flex" style="margin-top:18px;justify-content:flex-end"><span class="apoio" id="n_resumo" style="flex:1;min-width:220px"></span><button type="submit" class="bt pri" id="n_salvar">Salvar e avisar as áreas</button></div></form>`;
+  </div><div class="linha-flex rodape-form"><span class="apoio" id="n_resumo"></span><button type="submit" class="bt pri" id="n_salvar">Salvar e avisar as áreas</button></div></form>`;
 };
 POS.novo = () => {
   const f = $('#fNovo'); let nr12Manual = false, diasManual = false, horaManual = false;
@@ -1816,10 +1816,10 @@ VIEWS.kit = () => {
   const prox = E.turmaKit || ts.find((t) => deIso(t) >= deIso(iso(new Date()))) || ts[ts.length - 1] || '';
   const prontos = vivas().filter((a) => a.matricula && a.data_inicio === prox).length;
   if (modoEsteira()) return `<div class="cab"><div class="t"><span class="olho">Kit admissional</span><h1>Assinatura pela Cimed</h1><p class="apoio">Os kits publicados pela Admissão chegam aqui sozinhos. Leia o kit se quiser e assine com a sua assinatura; ela volta para a Admissão na hora.</p></div>
-    <a class="bt" href="${(window.ESTEIRA_URL || 'esteira.html') + '?v=40' + modoEsteira()}" target="_blank" rel="noopener">Abrir em tela cheia</a></div>
+    <a class="bt" href="${(window.ESTEIRA_URL || 'esteira.html') + '?v=41' + modoEsteira()}" target="_blank" rel="noopener">Abrir em tela cheia</a></div>
   ${ondeEstaCadaKit('todas')}`;
   return `<div class="cab"><div class="t"><span class="olho">Kit admissional</span><h1>Esteira de assinatura</h1><p class="apoio">A mesma Esteira de Admissão de sempre: junta os PDFs do LG por pessoa, a Cimed assina primeiro e o colaborador assina na tela. Com <b>Publicar on-line</b>, o kit vai para o armazenamento privado da plataforma: a Cimed assina de qualquer aparelho e o colaborador assina pelo QR, no celular dele, depois de confirmar CPF e data de nascimento. Sem publicar, o kit fica só neste aparelho, como antes.</p></div>
-    <a class="bt" href="${(window.ESTEIRA_URL || 'esteira.html') + '?v=40' + modoEsteira()}" target="_blank" rel="noopener">Abrir em tela cheia</a></div>
+    <a class="bt" href="${(window.ESTEIRA_URL || 'esteira.html') + '?v=41' + modoEsteira()}" target="_blank" rel="noopener">Abrir em tela cheia</a></div>
   ${faixaBlocos()}
   ${ondeEstaCadaKit(prox)}
   ${tem('admissao') && ts.length ? `<div class="faixa"><p><b>Lista de admitidos para a Esteira.</b> Copie os matriculados de uma turma e cole no passo 1 da Esteira, em "Colar da planilha". Nome, CPF, matrícula, unidade e cargo vão no formato que ela lê.</p>
@@ -1835,7 +1835,7 @@ POS.kit = () => {
   const atual = host.firstChild;
   if (atual && String(atual.src || '').includes('modo=signatario') !== !!modoEsteira()) host.innerHTML = '';
   if (!host.firstChild) {
-    host.innerHTML = `<iframe class="esteira" src="${(window.ESTEIRA_URL || 'esteira.html') + '?v=40' + modoEsteira()}" title="Esteira de Admissão"></iframe>`;
+    host.innerHTML = `<iframe class="esteira" src="${(window.ESTEIRA_URL || 'esteira.html') + '?v=41' + modoEsteira()}" title="Esteira de Admissão"></iframe>`;
     // a Esteira lê os mesmos parâmetros do Supabase; mandar daqui cobre o teste sem banco e evita esperar
     const fr = host.firstChild;
     fr.addEventListener('load', () => {

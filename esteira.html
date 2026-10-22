@@ -96,6 +96,10 @@ button{font:inherit;color:inherit}
 /* ---------- topo ---------- */
 .faixa{height:7px;background:var(--amarelo)}
 .topo{background:var(--papel);border-bottom:1px solid var(--linha)}
+/* dentro da plataforma (iframe) o cabeçalho próprio sai: a plataforma já tem o dela; ficam as abas (22/10/2026) */
+body.embutida .faixa,body.embutida .topo .marca,body.embutida .topo-dir{display:none}
+body.embutida .topo-in{padding-top:6px}
+body.embutida .abas{padding-top:10px}
 .topo-in{max-width:1400px;margin:0 auto;padding:20px 26px 0;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
 .marca{display:flex;align-items:center;gap:12px;min-width:0}
 .marca-icone{
@@ -489,6 +493,7 @@ body.modo-colab .celular{border:0}
     </nav>
   </div>
 </header>
+<script>try{ if(window.self !== window.top) document.body.classList.add('embutida'); }catch(e){ document.body.classList.add('embutida'); }</script>
 
 <main>
 
