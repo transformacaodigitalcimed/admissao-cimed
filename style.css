@@ -577,8 +577,9 @@ details.itin .tab-wrap{margin-top:8px}
 .campo .marcas#n_ti label,.campo .marcas#e_ti label,.campo .marcas#n_motivoBox label{white-space:nowrap}
 .campo .marcas#n_ti,.campo .marcas#e_ti{gap:6px}
 .campo .marcas#n_ti label,.campo .marcas#e_ti label{padding-inline:11px;gap:7px}
-/* "Uso do carro" aparece logo abaixo/ao lado de "Usa veículo da frota?" */
-@media (min-width:1101px){#n_frotaTipoBox{grid-column:3 / span 2}}
+/* "Uso do carro" fica dentro do mesmo campo de "Usa veículo da frota?": a linha não abre buraco ao lado do fretado na integração */
+.campo .sub-campo{display:flex;flex-direction:column;gap:6px;margin-top:12px;padding-top:12px;border-top:1px dashed var(--linha)}
+.campo .sub-campo[hidden]{display:none}
 
 /* integração: sem a "Data de início", o Formato ocupa duas colunas e a linha fecha */
 @media (min-width:521px){#n_inicioBox[hidden] ~ .campo:has(> #n_formato){grid-column:span 2}}
