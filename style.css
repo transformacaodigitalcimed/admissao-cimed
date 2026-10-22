@@ -627,3 +627,8 @@ details.itin .tab-wrap{margin-top:8px}
   .rodape-form{margin-top:20px}
   .rodape-form .bt.pri{width:100%}
 }
+/* SQL 39: "Mais opções" da Saúde na ficha */
+.mais-saude{border:1px dashed var(--linha);border-radius:12px;padding:4px 12px;background:var(--sup2)}
+.mais-saude>summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--tx2);padding:8px 0;list-style-position:inside}
+.mais-saude[open]>summary{margin-bottom:6px}
+.mais-saude .docs{padding-bottom:10px}
