@@ -72,7 +72,9 @@ function caixaPontos() {
 }
 // endereço → coordenadas pelo OpenStreetMap (só a rua e o bairro; o número da casa não vai)
 async function localizar(q) {
-  const cx = caixaPontos(); const ps = new URLSearchParams({ q, format: 'json', limit: '1', countrycodes: 'br' });
+  // texto livre ou por partes ({ street, city, state }): o bairro do Correios nem sempre é o do mapa
+  const cx = caixaPontos(); const ps = new URLSearchParams(typeof q === 'string' ? { q } : Object.assign({ country: 'Brasil' }, q));
+  ps.set('format', 'json'); ps.set('limit', '1'); ps.set('countrycodes', 'br');
   if (cx) { ps.set('viewbox', cx.join(',')); ps.set('bounded', '1'); }
   const r = await fetch('https://nominatim.openstreetmap.org/search?' + ps.toString(), { headers: { 'Accept-Language': 'pt-BR' } }).then((x) => x.json());
   return r && r[0] ? { lat: +r[0].lat, lon: +r[0].lon } : null;
@@ -129,7 +131,7 @@ function pontuar(p, t) {
   if (t.bairro && b && (b.includes(t.bairro) || t.bairro.includes(b))) s += 3;
   if (t.rua && t.rua.length >= 4 && e.includes(t.rua)) s += 8;
   (t.palavras || []).forEach((w) => { if (b.split(' ').includes(w)) s += 4; else if (b.includes(w)) s += 3; else if (e.split(' ').includes(w)) s += 2; });
-  if (t.cidade && c && c === t.cidade) s += 1;
+  if (s > 0 && t.cidade && c && c === t.cidade) s += 1;
   return s;
 }
 async function buscar(txt) {
@@ -146,8 +148,12 @@ async function buscar(txt) {
         if (comCoord()) {
           out.innerHTML = '<div class="vazio">Calculando as distâncias…</div>';
           try {
-            const o = (await localizar([r.logradouro, r.bairro, r.localidade, r.uf].filter(Boolean).join(', '))) || (await localizar([r.bairro, r.localidade, r.uf].filter(Boolean).join(', ')));
+            // 1º a rua pelas partes; 2º a rua em texto, sem o bairro; 3º só o bairro (aproximado)
+            let o = r.logradouro ? await localizar({ street: r.logradouro, city: r.localidade, state: r.uf }) : null;
+            if (!o && r.logradouro) o = await localizar([r.logradouro, r.localidade, r.uf].filter(Boolean).join(', '));
             if (o) { porDistancia(o, 'Perto de ' + out.dataset.local, t); return; }
+            o = r.bairro ? await localizar([r.bairro, r.localidade, r.uf].filter(Boolean).join(', ')) : null;
+            if (o) { porDistancia(o, 'Perto do bairro ' + r.bairro + ' (o mapa não achou a rua; distância aproximada pelo centro do bairro)', t); return; }
           } catch (e) { /* sem mapa: segue pela busca por nome */ }
         }
       } else { out.innerHTML = '<div class="vazio">' + (dig.endsWith('000') ? 'Esse CEP é da cidade inteira, sem rua nem bairro.' : 'CEP não encontrado.') + ' Digite o nome da sua rua ou do seu bairro, ou use a sua localização.</div>'; return; }
