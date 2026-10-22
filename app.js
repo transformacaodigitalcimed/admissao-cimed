@@ -1164,7 +1164,9 @@ function opcoesTurma(local, sel, cpf) {
   if (!op.length) op.push('<option value="">Nenhuma turma aberta: fale com o Time de Admissão</option>');
   return op.join('');
 }
-const textoCorte = (t) => (t ? `Inclusão até ${dmh(t.corte_inclusao)}${t.corte_remuneracao ? ' · Remuneração valida até ' + dmh(t.corte_remuneracao) : ''} · documentos, ASO e LG até ${dmh(t.corte_documentos)}` : '');
+const textoCorte = (t) => (t ? `Inclusão até ${dmh(t.corte_inclusao)}${t.corte_remuneracao ? ' · Remuneração valida até ' + dmh(t.corte_remuneracao) : ''}${t.corte_saude ? ' · Saúde (ASO apto) até ' + dmh(t.corte_saude) + ' · documentos e LG até ' : ' · documentos, ASO e LG até '}${dmh(t.corte_documentos)}` : '');
+// SQL 40: prazo da Saúde da turma; sem ele, vale o corte dos documentos
+const corteSaude = (a) => a.corte_saude || (E.turmasCal || []).find((t) => t.id === a.turma_id)?.corte_saude || a.corte_documentos || null;
 // fretado do formulário: com as linhas do LG grava o código e o nome; sem elas, o texto
 function fretadoDoForm(local) {
   const s = $('#n_fretado'); if (!s) return { fretado: null };
@@ -1427,7 +1429,7 @@ function etapasFluxo(a) {
   if ('saude_contato_em' in a) e.push(['Contato da Saúde', 'Saúde', a.saude_prazo_contato || null, !!a.saude_contato_em || asoOk(a)]);
   e.push(['Documentos', 'Candidato', doc, !!a.avisou_docs_ok]);
   if ('docs_revisados_em' in a) e.push(['Conferência final', 'Admissão' + (a.conferente_docs ? ' · ' + a.conferente_docs.split(' ')[0] : ''), doc, !!a.docs_revisados_em]);
-  e.push(['ASO apto', 'Saúde', doc, asoOk(a)]);
+  e.push(['ASO apto', 'Saúde', corteSaude(a) || doc, asoOk(a)]);
   if (ligado('exige_lg_movimentado')) e.push(['LG movimentado', 'R&S', doc, !!a.lg_movimentado_em]);
   e.push(['Matrícula', 'Admissão', vespera, !!a.matricula]);
   if ((a.ti_itens || []).length) e.push(['Chamado de TI', 'Admissão', ti ? new Date(ti.getFullYear(), ti.getMonth(), ti.getDate(), 18).toISOString() : null, !!a.chamado_ti]);
@@ -1835,13 +1837,26 @@ function fichaSaude(a) {
   return linhas.join('');
 }
 function filaSaude() {
-  const l = vivas().filter((a) => !a.matricula && a.kit_status !== 'concluido').sort((x, y) => (x.data_inicio + (asoOk(x) ? '1' : '0') + x.local).localeCompare(y.data_inicio + (asoOk(y) ? '1' : '0') + y.local));
-  if (!l.length) return '<div class="vazio">Ninguém esperando exame.</div>';
-  const corte = (a) => a.corte_documentos ? Math.ceil((new Date(a.corte_documentos).getTime() - Date.now()) / 86400000) : null;
-  const fx = l.some(fluxoSaude);
-  return `<div class="tab-wrap"><table><thead><tr><th>Pessoa</th><th>Cargo · local</th><th>Integração</th>${fx ? '<th>SOC</th><th>Contato</th><th>Vacinas</th>' : '<th>Contato</th>'}<th>Exame</th>${fx ? '<th>Prazo do ASO</th>' : ''}<th>Dias até o corte</th><th>LG</th></tr></thead><tbody>
-  ${l.map((a) => `<tr class="clic" data-act="ficha" data-id="${a.id}"><td><b>${esc(titulo(a.nome))}</b>${a.pcd !== 'Não' ? ' ' + chip('c-info', 'info', 'PCD') : ''}<br><span class="apoio num" style="font-size:12px">${esc(a.telefone || '')}${a.cpf ? (a.telefone ? ' · ' : '') + 'CPF ' + fmtCpf(a.cpf) : ''}</span></td><td>${esc(a.cargo)}<br><span class="apoio" style="font-size:12px">${esc(a.local)}${a.setor ? ' · ' + esc(a.setor) : ''}</span></td><td class="num">${dmd(a.data_inicio)}</td>${fx ? `<td>${chipSoc(a)}</td><td>${asoOk(a) ? '—' : chipContato(a)}</td><td>${chipVacina(a)}</td>` : `<td>${esc(a.email || '—')}</td>`}<td>${chipAso(a)}${a.aso_modo ? '<br><span class="apoio" style="font-size:12px">' + esc(MODO_ASO[a.aso_modo]) + (a.aso_clinica ? ' · ' + esc(a.aso_clinica) : '') + '</span>' : ''}${a.aso_remarcacoes ? '<br><span class="apoio" style="font-size:12px">' + plural(a.aso_remarcacoes, 'remarcação', 'remarcações') + ' de ' + remarcMax(a) + '</span>' : ''}${a.aso_restricao ? '<br><span class="apoio" style="font-size:12px">' + esc(a.aso_restricao) + '</span>' : ''}</td>${fx ? `<td>${asoOk(a) ? '—' : chipPrazoAso(a)}</td>` : ''}<td class="num">${corte(a) == null ? '—' : corte(a) < 0 ? chip('c-cr', 'cr', 'corte passou') : corte(a) <= 2 && !asoOk(a) ? chip('c-at', 'at', corte(a) + ' d') : corte(a) + ' d'}</td><td>${asoOk(a) ? (a.lg_movimentado_em ? chip('c-ok', 'ok', 'LG ' + dm(new Date(a.lg_movimentado_em))) : chip('c-ag', 'ag', 'LG pendente')) : '—'}</td></tr>`).join('')}
-  </tbody></table></div>`;
+  // Saúde enxuta (reunião de 22/10/2026): na lista, só o que a Saúde mexe todo dia; o resto fica na ficha
+  const todas = vivas().filter((a) => !a.matricula && a.kit_status !== 'concluido');
+  const pend = todas.filter((a) => !asoOk(a));
+  const l = (E.saudeTodos ? todas : pend).sort((x, y) => (x.data_inicio + x.local + x.nome).localeCompare(y.data_inicio + y.local + y.nome));
+  const pode = tem('saude', 'admin'); const sql39 = todas.some((a) => 'soc_refletido_em' in a);
+  const clin = opcoesLista('clinica_aso');
+  const dias = (a) => { const c = corteSaude(a); return c ? Math.ceil((new Date(c).getTime() - Date.now()) / 86400000) : null; };
+  const prazo = (a) => { const d = dias(a); const c = corteSaude(a); if (d == null) return ''; return d < 0 ? chip('c-cr', 'cr', 'ASO até ' + dm(c) + ': passou') : d <= 2 ? chip('c-at', 'at', 'ASO até ' + dm(c) + ' · ' + plural(d, 'dia', 'dias')) : `<span class="apoio" style="font-size:12px">ASO até ${dm(c)}</span>`; };
+  // na lista, o SOC em poucas palavras
+  const socCurto = (a) => !a.soc_cadastrado_em && !a.soc_refletido_em && !(a.soc_ausente_dias || []).length && !asoOk(a) ? chip('c-at', 'at', 'Falta no SOC') : chipSoc(a);
+  const linha = (a) => {
+    const ok = asoOk(a); const res = RESULTADO_ASO[a.aso_status] ? a.aso_status : '';
+    const soc = sql39 && pode && !ok && !a.soc_refletido_em ? `<div class="linha-flex" style="gap:4px;margin-top:6px;flex-wrap:nowrap"><button class="bt peq" data-act="socAusente" data-id="${a.id}" title="Grava hoje e avisa o R&S">Ainda não</button><button class="bt peq" data-act="socRefletiu" data-id="${a.id}">Apareceu</button></div>` : '';
+    const editor = pode && !ok && a.aso_status !== 'inapto' ? `<div class="linha-flex" style="gap:6px;flex-wrap:nowrap"><input type="date" id="asoData_${a.id}" class="sel-doc" value="${a.aso_data || ''}" aria-label="Data do exame"><input id="asoHora_${a.id}" class="sel-doc" style="width:58px" value="${esc(a.aso_hora || '')}" placeholder="hora" aria-label="Hora"><input id="asoLocal_${a.id}" class="sel-doc" style="width:150px" value="${esc(a.aso_local || '')}" placeholder="clínica ou ambulatório" aria-label="Local do exame"${clin.length ? ' list="dlClinicas"' : ''}></div>` : `${chipAso(a)}${a.aso_local && !ok ? '<br><span class="apoio" style="font-size:12px">' + esc(a.aso_local) + '</span>' : ''}`;
+    const resultado = pode && !ok && a.aso_status !== 'inapto' ? `<div class="linha-flex" style="gap:6px"><select class="sel-doc" id="asoRes_${a.id}" data-asores="${a.id}" aria-label="Resultado"><option value="">Sem resultado</option>${Object.entries(RESULTADO_ASO).map(([k, v]) => `<option value="${k}" ${k === res ? 'selected' : ''}>${v}</option>`).join('')}</select><input id="asoRestr_${a.id}" class="sel-doc" style="width:150px" value="${esc(a.aso_restricao || '')}" placeholder="qual a restrição" aria-label="Restrição"${res === 'apto_restricao' ? '' : ' hidden'}><button class="bt peq pri" data-act="asoLinha" data-id="${a.id}">Salvar</button></div>` : ok ? `<span class="apoio" style="font-size:12px">${a.aso_data ? 'em ' + dm(a.aso_data) : ''}</span>` : '<span class="apoio" style="font-size:12px">decida na ficha</span>';
+    return `<tr><td><span class="clic" role="button" tabindex="0" style="cursor:pointer;text-decoration:underline;text-decoration-color:var(--linha)" data-act="ficha" data-id="${a.id}"><b>${esc(titulo(a.nome))}</b></span>${a.pcd !== 'Não' ? ' ' + chip('c-info', 'info', 'PCD') : ''}<br><span class="apoio" style="font-size:12px">${esc(a.cargo)} · ${esc(a.local)}</span></td><td class="num">${dmd(a.data_inicio)}<br>${prazo(a)}</td><td>${socCurto(a)}${soc}</td><td>${editor}</td><td>${resultado}</td></tr>`;
+  };
+  return `${clin.length ? `<datalist id="dlClinicas">${clin.map((c) => `<option value="${esc(c)}">`).join('')}</datalist>` : ''}
+  <div class="linha-flex" style="justify-content:space-between"><p class="apoio" style="margin:0">${plural(pend.length, 'pessoa esperando exame', 'pessoas esperando exame')}${todas.length > pend.length ? ' · ' + plural(todas.length - pend.length, 'já apta', 'já aptas') : ''}</p>${todas.length > pend.length ? `<button class="bt peq" data-act="saudeTodos">${E.saudeTodos ? 'Esconder quem já está apto' : 'Mostrar também quem já está apto'}</button>` : ''}</div>
+  ${l.length ? `<div class="tab-wrap"><table class="t-saude"><thead><tr><th>Pessoa</th><th>Integração</th><th>SOC</th><th>Agendamento</th><th>Resultado</th></tr></thead><tbody>${l.map(linha).join('')}</tbody></table></div>` : '<div class="vazio">Ninguém esperando exame.</div>'}`;
 }
 // parâmetros que a Saúde ajusta (SQL 26): a lista de vacinas e se ela bloqueia o apto
 function vacinasSaude() {
@@ -1851,6 +1866,14 @@ function vacinasSaude() {
    <div class="linha-flex" style="align-items:flex-end;flex-wrap:wrap"><div class="campo" style="flex:1;min-width:240px"><label for="vacLista">Vacinas</label><input id="vacLista" value="${esc(E.params?.vacinas_obrigatorias || '')}" ${pode ? '' : 'readonly'}></div>
    <div class="campo"><label for="vacBloq">Bloqueia o apto</label><select id="vacBloq" class="sel-doc" ${pode ? '' : 'disabled'}><option value="sim" ${E.params?.vacina_bloqueia_apto !== 'nao' ? 'selected' : ''}>Sim</option><option value="nao" ${E.params?.vacina_bloqueia_apto === 'nao' ? 'selected' : ''}>Não, só registra</option></select></div>
    ${pode ? '<button class="bt pri" data-act="saudeParam">Salvar</button>' : ''}</div></div>`;
+}
+// tela da Saúde depois do SQL 39: a lista com agendar e resultado; configurações e laudos recolhidos
+function saudeEnxuta() {
+  const pcd = E.admissoes.some((a) => a.pcd && a.pcd !== 'Não' && !a.declinou_em && !a.expurgado_em);
+  return `<div class="cab"><div class="t"><span class="olho">Saúde ocupacional</span><h1>Exame admissional</h1><p class="apoio">Agende e registre o resultado direto na lista. Agendar com data envia o e-mail ao candidato com local, exames e preparo. Para contato, vacinas, exames da função e envio ao R&S, clique no nome. O ASO oficial continua no SOC.</p></div></div>
+ <div class="caixa pilha">${filaSaude()}</div>
+ ${pcd ? `<div class="caixa pilha"><h2>Laudos PCD</h2>${laudosParaSaude()}</div>` : ''}
+ <details class="caixa pilha mais-saude"><summary>Configurações da Saúde: clínicas credenciadas, preparo dos exames e vacinas obrigatórias</summary>${listasDaSaude()}${vacinasSaude()}</details>`;
 }
 // listas da Saúde (SQL 39): clínicas credenciadas (local do exame) e preparo de cada exame (vai no e-mail do exame)
 function listasDaSaude() {
@@ -1869,7 +1892,7 @@ function listasDaSaude() {
     ${pode ? `<div class="linha-flex" style="align-items:flex-end;flex-wrap:wrap"><div class="campo" style="min-width:140px"><label for="sl_f_preparo_exame">Exame</label><input id="sl_f_preparo_exame" placeholder="Toxicológico"></div><div class="campo" style="flex:1;min-width:200px"><label for="sl_v_preparo_exame">Preparo</label><input id="sl_v_preparo_exame" placeholder="o que fazer antes do exame"></div><button class="bt" data-act="slAdd" data-t="preparo_exame">Incluir</button></div>` : ''}</div>
   </div>`;
 }
-VIEWS.saude = () => `<div class="cab"><div class="t"><span class="olho">Saúde ocupacional</span><h1>Exame admissional</h1><p class="apoio">${E.params?.vacinas_obrigatorias == null ? 'Quem precisa de exame, por turma. Clique na pessoa para agendar (data, hora e local: o candidato recebe o e-mail), registrar apto, apto com restrição ou inapto. Apto libera a matrícula e pede à recrutadora a movimentação no LG; inapto avisa o R&S e a Admissão, e a Saúde decide na ficha se remarca o exame ou cancela a admissão. O ASO oficial continua no SOC.' : `Fluxo da Saúde: o R&S cadastra no SOC; cadastro até 12h, a Saúde faz o contato no mesmo dia, depois das 12h no dia útil seguinte. No contato a Saúde confere as vacinas, agenda o exame (rede credenciada, clínica próxima ou reembolso) e dá o parecer. Prazo do ASO: 5 dias úteis só com exame clínico, 10 com exames complementares (pela tabela de exames da função). Sem contato ou falta por 24h, recusa de vacina, segunda remarcação ou erro no SOC vão para o R&S decidir. Clique na pessoa para registrar.${E.params?.vacina_documento != null ? ' Na ficha ficam à vista o agendamento e o resultado (apto, apto com restrição ou não recomendado); o resto fica em "Mais opções". O prazo conta de quando a pessoa aparece no SOC: use "Ainda não está no SOC" e "Apareceu no SOC".' : ''} O ASO oficial continua no SOC.`}</p></div></div>
+VIEWS.saude = () => E.params?.vacina_documento != null ? saudeEnxuta() : `<div class="cab"><div class="t"><span class="olho">Saúde ocupacional</span><h1>Exame admissional</h1><p class="apoio">${E.params?.vacinas_obrigatorias == null ? 'Quem precisa de exame, por turma. Clique na pessoa para agendar (data, hora e local: o candidato recebe o e-mail), registrar apto, apto com restrição ou inapto. Apto libera a matrícula e pede à recrutadora a movimentação no LG; inapto avisa o R&S e a Admissão, e a Saúde decide na ficha se remarca o exame ou cancela a admissão. O ASO oficial continua no SOC.' : `Fluxo da Saúde: o R&S cadastra no SOC; cadastro até 12h, a Saúde faz o contato no mesmo dia, depois das 12h no dia útil seguinte. No contato a Saúde confere as vacinas, agenda o exame (rede credenciada, clínica próxima ou reembolso) e dá o parecer. Prazo do ASO: 5 dias úteis só com exame clínico, 10 com exames complementares (pela tabela de exames da função). Sem contato ou falta por 24h, recusa de vacina, segunda remarcação ou erro no SOC vão para o R&S decidir. Clique na pessoa para registrar.${E.params?.vacina_documento != null ? ' Na ficha ficam à vista o agendamento e o resultado (apto, apto com restrição ou não recomendado); o resto fica em "Mais opções". O prazo conta de quando a pessoa aparece no SOC: use "Ainda não está no SOC" e "Apareceu no SOC".' : ''} O ASO oficial continua no SOC.`}</p></div></div>
  <div class="caixa pilha"><h2>Fila de agendamento</h2>${filaSaude()}</div>
  ${E.params?.vacina_documento != null ? listasDaSaude() : ''}
  ${vacinasSaude()}
@@ -2046,7 +2069,7 @@ VIEWS.turma = () => {
   <div class="filtros"><label class="olho" for="tlData">Turma</label><select id="tlData">${ds.map((d) => `<option value="${d}" ${d === E.turmaLista ? 'selected' : ''}>${dmd(d)}${E.turmasCal.some((t) => t.data === d) ? '' : ' · fora do cronograma'}</option>`).join('')}</select>
     <span class="olho">Unidades</span><div class="marcas">${locaisDia.map((n) => `<label><input type="checkbox" data-loc="${esc(n)}" ${E.locaisLista.includes(n) ? 'checked' : ''}> ${esc(n)}</label>`).join('') || '<span class="apoio">ninguém nesta data</span>'}</div>
     <label class="marcas"><label><input type="checkbox" id="tlSo" ${E.soMatriculados ? 'checked' : ''}> Só matriculados</label></label></div>
-  ${cal.length ? cal.map((t) => `<div class="faixa"><p><b>${esc(t.nome || GRUPO_TURMA[t.grupo])}</b> · inclusão até ${dmh(t.corte_inclusao)}${t.corte_remuneracao ? ' · Remuneração até ' + dmh(t.corte_remuneracao) : ''} · documentos, ASO e LG até ${dmh(t.corte_documentos)}${t.formato ? ' · ' + (t.formato === 'online' ? 'on-line' : 'presencial') : ''}${t.link_ou_endereco ? ' · ' + esc(t.link_ou_endereco) : ''}${t.contato_chegada ? ' · procurar ' + esc(t.contato_chegada) : ''}${t.concluida_avisada_em ? ' · ' + chip('c-ok', 'ok', 'áreas avisadas: admissões concluídas ' + dm(new Date(t.concluida_avisada_em))) : ''}</p>${tem('admissao') && temSql27() ? `<button class="bt peq" data-act="turmaConcluida" data-id="${t.id}" title="E-mail a todas as áreas com quem foi admitido nesta turma">${t.concluida_avisada_em ? 'Comunicar de novo' : 'Comunicar admissões concluídas'}</button>` : ''}</div>`).join('') : (E.turmaLista ? '<div class="aviso-faixa">Esta data não está no cronograma de turmas. Cadastre na tela "Cronograma e corte" para o corte e o convite usarem os horários certos.</div>' : '')}
+  ${cal.length ? cal.map((t) => `<div class="faixa"><p><b>${esc(t.nome || GRUPO_TURMA[t.grupo])}</b> · inclusão até ${dmh(t.corte_inclusao)}${t.corte_remuneracao ? ' · Remuneração até ' + dmh(t.corte_remuneracao) : ''}${t.corte_saude ? ' · Saúde até ' + dmh(t.corte_saude) + ' · documentos e LG até ' : ' · documentos, ASO e LG até '}${dmh(t.corte_documentos)}${t.formato ? ' · ' + (t.formato === 'online' ? 'on-line' : 'presencial') : ''}${t.link_ou_endereco ? ' · ' + esc(t.link_ou_endereco) : ''}${t.contato_chegada ? ' · procurar ' + esc(t.contato_chegada) : ''}${t.concluida_avisada_em ? ' · ' + chip('c-ok', 'ok', 'áreas avisadas: admissões concluídas ' + dm(new Date(t.concluida_avisada_em))) : ''}</p>${tem('admissao') && temSql27() ? `<button class="bt peq" data-act="turmaConcluida" data-id="${t.id}" title="E-mail a todas as áreas com quem foi admitido nesta turma">${t.concluida_avisada_em ? 'Comunicar de novo' : 'Comunicar admissões concluídas'}</button>` : ''}</div>`).join('') : (E.turmaLista ? '<div class="aviso-faixa">Esta data não está no cronograma de turmas. Cadastre na tela "Cronograma e corte" para o corte e o convite usarem os horários certos.</div>' : '')}
   <div class="caixa pilha"><div class="linha-flex"><h2 style="flex:1">${plural(lista.length, 'pessoa', 'pessoas')} na lista${semMat && E.soMatriculados ? ` <span class="apoio" style="font-size:13px">· ${plural(semMat, 'ainda sem matrícula', 'ainda sem matrícula')}</span>` : ''}</h2>
     <button class="bt" data-act="listaXlsx" ${lista.length ? '' : 'disabled'}>Baixar .xlsx</button><button class="bt" data-act="listaCsv" ${lista.length ? '' : 'disabled'}>Baixar .csv</button>
     ${tem('admissao') ? `<button class="bt pri" data-act="listaEnviar" ${lista.length && E.soMatriculados ? '' : 'disabled'} title="${E.soMatriculados ? '' : 'Marque só matriculados para enviar'}">Enviar por e-mail</button>` : ''}</div>
@@ -2066,7 +2089,7 @@ function cronogramaTurmas() {
   const hoje = iso(new Date());
   const ts = E.turmasCal.filter((t) => t.data >= iso(new Date(Date.now() - 30 * DIA))).sort((a, b) => a.data.localeCompare(b.data) || a.grupo.localeCompare(b.grupo));
   const ed = E.turmaEdit || {};
-  return `<div class="caixa pilha" id="cronograma"><h2>Cronograma de turmas</h2><p class="apoio" style="font-size:13px">O cronograma mensal do DP, dentro da plataforma: o cadastro escolhe a turma, o contador de corte e as cobranças usam estes horários, e o convite usa o formato, o link ou endereço e quem procurar. Regra sugerida (cronograma do mês): inclusão até 5 dias úteis antes, às 12h; a Remuneração valida até o fim do mesmo dia; documentos, ASO e LG até 4 dias antes, ao meio-dia. Semana com feriado: ajuste à mão.</p>
+  return `<div class="caixa pilha" id="cronograma"><h2>Cronograma de turmas</h2><p class="apoio" style="font-size:13px">O cronograma mensal do DP, dentro da plataforma: o cadastro escolhe a turma, o contador de corte e as cobranças usam estes horários, e o convite usa o formato, o link ou endereço e quem procurar. Regra sugerida (cronograma do mês): inclusão até 5 dias úteis antes, às 12h; a Remuneração valida até a terça-feira do corte de inclusão; documentos, ASO e LG até 4 dias antes, ao meio-dia (o prazo da Saúde pode ser outro). Semana com feriado: ajuste à mão.</p>
     <form id="fTurmaNova" class="form" style="grid-template-columns:repeat(6,minmax(0,1fr))">
       <input type="hidden" id="tnId" value="${esc(ed.id || '')}">
       <div class="campo"><label for="tnData">Data de admissão</label><input id="tnData" type="date" value="${esc(ed.data || '')}" required></div>
@@ -2074,13 +2097,14 @@ function cronogramaTurmas() {
       <div class="campo"><label for="tnInc">Inclusão até</label><input id="tnInc" type="datetime-local" value="${paraLocal(ed.corte_inclusao)}" required></div>
       <div class="campo"><label for="tnRem">Remuneração até</label><input id="tnRem" type="datetime-local" value="${paraLocal(ed.corte_remuneracao)}"></div>
       <div class="campo"><label for="tnDoc">Documentos até</label><input id="tnDoc" type="datetime-local" value="${paraLocal(ed.corte_documentos)}" required></div>
+      ${temCorteSaude() ? `<div class="campo"><label for="tnSaude">Saúde: ASO apto até</label><input id="tnSaude" type="datetime-local" value="${paraLocal(ed.corte_saude)}"></div>` : ''}
       <div class="campo"><label for="tnFormato">Formato</label><select id="tnFormato"><option value="">Padrão do local</option><option value="presencial" ${ed.formato === 'presencial' ? 'selected' : ''}>Presencial</option><option value="online" ${ed.formato === 'online' ? 'selected' : ''}>On-line</option></select></div>
       <div class="campo l2"><label for="tnLink">Link do Teams ou endereço</label><input id="tnLink" value="${esc(ed.link_ou_endereco || '')}"></div>
       <div class="campo l2"><label for="tnContato">Quem procurar ao chegar</label><input id="tnContato" value="${esc(ed.contato_chegada || '')}"></div>
       <div class="campo"><label for="tnObs">Observação</label><input id="tnObs" value="${esc(ed.observacao || '')}" placeholder="feriado, mutirão…"></div>
       <div class="campo" style="justify-content:flex-end"><div class="linha-flex"><button class="bt pri" type="submit">${ed.id ? 'Salvar turma' : 'Incluir turma'}</button>${ed.id ? '<button class="bt" type="button" data-act="turmaCancelar">Cancelar</button>' : ''}</div></div>
     </form>
-    ${ts.length ? `<div class="tab-wrap"><table><thead><tr><th>Admissão</th><th>Unidades</th><th>Inclusão até</th><th>Remuneração até</th><th>Documentos até</th><th>Formato · onde</th><th>Pessoas</th><th></th></tr></thead><tbody>${ts.map((t) => `<tr ${t.data < hoje ? 'style="opacity:.6"' : ''}><td class="num"><b>${dmd(t.data)}</b>${t.ativo ? '' : ' ' + chip('c-ag', '', 'inativa')}</td><td>${esc(t.nome || GRUPO_TURMA[t.grupo])}</td><td class="num">${dmh(t.corte_inclusao)}</td><td class="num">${t.corte_remuneracao ? dmh(t.corte_remuneracao) : '—'}</td><td class="num">${dmh(t.corte_documentos)}</td><td style="font-size:12.5px">${t.formato ? (t.formato === 'online' ? 'on-line' : 'presencial') : 'padrão'}${t.link_ou_endereco ? ' · ' + esc(t.link_ou_endereco) : ''}${t.contato_chegada ? ' · ' + esc(t.contato_chegada) : ''}</td><td class="num">${vivas().filter((a) => a.turma_id === t.id).length}</td><td><div class="linha-flex"><button class="bt peq" data-act="turmaEditar" data-id="${t.id}">Editar</button>${vivas().some((a) => a.turma_id === t.id) ? '' : `<button class="bt peq fan" data-act="turmaApagar" data-id="${t.id}">Apagar</button>`}</div></td></tr>`).join('')}</tbody></table></div>` : '<div class="vazio">Nenhuma turma cadastrada. Inclua as datas do cronograma do mês.</div>'}</div>`;
+    ${ts.length ? `<div class="tab-wrap"><table><thead><tr><th>Admissão</th><th>Unidades</th><th>Inclusão até</th><th>Remuneração até</th><th>Documentos até</th>${temCorteSaude() ? '<th>Saúde (ASO apto) até</th>' : ''}<th>Formato · onde</th><th>Pessoas</th><th></th></tr></thead><tbody>${ts.map((t) => `<tr ${t.data < hoje ? 'style="opacity:.6"' : ''}><td class="num"><b>${dmd(t.data)}</b>${t.ativo ? '' : ' ' + chip('c-ag', '', 'inativa')}</td><td>${esc(t.nome || GRUPO_TURMA[t.grupo])}</td><td class="num">${dmh(t.corte_inclusao)}</td><td class="num">${t.corte_remuneracao ? dmh(t.corte_remuneracao) : '—'}</td><td class="num">${dmh(t.corte_documentos)}</td>${temCorteSaude() ? `<td class="num">${dmh(t.corte_saude || t.corte_documentos)}</td>` : ''}<td style="font-size:12.5px">${t.formato ? (t.formato === 'online' ? 'on-line' : 'presencial') : 'padrão'}${t.link_ou_endereco ? ' · ' + esc(t.link_ou_endereco) : ''}${t.contato_chegada ? ' · ' + esc(t.contato_chegada) : ''}</td><td class="num">${vivas().filter((a) => a.turma_id === t.id).length}</td><td><div class="linha-flex"><button class="bt peq" data-act="turmaEditar" data-id="${t.id}">Editar</button>${vivas().some((a) => a.turma_id === t.id) ? '' : `<button class="bt peq fan" data-act="turmaApagar" data-id="${t.id}">Apagar</button>`}</div></td></tr>`).join('')}</tbody></table></div>` : '<div class="vazio">Nenhuma turma cadastrada. Inclua as datas do cronograma do mês.</div>'}</div>`;
 }
 function sugerirCortes() {
   const d = $('#tnData')?.value; if (!d) return;
@@ -2092,12 +2116,17 @@ function sugerirCortes() {
   const terca = () => { const x = new Date($('#tnInc').value ? new Date($('#tnInc').value) : base); while (x.getDay() !== 2) x.setDate(x.getDate() + 1); x.setHours(23, 59, 0, 0); return paraLocal(x.toISOString()); };
   if (!$('#tnRem').value) $('#tnRem').value = terca();
   if (!$('#tnDoc').value) $('#tnDoc').value = ajusta(4, 12);
+  // Saúde: o ASO apto vence junto com os documentos (a Admissão ajusta se a Saúde pedir outro prazo)
+  if ($('#tnSaude') && !$('#tnSaude').value) $('#tnSaude').value = $('#tnDoc').value;
 }
+// o SQL 40 já rodou? (as turmas trazem o campo)
+const temCorteSaude = () => (E.turmasCal || []).some((t) => 'corte_saude' in t);
 async function salvarTurmaForm(e) {
   e.preventDefault();
   const v = (id) => $('#' + id).value.trim();
   if (!v('tnData') || !v('tnInc') || !v('tnDoc')) { toast('Data, inclusão e documentos são obrigatórios.', true); return; }
   const o = { data: v('tnData'), grupo: v('tnGrupo'), nome: GRUPO_TURMA[v('tnGrupo')], corte_inclusao: deLocal(v('tnInc')), corte_remuneracao: deLocal(v('tnRem')), corte_documentos: deLocal(v('tnDoc')), formato: v('tnFormato') || null, link_ou_endereco: v('tnLink') || null, contato_chegada: v('tnContato') || null, observacao: v('tnObs') || null, ativo: true };
+  if ($('#tnSaude')) o.corte_saude = deLocal(v('tnSaude')) || o.corte_documentos;
   if (v('tnId')) o.id = v('tnId');
   if (await tentar(() => api.salvarTurma(o), o.id ? 'Turma salva' : 'Turma incluída')) { E.turmaEdit = null; await recarregar(); }
 }
@@ -2107,7 +2136,7 @@ async function salvarTurmaForm(e) {
 VIEWS.cronograma = () => {
   const hoje = iso(new Date());
   const ts = E.turmasCal.filter((t) => t.ativo && t.data >= hoje).sort((x, y) => x.data.localeCompare(y.data) || x.grupo.localeCompare(y.grupo));
-  const leitura = `<div class="caixa pilha"><h2>Próximas integrações</h2>${ts.length ? `<div class="tab-wrap"><table><thead><tr><th>Data de admissão</th><th>Unidades</th><th>Inclusão (corte)</th><th>Remuneração valida até</th><th>Documentos, ASO e LG até</th><th>Onde</th></tr></thead><tbody>${ts.map((t) => { const tarde = Date.now() > new Date(t.corte_inclusao).getTime(); return `<tr><td class="num"><b>${dmd(t.data)}</b></td><td>${esc(t.nome || GRUPO_TURMA[t.grupo])}</td><td>${tarde ? chip('c-ag', '', 'encerrado · ' + dmh(t.corte_inclusao)) : chip('c-at', 'at', 'até ' + dmh(t.corte_inclusao))}</td><td class="num">${t.corte_remuneracao ? dmh(t.corte_remuneracao) : '—'}</td><td class="num">${dmh(t.corte_documentos)}</td><td style="font-size:12.5px">${t.formato ? (t.formato === 'online' ? 'on-line' : 'presencial') : 'padrão do local'}${t.link_ou_endereco ? ' · ' + esc(t.link_ou_endereco) : ''}</td></tr>`; }).join('')}</tbody></table></div>` : '<div class="vazio">O Time de Admissão ainda não cadastrou as próximas turmas.</div>'}</div>`;
+  const leitura = `<div class="caixa pilha"><h2>Próximas integrações</h2>${ts.length ? `<div class="tab-wrap"><table><thead><tr><th>Data de admissão</th><th>Unidades</th><th>Inclusão (corte)</th><th>Remuneração valida até</th>${temCorteSaude() ? '<th>Documentos e LG até</th><th>Saúde (ASO apto) até</th>' : '<th>Documentos, ASO e LG até</th>'}<th>Onde</th></tr></thead><tbody>${ts.map((t) => { const tarde = Date.now() > new Date(t.corte_inclusao).getTime(); return `<tr><td class="num"><b>${dmd(t.data)}</b></td><td>${esc(t.nome || GRUPO_TURMA[t.grupo])}</td><td>${tarde ? chip('c-ag', '', 'encerrado · ' + dmh(t.corte_inclusao)) : chip('c-at', 'at', 'até ' + dmh(t.corte_inclusao))}</td><td class="num">${t.corte_remuneracao ? dmh(t.corte_remuneracao) : '—'}</td><td class="num">${dmh(t.corte_documentos)}</td>${temCorteSaude() ? `<td class="num">${dmh(t.corte_saude || t.corte_documentos)}</td>` : ''}<td style="font-size:12.5px">${t.formato ? (t.formato === 'online' ? 'on-line' : 'presencial') : 'padrão do local'}${t.link_ou_endereco ? ' · ' + esc(t.link_ou_endereco) : ''}</td></tr>`; }).join('')}</tbody></table></div>` : '<div class="vazio">O Time de Admissão ainda não cadastrou as próximas turmas.</div>'}</div>`;
   const minhas = (E.excecoes || []).filter((x) => !x.cancelada_em).slice(0, 60);
   return `<div class="cab"><div class="t"><span class="olho">Admissão</span><h1>Cronograma e corte</h1><p class="apoio">As datas de integração e de corte de cada turma, cadastradas pelo Time de Admissão. Substitui o e-mail "Cronograma admissões" do mês: a recrutadora consulta aqui, e o cadastro mostra o corte da data escolhida. ${temSql27() ? 'Depois do corte o cadastro trava; exceção aprovada, só o Time de Admissão libera, por CPF.' : ''}</p></div></div>
   ${tem('admissao') ? cronogramaTurmas() : leitura}
@@ -2449,6 +2478,7 @@ async function confirmarImport(bt) {
 // ================================================================ EVENTOS
 document.addEventListener('change', async (e) => {
   if (e.target.id === 'asoRes') { const r = $('#asoRestr'); if (r) r.hidden = e.target.value !== 'apto_restricao'; }
+  if (e.target.dataset?.asores) { const r = $('#asoRestr_' + e.target.dataset.asores); if (r) r.hidden = e.target.value !== 'apto_restricao'; }
   if (e.target.matches?.('.gaveta select[data-lista]')) mostrarOutras(e.target.closest('.gaveta'));
   if (e.target.matches?.('[data-remrel]')) { const f = e.target.files[0]; const rel = e.target.dataset.remrel; e.target.value = ''; if (f) await carregarRelatorioRemun(rel, f); return; }
   const sel = e.target.closest('[data-change="verComo"]'); if (!sel) return;
@@ -2513,6 +2543,18 @@ document.addEventListener('click', async (e) => {
       const tx = d === 'segue' ? await perguntar('Seguir com a admissão de ' + pes + '? Se quiser, registre com quem foi decidido.', 'Ex.: alinhado com o gestor', '') : null;
       if (d === 'segue' && tx === null) return;
       if (await tentar(() => api.rsDecidirNr(id, d, tx), d === 'segue' ? 'Decisão registrada: a admissão segue e o ASO fica apto' : 'Vaga declinada')) await aposSaude(id);
+      break;
+    }
+    case 'saudeTodos': E.saudeTodos = !E.saudeTodos; render(); break;
+    case 'asoLinha': {
+      const g = (k) => $('#' + k + '_' + id); const a0 = adm(id) || {};
+      const res = g('asoRes')?.value || ''; const dataAso = g('asoData')?.value || null;
+      const st = res || (dataAso ? 'agendado' : 'aguardando');
+      const p = { aso_status: st, aso_data: dataAso, aso_hora: (g('asoHora')?.value || '').trim() || null, aso_local: (g('asoLocal')?.value || '').trim() || null, aso_restricao: st === 'apto_restricao' ? (g('asoRestr')?.value || '').trim() || null : null };
+      if (st === 'apto_restricao' && !p.aso_restricao) { toast('Descreva a restrição.', true); return; }
+      if ((st === 'apto' || st === 'apto_restricao') && E.params?.vacina_bloqueia_apto !== 'nao' && a0.vacina_status && a0.vacina_status !== 'comprovada') { toast('O ASO apto fica bloqueado até a vacinação ser comprovada. Registre as vacinas na ficha (clique no nome).', true); return; }
+      if (st === 'nao_recomendado' && a0.aso_status !== 'nao_recomendado' && !confirm('Registrar que a Saúde não recomenda a admissão de ' + titulo(a0.nome || '') + '? R&S, Admissão e gestor recebem o aviso e o R&S decide se segue.')) return;
+      if (await tentar(() => api.atualizar(id, p), st === 'agendado' && a0.email && a0.aso_status !== 'agendado' ? 'Agendado. O candidato recebe o e-mail com data, local, exames e preparo.' : st === 'nao_recomendado' ? 'Não recomendação registrada. R&S, Admissão e gestor foram avisados.' : 'Exame atualizado')) { await recarregar(); render(); }
       break;
     }
     case 'socAusente': if (await tentar(() => api.saudeSoc(id, 'ausente'), 'Registrado: ainda não está no SOC. O R&S foi avisado.')) await aposSaude(id); break;
@@ -2837,7 +2879,7 @@ setInterval(() => { if (E.perfil && !$('#camada').innerHTML && !document.querySe
 
 // versão publicada: o navegador pode guardar o index.html antigo e mostrar a tela de antes.
 // O versao.txt diz qual é a atual; se for mais nova, busca o index de novo e recarrega (uma vez por versão).
-const VERSAO = 64;
+const VERSAO = 65;
 async function conferirVersao() {
   try {
     const nova = parseInt(await (await fetch('versao.txt', { cache: 'no-store' })).text(), 10);

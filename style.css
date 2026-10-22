@@ -632,3 +632,10 @@ details.itin .tab-wrap{margin-top:8px}
 .mais-saude>summary{cursor:pointer;font-size:13px;font-weight:600;color:var(--tx2);padding:8px 0;list-style-position:inside}
 .mais-saude[open]>summary{margin-bottom:6px}
 .mais-saude .docs{padding-bottom:10px}
+/* SQL 40: lista da Saúde com agendar e resultado na linha */
+.t-saude td{vertical-align:top}
+.t-saude .chip{white-space:nowrap;max-width:none}
+.t-saude td:nth-child(2){min-width:120px}
+.t-saude td:nth-child(3){min-width:150px}
+.t-saude td:nth-child(5){min-width:230px}
+.t-saude td:nth-child(1){max-width:220px}
