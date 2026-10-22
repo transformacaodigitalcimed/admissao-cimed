@@ -3340,6 +3340,28 @@ const MODO_SIGNATARIO = /[?&]modo=signatario\b/.test(location.search);
 const ASSINATURA_CIMED = {imagem: null, email: '', carregadaDe: ''};
 function temOS(p){ return OS_ATIVA && p && String(p.os_status || '').toLowerCase() === 'validada' && !!(p.os_atividades || p.os_riscos || p.os_epi); }
 function osPendente(p){ return OS_ATIVA && p && /pendente/i.test(String(p.os_status || '')); }
+/* cidades da rede Unimed por UF: {ufs: {MG: [[cidade, unimeds], ...]}} (unimed-cidades.json, ao lado desta página) */
+let UNIMED_CID = null;
+function carregarCidadesUnimed(){
+  if(UNIMED_CID || carregarCidadesUnimed.p) return carregarCidadesUnimed.p;
+  carregarCidadesUnimed.p = fetch('unimed-cidades.json').then(r=>r.ok ? r.json() : null).then(d=>{ UNIMED_CID = d && d.ufs ? d.ufs : null; return UNIMED_CID; }).catch(()=>null);
+  return carregarCidadesUnimed.p;
+}
+carregarCidadesUnimed();
+/* UF provável pela unidade (CD AP -> AP; fábricas -> MG; escritórios -> SP) */
+function ufDaUnidade(u){
+  const s = String(u || '').toUpperCase();
+  const m = s.match(/\bCD\s+([A-Z]{2})\b/); if(m) return m[1];
+  if(/ANG[EÉ]LICA|FARIA LIMA|S[AÃ]O PAULO/.test(s)) return 'SP';
+  if(/POUSO|FERN[AÃ]O|SSBV|BELA VISTA|CONTAGEM/.test(s)) return 'MG';
+  return '';
+}
+const opcoesCidadesUnimed = (uf, sel)=>'<option value="">Escolha a cidade</option>' + ((UNIMED_CID && UNIMED_CID[uf]) || [])
+  .map(([c])=>{ const v = c + ' - ' + uf; return '<option value="' + esc(v) + '"' + (v === sel ? ' selected' : '') + '>' + esc(c) + '</option>'; }).join('');
+const redeUnimed = (valor)=>{
+  const m = String(valor || '').match(/^(.*) - ([A-Z]{2})$/); if(!m || !UNIMED_CID) return '';
+  const x = (UNIMED_CID[m[2]] || []).find(([c])=>c === m[1]); return x ? x[1] : '';
+};
 let TERMO_URL = 'https://www.canalconfidencial.com.br/atitudecimed/files/730_CODIGO%20DE%20CONDUTA_2023.pdf';
 const TERMO_PERGUNTAS = [
   ['q1', 'Possui familiar de 1o grau (pais, filhos, irmaos, conjuge ou companheiro(a)) trabalhando na Cimed?', 'Nome, parentesco, cargo, area e turno'],
@@ -3365,6 +3387,10 @@ const TERMO_PERGUNTAS = [
 const FORMULARIOS = {
   'termo de inclusao unimed': {titulo:'Plano de saúde Unimed', campos:[
     {t:'opcao', id:'unimed_adesao', l:'Quer entrar no plano de saúde?', op:['Sim','Não']},
+    /* a Unimed é Sul Mineira: quem mora em outra cidade escolhe onde quer ser atendido,
+       pela área de ação de cada Unimed (Relatório Unimeds, Unimed do Brasil) — Josianny, 22/10/2026 */
+    {t:'cidade_unimed', id:'unimed_local', l:'Local de atendimento: a cidade onde você mora ou quer ser atendido(a)',
+     se:{id:'unimed_adesao', vale:['Sim']}},
     {t:'dependentes', id:'unimed_dep', l:'Dependentes no plano',
      se:{id:'unimed_adesao', vale:['Sim']}, cols:['nome','parentesco','nasc']}
   ]},
@@ -5330,6 +5356,23 @@ function preencherDatas(pagina, itens, cidade, agora, fonte, cor){
 }
 
 const CAMPOS_PDF = {
+  /* Unimed: a cidade de atendimento escolhida na lista da rede (22/10/2026) */
+  'cimed termo de inclusao unimed': {
+    rotulo: 'Plano de saúde Unimed',
+    pagina: 0,
+    marcas: [
+      {v:'campo:unimed_local', ancora:'Local de atendimento', depoisDaAncora:true, dy:0, tam:9, larg:330,
+       quando:{id:'unimed_adesao', vale:'Sim'}}
+    ]
+  },
+  'termo de inclusao unimed': {
+    rotulo: 'Plano de saúde Unimed',
+    pagina: 0,
+    marcas: [
+      {v:'campo:unimed_local', ancora:'Local de atendimento', depoisDaAncora:true, dy:0, tam:9, larg:330,
+       quando:{id:'unimed_adesao', vale:'Sim'}}
+    ]
+  },
   /* Nomeacao de Beneficiarios (MetLife). Tabela vazia embaixo do
      cabecalho, uma pagina por pessoa. */
   'cimed termo de nomeacao de beneficiarios': {
@@ -5624,7 +5667,8 @@ async function estamparRespostas(bytes, p, st, kit){
 
         const fonte = marca.negrito ? neg : reg;
         const tam = marca.tam || 9;
-        const x = (marca.charX !== undefined ? xNoChar(anc, marca.charX) : anc.x) + (marca.dx || 0);
+        const x = (marca.depoisDaAncora ? xNoChar(anc, anc.str.indexOf(marca.ancora) + marca.ancora.length + 1) + 4
+                  : marca.charX !== undefined ? xNoChar(anc, marca.charX) : anc.x) + (marca.dx || 0);
         const y = anc.y + (marca.dy || 0);
         pagina.drawText(cabeNaLargura(txt, fonte, tam, marca.larg), {
           x: x, y: y, size: tam, font: fonte, color: tinta
@@ -7107,6 +7151,21 @@ function blocoForm(doc, st){
         + '<option value="">Escolha</option>'
         + c.op.map(o=>'<option' + (v === o ? ' selected' : '') + '>' + esc(o) + '</option>').join('')
         + '</select></label>';
+    }else if(c.t === 'cidade_unimed'){
+      if(!UNIMED_CID){
+        /* sem a lista (Esteira aberta do computador, sem rede): escreve a cidade */
+        h += '<label class="campo" style="margin-bottom:9px"><span>' + esc(c.l) + '</span>'
+          + '<input type="text" data-r="' + c.id + '" value="' + esc(v || '') + '" placeholder="Cidade - UF, como Macapá - AP"></label>';
+      }else{
+        const pes = (S.pessoas || []).find(x=>x.id === C.pid) || {};
+        const uf = st.resp[c.id + '_uf'] || (String(v || '').match(/ - ([A-Z]{2})$/) || [])[1] || ufDaUnidade(pes.unidade);
+        h += '<div style="margin-bottom:9px"><span style="display:block;font-size:11.5px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--suave);margin-bottom:7px">' + esc(c.l) + '</span>'
+          + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+          + '<select data-uf="' + c.id + '" aria-label="Estado" style="flex:0 0 96px"><option value="">UF</option>'
+          + Object.keys(UNIMED_CID).sort().map(u=>'<option' + (u === uf ? ' selected' : '') + '>' + u + '</option>').join('') + '</select>'
+          + '<select data-r="' + c.id + '" data-rede="1" aria-label="Cidade" style="flex:1;min-width:180px">' + opcoesCidadesUnimed(uf, v) + '</select></div>'
+          + '<span class="dica" data-rede-txt="' + c.id + '" style="display:block;margin-top:4px">' + (v && redeUnimed(v) ? 'Atendimento pela rede: ' + esc(redeUnimed(v)) : 'Só aparecem as cidades atendidas pela rede Unimed.') + '</span></div>';
+      }
     }else if(c.t === 'texto'){
       h += '<label class="campo" style="margin-bottom:9px"><span>' + esc(c.l) + '</span>'
         + '<input type="text" data-r="' + c.id + '" value="' + esc(v || '') + '"'
@@ -7145,9 +7204,22 @@ function ligarForm(box, doc, st, p){
       setTimeout(()=>trocarForm(doc, st, p), 300);
     });
   });
+  box.querySelectorAll('[data-uf]').forEach(el=>{
+    el.addEventListener('change', ()=>{
+      const id = el.dataset.uf;
+      st.resp[id + '_uf'] = el.value; st.resp[id] = ''; delete st.resp[id + '_rede'];
+      const sel = box.querySelector('[data-r="' + id + '"]'); if(sel) sel.innerHTML = opcoesCidadesUnimed(el.value, '');
+      const dica = box.querySelector('[data-rede-txt="' + id + '"]'); if(dica) dica.textContent = 'Só aparecem as cidades atendidas pela rede Unimed.';
+      salvar(); renderPainel();
+    });
+  });
   box.querySelectorAll('[data-r]').forEach(el=>{
     el.addEventListener('change', ()=>{
       st.resp[el.dataset.r] = el.value;
+      if(el.dataset.rede){
+        const rede = redeUnimed(el.value); if(rede) st.resp[el.dataset.r + '_rede'] = rede; else delete st.resp[el.dataset.r + '_rede'];
+        const dica = box.querySelector('[data-rede-txt="' + el.dataset.r + '"]'); if(dica) dica.textContent = rede ? 'Atendimento pela rede: ' + rede : '';
+      }
       salvar(); renderPainel();
       /* a resposta pode abrir ou fechar outras perguntas */
       if(doc && doc.form && doc.form.campos.some(c=>c.se && c.se.id === el.dataset.r)){
