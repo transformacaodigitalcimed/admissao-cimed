@@ -158,6 +158,8 @@ async function criarApi() {
     // SQL 41: LG para a etapa "Exame médico" e os exames dos candidatos do BP
     async lgExame(adm, desfazer) { return ok(await sb.rpc('lg_exame', { adm, desfazer: !!desfazer })); },
     async bpExames() { return ok(await sb.rpc('bp_exames')); },
+    // SQL 42: data da última vacina (a espera antes dos exames complementares)
+    async saudeVacinaData(adm, data) { return ok(await sb.rpc('saude_vacina_data', { adm, p_data: data || null })); },
     async posicaoConferir(p) { return ok(await sb.rpc('posicao_conferir', { p_posicao: p.posicao || null, p_data: p.data_inicio || null, p_cargo: p.cargo || null, p_pcd: p.pcd || null, p_tipo: p.tipo_contrato || null, p_subst: !!p.substituicao, p_substituido: p.pessoa_substituida || null })); },
     async remunCarregar(rel, linhas, arquivo) { return ok(await sb.rpc('remun_carregar', { p_relatorio: rel, p_linhas: linhas, p_arquivo: arquivo || null })); },
     async remunCargas() { return ok(await sb.from('remun_cargas').select('*')); },
@@ -811,6 +813,12 @@ const prazoAsoPassa = (a) => !!(a.soc_cadastrado_em && a.saude_prazo_aso && !aso
 // sem o SQL 26 rodado a visão não traz os campos: a tela fica como antes
 const fluxoSaude = (a) => !!a && 'soc_cadastrado_em' in a;
 const pendenteSaude = (a) => !a.declinou_em && !a.matricula && !asoOk(a);
+// SQL 42: vacinas da pessoa (todas as funções + as da função dela) e a espera depois da vacina, definidas pela Saúde
+const vacinasDe = (a) => a.vacinas_exigidas || (E.params?.vacinas_obrigatorias || '').split(';').map((x) => x.trim()).filter(Boolean).join('; ');
+const esperaVacina = () => Number(E.params?.vacina_espera_dias || 0);
+const liberaExames = (a) => { const d = esperaVacina(); if (!d || !a.vacina_tomada_em) return null; const x = deIso(a.vacina_tomada_em); x.setDate(x.getDate() + d); return iso(x); };
+// agendar antes do fim da espera: a Saúde confirma (não trava)
+const confirmaEspera = (a, data) => { const l = liberaExames(a); return !l || !data || data >= l || examesCompl(a) === false || confirm('A última vacina de ' + titulo(a.nome || '') + ' foi em ' + dm(a.vacina_tomada_em) + '. A Saúde definiu ' + esperaVacina() + ' dias de espera antes dos exames complementares (a partir de ' + dm(l) + '). Agendar mesmo assim?'); };
 // SQL 41: exame com a data passada e sem resultado (o "limbo" da clínica) e a etapa "Exame médico" no LG
 const semResultado = (a) => a.aso_status === 'agendado' && !!a.aso_data && a.aso_data < iso(new Date()) && !a.declinou_em && !a.matricula;
 // só para quem foi cadastrado a partir do SQL 41, para não encher o sino com quem já estava no meio do caminho
@@ -1837,9 +1845,9 @@ function fichaSaude(a) {
   }
   const mais = [];
   if (a.soc_cadastrado_em || a.soc_refletido_em) {
-    mais.push(`<div class="doc"><div><div class="dn">Contato e vacinas</div><div class="dm">${chipContato(a)} ${chipVacina(a)}<div class="apoio" style="font-size:12px;margin-top:4px">Vacinas obrigatórias: ${esc(vacs.join(', ') || 'não definidas')}${E.params?.vacina_bloqueia_apto !== 'nao' ? ' · sem a comprovação o ASO apto não grava' : ''}${a.vacina_obs ? ' · ' + esc(a.vacina_obs) : ''}</div></div></div>
+    mais.push(`<div class="doc"><div><div class="dn">Contato e vacinas</div><div class="dm">${chipContato(a)} ${chipVacina(a)}<div class="apoio" style="font-size:12px;margin-top:4px">Vacinas desta pessoa: ${esc(vacinasDe(a) || 'não definidas')}${E.params?.vacina_bloqueia_apto !== 'nao' ? ' · sem a comprovação o ASO apto não grava' : ''}${a.vacina_obs ? ' · ' + esc(a.vacina_obs) : ''}${a.vacina_tomada_em ? ' · última vacina em ' + dm(a.vacina_tomada_em) : ''}${liberaExames(a) ? ` · <b>exames complementares a partir de ${dm(liberaExames(a))}</b>` : ''}</div></div></div>
     <div class="acoes">${saude && !a.saude_escalado_em ? `${a.saude_contato_em && !a.saude_sem_contato_desde ? '' : `<button class="bt peq" data-act="saudeContato" data-id="${a.id}">Contato feito</button>`}${a.saude_sem_contato_desde ? '' : `<button class="bt peq" data-act="saudeSemContato" data-id="${a.id}" title="Começa a janela de ${esc(E.params?.saude_janela_contato_horas || '24')}h de tentativas">Não atende</button>`}
-      <select class="sel-doc" id="vacSel"><option value="pendente" ${a.vacina_status === 'pendente' ? 'selected' : ''}>Vacinas pendentes</option><option value="comprovada" ${a.vacina_status === 'comprovada' ? 'selected' : ''}>Vacinas comprovadas</option><option value="recusada" ${a.vacina_status === 'recusada' ? 'selected' : ''}>Recusou a vacinação</option></select><input id="vacObs" class="sel-doc" style="width:160px" value="${esc(a.vacina_obs || '')}" placeholder="observação" aria-label="Observação da vacina"><button class="bt peq" data-act="saudeVacina" data-id="${a.id}">Salvar vacinas</button>` : ''}</div></div>`);
+      <select class="sel-doc" id="vacSel"><option value="pendente" ${a.vacina_status === 'pendente' ? 'selected' : ''}>Vacinas pendentes</option><option value="comprovada" ${a.vacina_status === 'comprovada' ? 'selected' : ''}>Vacinas comprovadas</option><option value="recusada" ${a.vacina_status === 'recusada' ? 'selected' : ''}>Recusou a vacinação</option></select><input id="vacObs" class="sel-doc" style="width:160px" value="${esc(a.vacina_obs || '')}" placeholder="observação" aria-label="Observação da vacina"><button class="bt peq" data-act="saudeVacina" data-id="${a.id}">Salvar vacinas</button>${'vacina_tomada_em' in a ? `<input type="date" id="vacData" class="sel-doc" value="${a.vacina_tomada_em || ''}" aria-label="Data da última vacina" title="Data da última vacina"><button class="bt peq" data-act="saudeVacData" data-id="${a.id}">Salvar data da vacina</button>` : ''}` : ''}</div></div>`);
     mais.push(`<div class="doc"><div><div class="dn">Exames da função e clínica</div><div class="dm"><span>${a.exames_tabela ? esc(a.exames_tabela) : '<span class="apoio">Função não encontrada na tabela de exames: a Saúde define abaixo.</span>'}</span><div class="apoio" style="font-size:12px;margin-top:4px">Prazo do ASO: ${c ? '10' : '5'} dias úteis${a.saude_prazo_aso ? ', até ' + dm(a.saude_prazo_aso) : ''}${prazoAsoPassa(a) ? ' (passa da integração de ' + dm(a.data_inicio) + ')' : ''}${a.exames_complementares != null ? ' · ajustado pela Saúde' : ''} · ${plural(a.aso_remarcacoes || 0, 'remarcação', 'remarcações')} de ${remarcMax(a)} permitida${remarcMax(a) > 1 ? 's' : ''}${a.aso_modo ? ' · ' + esc(MODO_ASO[a.aso_modo]) + (a.aso_clinica ? ': ' + esc(a.aso_clinica) : '') : ''}</div></div></div>
     <div class="acoes">${saude && !a.saude_escalado_em ? `<select class="sel-doc" id="complSel" aria-label="Exames complementares"><option value="" ${a.exames_complementares == null ? 'selected' : ''}>Conforme a tabela</option><option value="sim" ${a.exames_complementares === true ? 'selected' : ''}>Com complementares (10 dias)</option><option value="nao" ${a.exames_complementares === false ? 'selected' : ''}>Só clínico (5 dias)</option></select><button class="bt peq" data-act="saudeCompl" data-id="${a.id}">Salvar</button>
       <select class="sel-doc" id="modoSel" aria-label="Onde faz o exame"><option value="">Onde faz o exame</option>${Object.entries(MODO_ASO).map(([k, v]) => `<option value="${k}" ${a.aso_modo === k ? 'selected' : ''}>${v}</option>`).join('')}</select><input id="modoClinica" class="sel-doc" style="width:160px" value="${esc(a.aso_clinica || '')}" placeholder="clínica e cidade" aria-label="Clínica"><button class="bt peq" data-act="saudeModo" data-id="${a.id}">Salvar</button>${a.aso_status === 'agendado' && !a.aso_faltou_em ? `<button class="bt peq fan" data-act="saudeFalta" data-id="${a.id}">Faltou ao exame</button>` : ''}` : ''}</div></div>`);
@@ -1884,10 +1892,16 @@ function filaSaude() {
 function vacinasSaude() {
   const pode = tem('saude', 'admissao', 'admin');
   if (E.params?.vacinas_obrigatorias == null) return '';
-  return `<div class="caixa pilha"><h2>Vacinas obrigatórias</h2><p class="apoio">A lista vai no e-mail da etapa de exame médico e aparece na ficha. Separe as vacinas por ponto e vírgula. Com o bloqueio ligado, o ASO apto só grava depois de a vacinação ser registrada como comprovada.</p>
-   <div class="linha-flex" style="align-items:flex-end;flex-wrap:wrap"><div class="campo" style="flex:1;min-width:240px"><label for="vacLista">Vacinas</label><input id="vacLista" value="${esc(E.params?.vacinas_obrigatorias || '')}" ${pode ? '' : 'readonly'}></div>
+  const porFuncao = (E.listas || []).filter((x) => x.tipo === 'vacina_funcao' && x.ativo !== false);
+  const sql42 = E.params?.vacina_espera_dias != null;
+  return `<div class="caixa pilha"><h2>Vacinas obrigatórias</h2><p class="apoio">A lista vai no e-mail da etapa de exame médico e aparece na ficha. Separe as vacinas por ponto e vírgula. Com o bloqueio ligado, o ASO apto só grava depois de a vacinação ser registrada como comprovada.${sql42 ? ' A Saúde define também as vacinas a mais de cada função e quantos dias esperar entre a última vacina e os exames complementares.' : ''}</p>
+   <div class="linha-flex" style="align-items:flex-end;flex-wrap:wrap"><div class="campo" style="flex:1;min-width:240px"><label for="vacLista">${sql42 ? 'Vacinas para todas as funções' : 'Vacinas'}</label><input id="vacLista" value="${esc(E.params?.vacinas_obrigatorias || '')}" ${pode ? '' : 'readonly'}></div>
    <div class="campo"><label for="vacBloq">Bloqueia o apto</label><select id="vacBloq" class="sel-doc" ${pode ? '' : 'disabled'}><option value="sim" ${E.params?.vacina_bloqueia_apto !== 'nao' ? 'selected' : ''}>Sim</option><option value="nao" ${E.params?.vacina_bloqueia_apto === 'nao' ? 'selected' : ''}>Não, só registra</option></select></div>
-   ${pode ? '<button class="bt pri" data-act="saudeParam">Salvar</button>' : ''}</div></div>`;
+   ${sql42 ? `<div class="campo"><label for="vacEspera">Espera antes dos exames complementares (dias)</label><input id="vacEspera" type="number" min="0" max="365" style="width:120px" value="${esc(E.params?.vacina_espera_dias || '0')}" ${pode ? '' : 'readonly'}></div>` : ''}
+   ${pode ? '<button class="bt pri" data-act="saudeParam">Salvar</button>' : ''}</div>
+   ${sql42 ? `<h3 style="margin-top:6px">Vacinas a mais por função</h3><p class="apoio">Quando o nome da função contém o texto da esquerda, a pessoa precisa também destas vacinas. Ex.: "Operador" pede Febre Amarela. Vale para quem chegar à etapa de exame depois de salvar.</p>
+   ${porFuncao.length ? `<div class="tab-wrap"><table><tbody>${porFuncao.map((x) => `<tr><td><b>${esc(x.filtro || '')}</b>: ${esc(x.valor)}</td><td>${pode ? `<button class="bt peq fan" data-act="slTirar" data-id="${x.id}">Tirar</button>` : ''}</td></tr>`).join('')}</tbody></table></div>` : '<div class="vazio">Nenhuma vacina a mais por função: vale a lista de todas as funções.</div>'}
+   ${pode ? `<div class="linha-flex" style="align-items:flex-end;flex-wrap:wrap"><div class="campo" style="min-width:160px"><label for="sl_f_vacina_funcao">Função contém</label><input id="sl_f_vacina_funcao" placeholder="Operador"></div><div class="campo" style="flex:1;min-width:200px"><label for="sl_v_vacina_funcao">Vacinas a mais</label><input id="sl_v_vacina_funcao" placeholder="Febre Amarela; Influenza"></div><button class="bt" data-act="slAdd" data-t="vacina_funcao">Incluir</button></div>` : ''}` : ''}</div>`;
 }
 // tela da Saúde depois do SQL 39: a lista com agendar e resultado; configurações e laudos recolhidos
 function saudeEnxuta() {
@@ -2566,6 +2580,7 @@ document.addEventListener('click', async (e) => {
       if (st === 'inapto' && adm(id)?.aso_status !== 'inapto' && !confirm('Registrar o ASO de ' + titulo(adm(id)?.nome || '') + ' como inapto? A matrícula trava, R&S e Admissão recebem o aviso e o R&S declina a vaga alinhado com a Saúde.')) return;
       if (st === 'nao_recomendado' && adm(id)?.aso_status !== 'nao_recomendado' && !confirm('Registrar que a Saúde não recomenda a admissão de ' + titulo(adm(id)?.nome || '') + '? R&S, Admissão e gestor recebem o aviso e o R&S decide se segue.')) return;
       if ($('#asoObs')) { p.aso_obs = valLista('asoObs') || null; p.aso_responsavel = valLista('asoResp') || null; }
+      if (st === 'agendado' && !confirmaEspera(adm(id) || {}, p.aso_data)) return;
       if (st === 'agendado' && !p.aso_data) { toast('Informe a data do exame.', true); return; }
       if (st === 'apto_restricao' && !p.aso_restricao) { toast('Descreva a restrição.', true); return; }
       if ((st === 'apto' || st === 'apto_restricao') && !asoOk(adm(id) || {}) && E.params?.vacina_bloqueia_apto !== 'nao' && adm(id)?.vacina_status && adm(id).vacina_status !== 'comprovada') { toast('O ASO apto fica bloqueado até a vacinação ser comprovada. Registre as vacinas antes.', true); return; }
@@ -2587,6 +2602,7 @@ document.addEventListener('click', async (e) => {
       const res = g('asoRes')?.value || ''; const dataAso = g('asoData')?.value || null;
       const st = res || (dataAso ? 'agendado' : 'aguardando');
       const p = { aso_status: st, aso_data: dataAso, aso_hora: (g('asoHora')?.value || '').trim() || null, aso_local: (g('asoLocal')?.value || '').trim() || null, aso_restricao: st === 'apto_restricao' ? (g('asoRestr')?.value || '').trim() || null : null };
+      if (st === 'agendado' && a0.aso_data !== p.aso_data && !confirmaEspera(a0, p.aso_data)) return;
       if (st === 'apto_restricao' && !p.aso_restricao) { toast('Descreva a restrição.', true); return; }
       if ((st === 'apto' || st === 'apto_restricao') && E.params?.vacina_bloqueia_apto !== 'nao' && a0.vacina_status && a0.vacina_status !== 'comprovada') { toast('O ASO apto fica bloqueado até a vacinação ser comprovada. Registre as vacinas na ficha (clique no nome).', true); return; }
       if (st === 'inapto' && a0.aso_status !== 'inapto' && !confirm('Registrar o ASO de ' + titulo(a0.nome || '') + ' como inapto? A matrícula trava, R&S e Admissão recebem o aviso e o R&S declina a vaga alinhado com a Saúde.')) return;
@@ -2597,6 +2613,7 @@ document.addEventListener('click', async (e) => {
     // SQL 41: LG para "Exame médico" e problema no sistema
     case 'lgExame': if (await tentar(() => api.lgExame(id), 'Marcado: movimentado no LG para a etapa Exame médico')) await aposSaude(id); break;
     case 'lgExameDesfazer': if (await tentar(() => api.lgExame(id, true), 'Movimentação desfeita')) await aposSaude(id); break;
+    case 'saudeVacData': if (await tentar(() => api.saudeVacinaData(id, $('#vacData')?.value || null), 'Data da última vacina registrada')) await aposSaude(id); break;
     case 'saudeSistema': {
       const tx = ($('#sisTexto')?.value || '').trim(); if (!tx) { toast('Descreva o problema no sistema.', true); return; }
       if (await tentar(() => api.saudeAcao(id, 'sistema', null, tx), 'Registrado. A TI recebe o e-mail.')) await aposSaude(id);
@@ -2612,7 +2629,7 @@ document.addEventListener('click', async (e) => {
     case 'socRefDesfazer': if (confirm('Desfazer o "apareceu no SOC"?') && await tentar(() => api.saudeSoc(id, 'desfazer'), 'Desfeito')) await aposSaude(id); break;
     case 'slAdd': {
       const t = el.dataset.t; const v = ($('#sl_v_' + t)?.value || '').trim(); const f = ($('#sl_f_' + t)?.value || '').trim();
-      if (!v || (t === 'preparo_exame' && !f)) { toast(t === 'preparo_exame' ? 'Informe o exame e o preparo.' : 'Informe a clínica.', true); return; }
+      if (!v || (['preparo_exame', 'vacina_funcao'].includes(t) && !f)) { toast(t === 'preparo_exame' ? 'Informe o exame e o preparo.' : t === 'vacina_funcao' ? 'Informe a função e as vacinas.' : 'Informe a clínica.', true); return; }
       if (await tentar(() => api.salvarLista({ tipo: t, valor: v, filtro: f || null }), 'Incluído')) { E.listas = await api.listas(); render(); }
       break;
     }
@@ -2727,7 +2744,8 @@ document.addEventListener('click', async (e) => {
     case 'saudeParam': {
       const lista = ($('#vacLista')?.value || '').trim(); const bloq = $('#vacBloq').value;
       if (!lista) { toast('Informe ao menos uma vacina.', true); return; }
-      if (await tentar(async () => { await api.saudeParametro('vacinas_obrigatorias', lista); return api.saudeParametro('vacina_bloqueia_apto', bloq); }, 'Vacinas obrigatórias salvas')) { await recarregar(); render(); }
+      const espera = $('#vacEspera') ? String(Math.max(0, parseInt($('#vacEspera').value || '0', 10) || 0)) : null;
+      if (await tentar(async () => { await api.saudeParametro('vacinas_obrigatorias', lista); if (espera != null) await api.saudeParametro('vacina_espera_dias', espera); return api.saudeParametro('vacina_bloqueia_apto', bloq); }, 'Vacinas salvas')) { await recarregar(); render(); }
       break;
     }
     case 'asoRemarcar': {
@@ -2929,7 +2947,7 @@ setInterval(() => { if (E.perfil && !$('#camada').innerHTML && !document.querySe
 
 // versão publicada: o navegador pode guardar o index.html antigo e mostrar a tela de antes.
 // O versao.txt diz qual é a atual; se for mais nova, busca o index de novo e recarrega (uma vez por versão).
-const VERSAO = 66;
+const VERSAO = 67;
 async function conferirVersao() {
   try {
     const nova = parseInt(await (await fetch('versao.txt', { cache: 'no-store' })).text(), 10);
