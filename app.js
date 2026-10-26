@@ -1736,49 +1736,96 @@ function blocoMatricula() {
 }
 
 // --------------------------------------------------------- remuneração
-// Remuneração por exceção (SQL 39, reunião de 21/10/2026): a base de relatórios confere a posição no cadastro
+// Relatórios da Remuneração no formato do LG (e-mail da Laura, 21/10/2026). Para cada campo, os nomes de
+// coluna em ordem de preferência: vale primeiro o nome exato, depois o que contém o nome.
 const REL_REMUN = {
-  posicoes: { nome: 'Posições ocupadas e desocupadas', exige: ['posicao', 'situacao'],
-    campos: { posicao: ['posicao', 'codigo da posicao', 'cod posicao', 'id posicao', 'numero da posicao', 'posicao codigo'], situacao: ['situacao', 'status', 'ocupacao', 'situacao da posicao', 'status da posicao'], cargo: ['cargo', 'descricao do cargo', 'nome do cargo', 'funcao'], matricula: ['matricula', 'matricula do ocupante', 'ocupante', 'chapa'], pcd: ['pcd', 'deficiencia', 'reservada pcd', 'vaga pcd'], temporaria: ['temporaria', 'temporario', 'aqt', 'tipo de vaga', 'prazo determinado'] } },
-  quadro: { nome: 'Quadro de posições (orçada e a inativar)', exige: ['posicao'],
-    campos: { posicao: ['posicao', 'codigo da posicao', 'cod posicao', 'id posicao', 'numero da posicao'], orcada: ['orcada', 'orcado', 'orcamento', 'budget'], inativar: ['inativar', 'a inativar', 'mapeada para inativar', 'inativacao', 'situacao', 'status'] } },
-  desligamentos: { nome: 'Desligamentos previstos (workflow)', exige: ['data'],
-    campos: { matricula: ['matricula', 'chapa'], nome: ['nome', 'colaborador', 'funcionario'], posicao: ['posicao', 'codigo da posicao'], data: ['data prevista', 'data do desligamento', 'data de desligamento', 'data efetiva', 'previsao', 'data'] } },
-  afastados: { nome: 'Afastados e ativos (para AQT)', exige: ['situacao'],
-    campos: { matricula: ['matricula', 'chapa'], nome: ['nome', 'colaborador', 'funcionario'], situacao: ['situacao', 'status', 'situacao em folha', 'afastamento'], retorno: ['retorno', 'data de retorno', 'previsao de retorno'] } },
+  posicoes: { nome: 'Posições ocupadas e desocupadas', dica: 'ORGA_Conferencia_Posicao_Ocupada_Desocupada (CSV do LG)', exige: ['posicao'], exigeUm: ['vagas_ocup', 'situacao'],
+    campos: { posicao: ['codigo da posicao', 'cod posicao', 'id posicao', 'numero da posicao', 'posicao codigo', 'posicao'], vagas_ocup: ['vagas ocupadas'], vagas_efet: ['vagas efetivas'], status: ['status', 'status da posicao'], situacao: ['situacao da posicao', 'ocupacao'], cargo: ['cargo', 'descricao do cargo', 'nome do cargo'], matricula: ['matricula', 'matricula do ocupante', 'chapa'], tipo: ['tipo de posicao', 'tipo de vaga'], pcd: ['reservada pcd', 'vaga pcd', 'pcd'], temporaria: ['temporaria', 'temporario', 'aqt', 'prazo determinado'] } },
+  quadro: { nome: 'Quadro de posições (orçada e a inativar)', dica: 'QUADRO_POSIÇÕES do mês (lê a aba "QUADRO POSIÇÕES")', aba: /quadro/i, exige: ['posicao'],
+    campos: { posicao: ['codigo da posicao', 'cod posicao', 'id posicao', 'numero da posicao', 'posicao'], inativar: ['mapeamento', 'inativar', 'a inativar', 'mapeada para inativar'], motivo: ['motivo'], orcada: ['orcada', 'orcado', 'orcamento', 'budget'] } },
+  movimentacoes: { nome: 'Movimentações previstas (promoções e transferências)', dica: 'COLA_Movimentacao_Colaborador (CSV do LG)', exige: ['posicao', 'data'],
+    campos: { posicao: ['codigo da posicao de origem', 'posicao de origem'], destino: ['codigo da posicao de destino', 'posicao de destino'], data: ['data da movimentacao', 'data efetiva'], matricula: ['matricula de origem', 'matricula'] } },
+  desligamentos: { nome: 'Desligamentos previstos (workflow)', dica: 'relatório do workflow de desligamento', exige: ['data'],
+    campos: { matricula: ['matricula', 'chapa'], posicao: ['codigo da posicao', 'posicao'], data: ['data prevista', 'data do desligamento', 'data de desligamento', 'data efetiva', 'previsao', 'data'] } },
+  afastados: { nome: 'Afastados e ativos (para AQT)', dica: 'Relação de Colaboradores DHO (CSV do LG)', exige: ['matricula', 'situacao'],
+    campos: { matricula: ['matricula', 'chapa'], nome: ['colaborador', 'nome', 'funcionario'], situacao: ['situacao', 'situacao do colaborador', 'situacao em folha', 'afastamento', 'status'] } },
+  vagas: { nome: 'Lista de vagas do R&S (só informa)', dica: 'Lista Completa de Vagas (CSV do LG)', exige: ['posicao', 'status'],
+    campos: { posicao: ['codigo da posicao', 'posicao'], status: ['status'], fase: ['fase atual', 'fase'] } },
 };
 const normCab = (t) => semAcento(String(t ?? '')).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 const simNao = (v, palavra) => { const t = normCab(v); if (!t) return null; if (palavra && t.includes(palavra)) return true; if (/^(sim|s|x|yes|true|1|orcad[ao]|ativa?)$/.test(t)) return true; if (/^(nao|n|no|false|0)$/.test(t)) return false; return null; };
 const dataIso = (v) => { if (v instanceof Date && !isNaN(v)) return iso(v); const m = String(v ?? '').match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/); if (m) return `${m[3].length === 2 ? '20' + m[3] : m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`; const m2 = String(v ?? '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m2 ? m2[0] : null; };
+// o LG gera CSV com acentos do Windows (não UTF-8): sem isso o cabeçalho chega embaralhado
+const lerTexto = async (file) => { const b = new Uint8Array(await file.arrayBuffer()); try { return new TextDecoder('utf-8', { fatal: true }).decode(b); } catch { return new TextDecoder('windows-1252').decode(b); } };
+// colunas de um cabeçalho, pela ordem de preferência dos nomes; cada coluna serve a um campo só
+function colunasRemun(cab, R) {
+  const n = cab.map(normCab); const col = {}; const usadas = new Set();
+  Object.entries(R.campos).forEach(([k, nomes]) => {
+    let i = -1;
+    for (const y of nomes) { i = n.findIndex((x, j) => x === y && !usadas.has(j)); if (i >= 0) break; }
+    if (i < 0) for (const y of nomes) { i = n.findIndex((x, j) => x && x.includes(y) && !usadas.has(j)); if (i >= 0) break; }
+    if (i >= 0) { col[k] = i; usadas.add(i); }
+  });
+  return col;
+}
 async function carregarRelatorioRemun(rel, file) {
   const R = REL_REMUN[rel];
   if (!window.XLSX) { toast('O leitor de Excel não carregou. Verifique a internet.', true); return; }
-  let rows;
-  // CSV vem como texto (UTF-8); lido como bytes, os acentos do cabeçalho se perdem
-  try { const wb = /\.csv$/i.test(file.name) ? XLSX.read(await file.text(), { type: 'string', cellDates: true }) : XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true }); rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: null }); }
-  catch (e) { toast('Não consegui ler este arquivo: ' + e.message, true); return; }
-  // linha do cabeçalho: a primeira (até a 15ª) que tem as colunas obrigatórias
-  const acha = (cab) => { const col = {}; Object.entries(R.campos).forEach(([k, nomes]) => { const n = cab.map(normCab); let i = n.findIndex((x) => nomes.includes(x)); if (i < 0) i = n.findIndex((x) => x && nomes.some((y) => x.includes(y))); if (i >= 0 && !Object.values(col).includes(i)) col[k] = i; }); return col; };
+  let rows, aba;
+  try {
+    // CSV como texto e sem converter (datas dd/mm e códigos com zero à esquerda ficam como vieram)
+    const wb = /\.csv$/i.test(file.name) ? XLSX.read(await lerTexto(file), { type: 'string', raw: true }) : XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
+    aba = (R.aba && wb.SheetNames.find((s) => R.aba.test(s))) || wb.SheetNames[0];
+    rows = XLSX.utils.sheet_to_json(wb.Sheets[aba], { header: 1, raw: true, defval: null });
+  } catch (e) { toast('Não consegui ler este arquivo: ' + e.message, true); return; }
+  // cabeçalho: entre as 15 primeiras linhas, a que tem as colunas obrigatórias e mais campos reconhecidos
   let h = -1, col = {};
-  for (let i = 0; i < Math.min(15, rows.length); i++) { const c = acha(rows[i] || []); if (R.exige.every((k) => k in c)) { h = i; col = c; break; } }
-  if (h < 0) { toast(`Não achei as colunas obrigatórias de "${R.nome}": ${R.exige.join(', ')}. Confira o cabeçalho da planilha.`, true); return; }
+  for (let i = 0; i < Math.min(15, rows.length); i++) {
+    const c = colunasRemun(rows[i] || [], R);
+    const ok = R.exige.every((k) => k in c) && (!R.exigeUm || R.exigeUm.some((k) => k in c));
+    if (ok && (h < 0 || Object.keys(c).length > Object.keys(col).length)) { h = i; col = c; }
+  }
+  if (h < 0) { toast(`Não achei as colunas de "${R.nome}". Confira se é o arquivo ${R.dica}.`, true); return; }
+  const txt = (v) => String(v ?? '').trim() || null;
+  const num = (v) => Number(String(v ?? '').replace(/\./g, '').replace(',', '.')) || 0;
   const linhas = rows.slice(h + 1).filter((r) => r && r.some((x) => x != null && String(x).trim() !== '')).map((r) => {
-    const g = (k) => (k in col ? r[col[k]] : null); const o = {};
-    if ('posicao' in col) o.posicao = String(g('posicao') ?? '').trim() || null;
-    if ('matricula' in col) o.matricula = String(g('matricula') ?? '').trim() || null;
-    if ('nome' in col) o.nome = String(g('nome') ?? '').trim() || null;
-    if ('cargo' in col) o.cargo = String(g('cargo') ?? '').trim() || null;
-    if ('situacao' in col) { const t = normCab(g('situacao')); o.situacao = rel === 'posicoes' ? (/desocup|vag|livre/.test(t) ? 'desocupada' : /ocup/.test(t) ? 'ocupada' : t) : t; }
-    if ('pcd' in col) o.pcd = simNao(g('pcd'), 'pcd');
-    if ('temporaria' in col) { const t = normCab(g('temporaria')); o.temporaria = /temp|aqt|determin/.test(t) ? true : simNao(t); }
-    if ('orcada' in col) { const t = normCab(g('orcada')); o.orcada = /nao orcad|sem orcamento/.test(t) ? false : simNao(t, 'orcad'); }
-    if ('inativar' in col) { const t = normCab(g('inativar')); o.inativar = /inativ/.test(t) ? true : simNao(t); }
+    const g = (k) => (k in col ? r[col[k]] : null); const t = (k) => normCab(g(k)); const o = {};
+    if ('posicao' in col) o.posicao = txt(g('posicao'));
+    if ('matricula' in col) o.matricula = txt(g('matricula'));
     if ('data' in col) o.data = dataIso(g('data'));
-    if ('retorno' in col) o.retorno = dataIso(g('retorno'));
+    if (rel === 'movimentacoes' && 'destino' in col) o.destino = txt(g('destino'));
+    if (rel === 'posicoes') {
+      if ('cargo' in col) o.cargo = txt(g('cargo'));
+      // o relatório do LG não diz "ocupada": vale vagas ocupadas contra vagas efetivas da posição
+      if ('vagas_ocup' in col) { const oc = num(g('vagas_ocup')); o.situacao = oc > 0 && oc >= Math.max(num(g('vagas_efet')), 1) ? 'ocupada' : 'desocupada'; }
+      else if ('situacao' in col) { const s = t('situacao'); o.situacao = /desocup|vag|livre/.test(s) ? 'desocupada' : /ocup/.test(s) ? 'ocupada' : s; }
+      if ('status' in col) o.inativa = /inativ/.test(t('status'));
+      if ('tipo' in col) { const s = t('tipo'); o.pcd = /\bpcd\b/.test(s); o.temporaria = /tempor|aqt|determin/.test(s); }
+      if ('pcd' in col) o.pcd = simNao(g('pcd'), 'pcd');
+      if ('temporaria' in col) { const s = t('temporaria'); o.temporaria = /temp|aqt|determin/.test(s) ? true : simNao(s); }
+    }
+    if (rel === 'quadro') {
+      if ('inativar' in col) o.inativar = /inativ/.test(t('inativar'));
+      // o quadro não tem coluna "orçada": "aumento de quadro não orçado" no motivo diz que não é
+      if ('orcada' in col) { const s = t('orcada'); o.orcada = /nao orcad|sem orcamento/.test(s) ? false : simNao(s, 'orcad'); }
+      else if ('motivo' in col) o.orcada = !/nao orcad/.test(t('motivo'));
+    }
+    if (rel === 'afastados') {
+      // só o necessário: matrícula e se está afastado (sem o tipo de afastamento); nome só de quem está afastado
+      const s = t('situacao'); const normal = /atividade normal|^ativ|retorn|normal|ferias/.test(s);
+      o.situacao = !s ? null : normal ? 'atividade normal' : 'afastado';
+      if (!normal && 'nome' in col) o.nome = txt(g('nome'));
+    }
+    if (rel === 'vagas') { o.status = t('status'); o.fase = txt(g('fase')); }
     return o;
-  }).filter((o) => (rel === 'posicoes' || rel === 'quadro' ? o.posicao : rel === 'desligamentos' ? o.data : true));
+  }).filter((o) => (['posicoes', 'quadro'].includes(rel) ? o.posicao
+    // promoção na mesma posição (origem = destino) não libera a posição
+    : rel === 'movimentacoes' ? o.posicao && o.data && o.destino !== o.posicao
+    : rel === 'desligamentos' ? o.data
+    : rel === 'afastados' ? o.matricula && o.situacao
+    : rel === 'vagas' ? o.posicao && /andamento|suspens/.test(o.status || '') : true));
   if (!linhas.length) { toast('A planilha não tem linhas com dados.', true); return; }
-  const n = await tentar(() => api.remunCarregar(rel, linhas, file.name));
+  const n = await tentar(() => api.remunCarregar(rel, linhas, file.name + (aba && !/\.csv$/i.test(file.name) ? ' · aba ' + aba : '')));
   if (n == null) return;
   toast(`${R.nome}: ${plural(n, 'linha carregada', 'linhas carregadas')}. Colunas lidas: ${Object.keys(col).join(', ')}. As posições em espera foram conferidas de novo.`);
   await recarregar(); render();
@@ -1794,8 +1841,8 @@ function baseRemun() {
   if (!api.remunCargas || E.remCargas == null) return '';
   const pode = tem('remuneracao', 'admissao', 'admin');
   const cg = Object.fromEntries((E.remCargas || []).map((x) => [x.relatorio, x]));
-  return `<div class="caixa pilha"><h2>Base da Remuneração</h2><p class="apoio">Carregue os relatórios (Excel ou CSV, a primeira aba). A plataforma confere a posição no cadastro: livre, orçada, sem inativação e com a configuração certa fica validada sozinha${E.params?.remun_auto === 'nao' ? ' (desligado: a base só aponta o resultado)' : ''}; o resto vem para esta fila com o motivo. Os relatórios não aparecem para o R&S. Carregar de novo substitui o anterior.</p>
-   <div class="tab-wrap"><table><thead><tr><th>Relatório</th><th>Última carga</th><th>Linhas</th><th></th></tr></thead><tbody>${Object.entries(REL_REMUN).map(([k, R]) => `<tr><td><b>${esc(R.nome)}</b><br><span class="apoio" style="font-size:12px">obrigatório: ${R.exige.join(', ')}</span></td><td>${cg[k] ? quando(cg[k].carregado_em) + (cg[k].carregado_por ? ' · ' + esc(cg[k].carregado_por) : '') + (cg[k].arquivo ? '<br><span class="apoio" style="font-size:12px">' + esc(cg[k].arquivo) + '</span>' : '') : '<span class="apoio">ainda não carregado</span>'}</td><td class="num">${cg[k] ? cg[k].linhas : '—'}</td><td>${pode ? `<input type="file" id="remArq_${k}" data-remrel="${k}" accept=".xlsx,.xls,.csv" hidden><button class="bt peq" data-act="remArq" data-r="${k}">Carregar arquivo</button>` : ''}</td></tr>`).join('')}</tbody></table></div></div>`;
+  return `<div class="caixa pilha"><h2>Base da Remuneração</h2><p class="apoio">Carregue os relatórios do LG como saem (CSV ou Excel; no quadro de posições vale a aba "QUADRO POSIÇÕES"). A plataforma confere a posição no cadastro: livre, orçada, sem inativação e com a configuração certa fica validada sozinha${E.params?.remun_auto === 'nao' ? ' (desligado: a base só aponta o resultado)' : ''}; o resto vem para esta fila com o motivo. Os relatórios não aparecem para o R&S. Carregar de novo substitui o anterior.</p>
+   <div class="tab-wrap"><table><thead><tr><th>Relatório</th><th>Última carga</th><th>Linhas</th><th></th></tr></thead><tbody>${Object.entries(REL_REMUN).map(([k, R]) => `<tr><td><b>${esc(R.nome)}</b><br><span class="apoio" style="font-size:12px">arquivo: ${esc(R.dica)}</span></td><td>${cg[k] ? quando(cg[k].carregado_em) + (cg[k].carregado_por ? ' · ' + esc(cg[k].carregado_por) : '') + (cg[k].arquivo ? '<br><span class="apoio" style="font-size:12px">' + esc(cg[k].arquivo) + '</span>' : '') : '<span class="apoio">ainda não carregado</span>'}</td><td class="num">${cg[k] ? cg[k].linhas : '—'}</td><td>${pode ? `<input type="file" id="remArq_${k}" data-remrel="${k}" accept=".xlsx,.xls,.csv" hidden><button class="bt peq" data-act="remArq" data-r="${k}">Carregar arquivo</button>` : ''}</td></tr>`).join('')}</tbody></table></div></div>`;
 }
 VIEWS.remuneracao = () => {
   const l = vivas().filter((a) => a.remuneracao !== 'ok' && !a.matricula).sort((x, y) => x.data_inicio.localeCompare(y.data_inicio));
@@ -2947,7 +2994,7 @@ setInterval(() => { if (E.perfil && !$('#camada').innerHTML && !document.querySe
 
 // versão publicada: o navegador pode guardar o index.html antigo e mostrar a tela de antes.
 // O versao.txt diz qual é a atual; se for mais nova, busca o index de novo e recarrega (uma vez por versão).
-const VERSAO = 67;
+const VERSAO = 68;
 async function conferirVersao() {
   try {
     const nova = parseInt(await (await fetch('versao.txt', { cache: 'no-store' })).text(), 10);
