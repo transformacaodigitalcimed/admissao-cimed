@@ -191,6 +191,7 @@ async function criarApi() {
     // SQL 44: Benefícios troca o fretado; Frotas confere CNH e extrato de pontos
     async benFretado(adm, fretado, codigo, itin) { ok(await sb.rpc('beneficios_fretado', { adm, p_fretado: fretado || null, p_codigo: codigo || null, p_itin: itin || null })); return true; },
     async frotaDocs() { return ok(await sb.rpc('frota_documentos')); },
+    async liberarConfidencial(id) { return ok(await sb.rpc('confidencial_liberar', { p_id: id })); },
     // SQL 45: base de sindicatos do Ico, resumo de Facilities por turma e sala da integração
     async sindicatosCarregar(linhas, arquivo) { return ok(await sb.rpc('sindicatos_carregar', { p_linhas: linhas, p_arquivo: arquivo || null })); },
     async facilitiesResumo(de, ate) { return ok(await sb.rpc('facilities_resumo', { p_de: de, p_ate: ate })); },
@@ -547,8 +548,12 @@ async function limparExpurgo() {
   } catch (e) { console.warn('Descarte automático não terminou:', e); }
 }
 
-// quem o banco deixa ver a lista de admissões (admissoes_visao); o Início é para todas essas áreas (decisão de 27/10)
-const veAdmissoes = () => tem('rs', 'admissao', 'saude', 'remuneracao', 'signatario') || souSeguranca() || souTi() || souSindical() || souBeneficios();
+// quem o banco deixa ver a lista de admissões (admissoes_visao); o Início é para todas essas áreas (decisão de 27/10; SQL 47 abriu para Facilities, Frotas, BP e Compliance)
+const veAdmissoes = () => tem('rs', 'admissao', 'saude', 'remuneracao', 'signatario', 'compliance') || souSeguranca() || souTi() || souSindical() || souBeneficios() || souFacilities() || souFrotas() || souBp();
+// SQL 47: admissão confidencial (substituição que ainda não pode ser conhecida)
+const temSql47 = () => 'confidencial_lembrete_dias' in (E.params || {});
+const NIVEIS = ['Estágio ou aprendiz', 'Operacional', 'Administrativo', 'Técnico ou especialista', 'Coordenação ou supervisão', 'Gerência', 'Diretoria'];
+const chipConf = (a) => !a.confidencial ? '' : a.sigilo ? chip('c-at', 'at', 'Confidencial' + (a.nivel_cargo && !a.oculta ? ' · ' + a.nivel_cargo : '')) : chip('c-ag', '', 'Confidencial liberada');
 
 async function carregar() {
   const tarefas = [];
@@ -1031,6 +1036,7 @@ function listaAtencao() {
     if (a.aso_status === 'inapto' && !a.declinou_em && !a.matricula && tem('rs', 'admissao')) atencao.push([0, a, 'ASO inapto: alinhe com a Saúde e decline a vaga na ficha']);
     if (a.aso_status === 'nao_recomendado' && !a.declinou_em && !a.matricula && tem('rs', 'admissao')) atencao.push([0, a, 'Não recomendado pela Saúde: decida com o gestor se a admissão segue ou é declinada']);
     if (tem('rs', 'admissao') && (a.soc_ausente_dias || []).length && !a.soc_refletido_em && pendenteSaude(a)) atencao.push([0, a, 'Ainda não aparece no SOC (' + plural(a.soc_ausente_dias.length, 'dia', 'dias') + '): confira o cadastro; o prazo da Saúde está parado']);
+    if (tem('rs', 'admissao') && a.sigilo && !a.declinou_em) atencao.push([(deIso(a.data_inicio).getTime() - Date.now()) / DIA <= 5 ? 0 : 2, a, 'Admissão confidencial: libere os dados às áreas na ficha quando a substituição puder ser conhecida']);
     if (a.etapa === 'docs_ok' && !asoOk(a) && !['inapto', 'nao_recomendado'].includes(a.aso_status)) atencao.push([1, a, 'Documentação completa, falta o ASO']);
     // fluxo da Saúde (SQL 26)
     if (fluxoSaude(a) && pendenteSaude(a)) {
@@ -1254,6 +1260,8 @@ VIEWS.novo = () => {
     <div class="campo"><label for="n_local">Local de trabalho</label><select id="n_local">${E.locais.map((l) => `<option ${l.nome === 'Pouso Alegre' ? 'selected' : ''}>${esc(l.nome)}</option>`).join('')}</select><span class="ajuda" id="n_localAj"></span></div>
     <div class="campo l2" id="n_motivoCampo"><label>Motivo da vaga</label><div class="marcas" id="n_motivoBox"><label><input type="radio" name="n_motivo" value="aumento"> Aumento de quadro</label><label><input type="radio" name="n_motivo" value="subst"> Substituição</label></div><span class="ajuda">Substituição: a Remuneração confere se a posição já foi desocupada.</span></div>
     <div class="campo l2" id="n_substBox" hidden><label for="n_subst_nome">Pessoa substituída</label><input id="n_subst_nome"></div>
+    ${temSql47() ? `<div class="campo l2"><label class="marcas"><label><input type="checkbox" id="n_conf"> Admissão confidencial</label></label><span class="ajuda">Para a substituição que ainda não pode ser conhecida. Até o R&amp;S ou a Admissão liberarem na ficha, as áreas recebem só o nível do cargo, a data, o local e o que preparar. Veem tudo: R&amp;S, Admissão, Saúde, Remuneração, o gestor e a BP da área. O nome de quem sai nunca vai às áreas.</span></div>
+    <div class="campo" id="n_nivelBox" hidden><label for="n_nivel">Nível do cargo</label><select id="n_nivel"><option value="">Escolha o nível</option>${NIVEIS.map((x) => `<option>${esc(x)}</option>`).join('')}</select><span class="ajuda">É o que as áreas recebem no lugar do cargo.</span></div>` : ''}
     <div class="campo"><label for="n_posicao">Posição</label><input id="n_posicao" inputmode="numeric"><span class="ajuda" id="n_posCheck"></span></div>
     <div class="campo"><label for="n_proc">Nº do processo seletivo</label><input id="n_proc" inputmode="numeric"></div>
     <div class="campo l2"><label for="n_analista">Analista responsável (R&amp;S)</label>${selLista('n_analista', 'analista_rs', euAnalista, { vazio: 'Escolha a analista', outra: true, ph: 'Nome da analista' })}<span class="ajuda">Recebe as cobranças da Admissão (LG) e os avisos da Saúde.</span></div>
@@ -1304,6 +1312,7 @@ POS.novo = () => {
       ? (tem('admissao') ? 'O corte desta turma já passou: a inclusão fica registrada como feita pela Admissão.' : temSql27() ? 'Corte encerrado: inclusão liberada pelo Time de Admissão para este CPF.' : 'O corte de inclusão desta turma já passou: combine com o DP antes de salvar.')
       : temSql27() && !tem('admissao') ? 'Turma com corte encerrado fica bloqueada. Exceção aprovada: peça ao Time de Admissão para liberar o CPF nela.' : '';
     $('#n_substBox').hidden = !f.querySelector('input[name=n_motivo][value=subst]').checked;
+    if ($('#n_nivelBox')) $('#n_nivelBox').hidden = !$('#n_conf').checked;
     $('#n_agenciaBox').hidden = $('#n_tipo').value !== 'Temporário';
     if ($('#n_frotaTipoBox')) {
       $('#n_frotaTipoBox').hidden = !$('#n_frota').checked;
@@ -1374,6 +1383,7 @@ POS.novo = () => {
     if (v('n_tel').replace(/\D/g, '').length < 10) marca('n_tel', 'Informe o WhatsApp com DDD.');
     ['n_cargo', 'n_req'].forEach((id) => { if (!v(id)) marca(id, 'Obrigatório.'); });
     if (!motivo) marca('n_motivoBox', 'Escolha: aumento de quadro ou substituição.');
+    if ($('#n_conf')?.checked && !v('n_nivel')) marca('n_nivel', 'Escolha o nível do cargo: é o que as áreas recebem enquanto for confidencial.');
     if (opcoesLista('analista_rs').length && !valLista('n_analista')) marca('n_analista', 'Escolha a analista responsável.');
     if ($('#n_frInteg') && !$('#n_frIntegBox').hidden && $('#n_frInteg').checked && !$('#n_frIntegSel')?.value) marca('n_frInteg', 'Escolha a linha do fretado da integração.');
     const turmaSel = v('n_turma'); let turma_id = null, data_inicio = null;
@@ -1407,11 +1417,12 @@ POS.novo = () => {
       ...(localDe($('#n_local').value).tipo === 'comercial' && $('#n_uf').value ? { uf_atuacao: $('#n_uf').value } : {}),
       ...($('#n_eradep') ? { era_dependente_cimed: $('#n_eradep').checked } : {}),
       ...($('#n_frotaTipoBox') ? { frota_tipo: $('#n_frota').checked ? v('n_frota_tipo') || null : null } : {}),
+      ...($('#n_conf')?.checked ? { confidencial: true, nivel_cargo: v('n_nivel') } : {}),
     }, depsP));
     $('#n_salvar') && ($('#n_salvar').disabled = false);
     if (novo) {
       E.depsNovo = [];
-      toast('Aprovado cadastrado. ' + (avisadas('cadastro', novo) || 'Nenhuma área com e-mail para avisar ainda.') + (novo.email ? ' A lista de documentos foi para a fila do candidato.' + (novo.fretado_itin_chave || novo.fretado_integ ? ' O itinerário do fretado também.' : '') : ' Sem e-mail: combine o envio dos documentos pelo WhatsApp.'));
+      toast('Aprovado cadastrado. ' + (novo.confidencial ? 'Admissão confidencial: as áreas recebem só o nível, a data e o local até você liberar na ficha. ' : '') + (avisadas('cadastro', novo) || 'Nenhuma área com e-mail para avisar ainda.') + (novo.email ? ' A lista de documentos foi para a fila do candidato.' + (novo.fretado_itin_chave || novo.fretado_integ ? ' O itinerário do fretado também.' : '') : ' Sem e-mail: combine o envio dos documentos pelo WhatsApp.'));
       E.view = 'painel'; E.turma = novo.data_inicio; await recarregar(); abrirFicha(novo.id);
     }
   });
@@ -1528,7 +1539,7 @@ async function abrirFicha(id) {
 // candidato é avisado quando a integração muda (data, horário, local, formato, endereço)
 const CAMPOS_EDICAO = ['nome', 'email', 'telefone', 'nasc', 'sexo', 'estado_civil', 'tipo_contrato', 'cargo', 'setor', 'cc_codigo', 'cc_nome',
   'requisitante', 'requisitante_email', 'local', 'turno', 'escala', 'hora_integ', 'dias_integ', 'formato_integ', 'link_ou_endereco', 'contato_chegada',
-  'camisa', 'usa_frota', 'frota_tipo', 'motorista_profissional', 'ti_itens', 'cd_entrega', 'uf_atuacao'];
+  'camisa', 'usa_frota', 'frota_tipo', 'motorista_profissional', 'ti_itens', 'cd_entrega', 'uf_atuacao', 'nivel_cargo'];
 function abrirEdicao(id) {
   const a = adm(id); if (!a) return;
   const opt = (arr, sel) => arr.map((v) => `<option ${v === sel ? 'selected' : ''}>${esc(v)}</option>`).join('');
@@ -1568,6 +1579,7 @@ function abrirEdicao(id) {
     ${campo('Tamanho de camisa', `<select id="e_camisa">${opt(['PP', 'P', 'M', 'G', 'GG', 'XGG', 'Não usa uniforme'], a.camisa)}</select>`)}
     ${campo('CD de entrega', inp('cd_entrega', 'placeholder="Só comercial"'))}
     ${'uf_atuacao' in a ? campo('UF onde atua (comercial)', `<select id="e_uf_atuacao"><option value="">—</option>${opt(UFS, a.uf_atuacao)}</select>`) : ''}
+    ${a.confidencial ? campo('Nível do cargo (confidencial)', `<select id="e_nivel_cargo">${opt(NIVEIS, a.nivel_cargo)}</select>`) : ''}
     ${campo('Carro da empresa', `<div class="marcas"><label><input type="checkbox" id="e_usa_frota" ${a.usa_frota ? 'checked' : ''}> Vai dirigir carro da empresa</label><label><input type="checkbox" id="e_motorista_profissional" ${a.motorista_profissional ? 'checked' : ''}> Motorista profissional</label></div>${temSql35() ? `<div class="sub-campo"><label for="e_frota_tipo">Uso do carro</label><select id="e_frota_tipo"><option value="">—</option>${Object.entries(FROTA_TIPO).map(([k, x]) => `<option value="${k}" ${a.frota_tipo === k ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></div>` : ''}`, 'l2')}
     ${campo('Equipamentos e acessos', `<div class="marcas" id="e_ti">${itensTi.map((x) => `<label><input type="checkbox" value="${esc(x)}" ${(a.ti_itens || []).includes(x) ? 'checked' : ''}> ${esc(x)}</label>`).join('')}</div>`, 'l4')}
    </div></form>
@@ -1630,9 +1642,12 @@ function desenharFicha(a, docs, evs, arqs = []) {
   const comentario = !!api.comentar && temSql27();
   $('#camada').innerHTML = `<div class="veu" data-act="fechar"><aside class="gaveta" role="dialog" aria-modal="true" aria-label="Ficha" data-pare="1">
    <div class="linha-flex" style="align-items:flex-start"><div class="pilha" style="flex:1;gap:6px"><span class="olho">Ficha do candidato</span><h2 style="font-size:24px">${esc(titulo(a.nome))}</h2><span class="apoio">${esc(a.cargo)}${a.setor ? ' · ' + esc(a.setor) : ''} · ${esc(a.local)}${a.cc_codigo ? ' · CC ' + esc(a.cc_codigo) : ''}</span>
-    <div class="linha-flex">${a.teste ? chip('c-ia', 'info', 'TESTE · e-mails só para ' + (E.params?.teste_email || 'a admin')) : ''}${chipEtapa(a)}${foraCorte(a) ? chip('c-cr', 'cr', 'Fora do corte') : ''}${a.pcd !== 'Não' ? chip('c-info', 'info', 'PCD') : ''}${a.tipo_contrato !== 'CLT' ? chip('c-info', 'info', a.tipo_contrato + (a.agencia ? ' · ' + a.agencia : '')) : ''}${a.nasc && idade(a.nasc) < 18 ? chip('c-at', 'at', 'Menor de idade' + (l.tipo === 'fabrica' ? ' em fábrica' : '')) : ''}${a.motorista_profissional ? chip('c-info', 'info', 'Motorista profissional') : ''}${a.formato_integ === 'online' ? chip('c-ag', '', 'Integração on-line') : ''}${a.nr12 ? chip('c-ag', '', 'NR-12') : ''}${a.arquivado_em ? chip('c-ok', 'ok', 'Dossiê arquivado') : ''}${a.origem === 'importacao' ? chip('c-ag', '', 'Veio da planilha') : ''}</div></div>
+    <div class="linha-flex">${chipConf(a)}${a.teste ? chip('c-ia', 'info', 'TESTE · e-mails só para ' + (E.params?.teste_email || 'a admin')) : ''}${chipEtapa(a)}${foraCorte(a) ? chip('c-cr', 'cr', 'Fora do corte') : ''}${a.pcd !== 'Não' ? chip('c-info', 'info', 'PCD') : ''}${a.tipo_contrato !== 'CLT' ? chip('c-info', 'info', a.tipo_contrato + (a.agencia ? ' · ' + a.agencia : '')) : ''}${a.nasc && idade(a.nasc) < 18 ? chip('c-at', 'at', 'Menor de idade' + (l.tipo === 'fabrica' ? ' em fábrica' : '')) : ''}${a.motorista_profissional ? chip('c-info', 'info', 'Motorista profissional') : ''}${a.formato_integ === 'online' ? chip('c-ag', '', 'Integração on-line') : ''}${a.nr12 ? chip('c-ag', '', 'NR-12') : ''}${a.arquivado_em ? chip('c-ok', 'ok', 'Dossiê arquivado') : ''}${a.origem === 'importacao' ? chip('c-ag', '', 'Veio da planilha') : ''}</div></div>
     ${podeRs && !a.declinou_em ? `<button class="bt" data-act="editar" data-id="${a.id}">Editar cadastro</button>` : ''}<button class="bt" data-act="fechar">Fechar</button></div>
    ${inc ? `<p class="apoio" style="font-size:12.5px;margin:0">Incluído por <b>${esc(a.incluido_por || inc.quem)}</b> em ${quando(inc.em)}${a.origem === 'importacao' ? ' (importação da planilha)' : ''}${a.analista_rs ? ' · analista responsável: ' + esc(a.analista_rs) : ''}</p>` : ''}
+   ${a.sigilo && podeRs && !a.declinou_em ? `<div class="faixa"><p><b>Admissão confidencial${a.nivel_cargo ? ' · ' + esc(a.nivel_cargo) : ''}.</b> As áreas receberam só o nível do cargo, a data, o local e o que preparar. Veem tudo: R&amp;S, Admissão, Saúde, Remuneração, o gestor e a BP da área. Quando a substituição puder ser conhecida, use "Liberar dados às áreas": quem só recebeu o resumo recebe o nome, o cargo, o setor e o gestor. A matrícula não libera sozinha; a TI precisa de 48 horas úteis para criar os acessos. <button class="bt peq ama" data-act="confLiberar" data-id="${a.id}" style="margin-top:6px">Liberar dados às áreas</button></p></div>` : ''}
+   ${a.oculta ? `<div class="faixa"><p><b>Admissão confidencial.</b> O nome, o cargo, o setor e o gestor chegam quando o R&amp;S ou a Admissão liberarem. Por enquanto, prepare só o que é da sua área e mantenha em sigilo.</p></div>` : ''}
+   ${a.confidencial && a.confidencial_liberado_em && podeRs ? `<p class="apoio" style="font-size:12.5px;margin:0">Confidencial liberada às áreas em ${quando(a.confidencial_liberado_em)}${a.confidencial_liberado_por ? ' por ' + esc(a.confidencial_liberado_por) : ''}. O nome de quem sai continua fora dos avisos.</p>` : ''}
    ${!a.declinou_em ? fluxoVisual(a) : ''}
    ${a.declinou_em ? `<div class="faixa"><p><b>Declinou</b> em ${quando(a.declinou_em)}: ${esc(a.declinou_motivo || '')}.${a.declinou_sensivel ? ' <span class="apoio">Motivo sensível: as áreas receberam só o aviso de cancelamento.</span>' : ''}</p></div>` : ''}
    <div class="grade g2">
@@ -1665,7 +1680,7 @@ function desenharFicha(a, docs, evs, arqs = []) {
    ${dp && (E.acessosFicha || []).length ? `<div class="caixa pilha" style="gap:6px"><h3>Quem abriu documentos</h3>${E.acessosFicha.map((x) => `<span class="apoio" style="font-size:12.5px">${esc((docs.find((d) => d.tipo === x.tipo) || {}).nome || x.tipo)} · ${esc(x.quem)} · ${quando(x.em)}</span>`).join('')}</div>` : ''}
    <div class="caixa pilha"><h3>Linha do tempo</h3><div class="tempo">${evs.map((h) => `<div class="ev"><span class="pt"></span><div>${esc(textoEvento(h.texto))}<small>${quando(h.em)} · ${esc(h.quem)}</small></div></div>`).join('') || '<span class="apoio">Sem registros.</span>'}</div>
     ${tem('rs', 'admissao', 'saude', 'remuneracao') ? `<form id="fObs" class="linha-flex"><input id="obsTx" maxlength="1000" placeholder="${comentario ? 'Comentar · escreva @Nome Sobrenome para avisar alguém (acende o sino dela)' : 'Escrever uma observação (fica com seu nome e a hora)'}" style="flex:1;min-width:200px;border:1px solid var(--linha);border-radius:10px;padding:9px 12px;background:var(--sup)"><button class="bt" type="submit">${comentario ? 'Comentar' : 'Anotar'}</button></form>` : ''}</div>
-   <div class="caixa pilha"><h3>Dados da vaga</h3><div class="grade g2" style="gap:6px 16px;font-size:13px">${[['Escala', a.escala], ['Turno', a.turno], ...(a.uf_atuacao ? [['UF onde atua', a.uf_atuacao]] : []), ['Posição', a.posicao], ['Processo seletivo', a.processo], ['Centro de custo', [a.cc_codigo, a.cc_nome].filter(Boolean).join(' · ')], ['Vaga', a.substituicao ? 'Substituição de ' + (a.pessoa_substituida || '?') : 'Aumento de quadro'], ['Requisitante', a.requisitante], ['E-mail do requisitante', a.requisitante_email], ['Analista R&S', a.analista_rs], ['Analista DP', a.analista_dp], ...('sindicato' in a ? [['Sindicato', a.sindicato]] : []), ['Dias de integração', a.dias_integ], ['Horário da integração', a.hora_integ], ['CBO', a.cbo], ['Estado civil', a.estado_civil], ['Filhos', a.filhos], ['Formato da integração', a.formato_integ === 'online' ? 'On-line' : 'Presencial'], ['Chamado de TI', a.chamado_ti]].map(([k, v]) => `<div><span class="apoio">${esc(k)}:</span> <b>${esc(v || '—')}</b></div>`).join('')}</div>
+   <div class="caixa pilha"><h3>Dados da vaga</h3><div class="grade g2" style="gap:6px 16px;font-size:13px">${[['Escala', a.escala], ['Turno', a.turno], ...(a.uf_atuacao ? [['UF onde atua', a.uf_atuacao]] : []), ['Posição', a.posicao], ['Processo seletivo', a.processo], ['Centro de custo', [a.cc_codigo, a.cc_nome].filter(Boolean).join(' · ')], ...(a.confidencial && a.nivel_cargo ? [['Nível do cargo', a.nivel_cargo]] : []), ['Vaga', a.substituicao ? (a.pessoa_substituida ? 'Substituição de ' + a.pessoa_substituida : a.confidencial ? 'Substituição' : 'Substituição de ?') : 'Aumento de quadro'], ['Requisitante', a.requisitante], ['E-mail do requisitante', a.requisitante_email], ['Analista R&S', a.analista_rs], ['Analista DP', a.analista_dp], ...('sindicato' in a ? [['Sindicato', a.sindicato]] : []), ['Dias de integração', a.dias_integ], ['Horário da integração', a.hora_integ], ['CBO', a.cbo], ['Estado civil', a.estado_civil], ['Filhos', a.filhos], ['Formato da integração', a.formato_integ === 'online' ? 'On-line' : 'Presencial'], ['Chamado de TI', a.chamado_ti]].map(([k, v]) => `<div><span class="apoio">${esc(k)}:</span> <b>${esc(v || '—')}</b></div>`).join('')}</div>
     ${podeRs && !a.declinou_em && !a.matricula ? `<form id="fDecl" class="linha-flex"><input id="declTx" placeholder="Motivo do declínio" style="flex:1;min-width:200px;border:1px solid var(--linha);border-radius:10px;padding:9px 12px;background:var(--sup)"><label class="apoio" style="font-size:12.5px;display:flex;align-items:center;gap:6px"><input type="checkbox" id="declSens"> Motivo sensível: as áreas recebem só "cancelada"</label><button class="bt" type="submit">Registrar declínio</button></form>` : ''}
     ${tem('admissao') && !a.declinou_em && a.matricula ? `<form id="fNaoVeio" class="linha-flex"><input id="naoVeioTx" placeholder="Não compareceu ou desistiu depois da matrícula: o que aconteceu?" style="flex:1;min-width:200px;border:1px solid var(--linha);border-radius:10px;padding:9px 12px;background:var(--sup)"><button class="bt" type="submit">Registrar não comparecimento</button></form>` : ''}</div>
   </aside></div>`;
@@ -2197,6 +2212,8 @@ function planilhaLista(l) {
   const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Admitidos');
   return wb;
 }
+// SQL 47: a confidencial ainda não liberada vai na lista sem nome, cargo, gestor, telefone, matrícula nem centro de custo
+const linhaLista = (a, x) => (a.sigilo ? Object.assign(x, { nome: 'ADMISSÃO CONFIDENCIAL', cargo: a.nivel_cargo || 'Confidencial', requisitante: null, matricula: null, telefone: null, chamado: null, cc_codigo: null, cc_nome: null, requisitante_email: null }) : x);
 VIEWS.turma = () => {
   const ds = datasTurma(); if (!E.turmaLista || !ds.includes(E.turmaLista)) E.turmaLista = ds.find((d) => d >= iso(new Date())) || ds[ds.length - 1] || null;
   const doDia = vivas().filter((a) => a.data_inicio === E.turmaLista && !a.teste);
@@ -2204,7 +2221,7 @@ VIEWS.turma = () => {
   if (!E.locaisLista || !E.locaisLista.length || E.locaisLista.some((x) => !locaisDia.includes(x))) E.locaisLista = locaisDia.slice();
   const cal = E.turmasCal.filter((t) => t.ativo && t.data === E.turmaLista);
   const lista = doDia.filter((a) => E.locaisLista.includes(a.local) && (!E.soMatriculados || a.matricula)).sort((x, y) => (x.local + x.cargo + x.nome).localeCompare(y.local + y.cargo + y.nome))
-    .map((a) => ({ id: a.id, local: a.local, data_admissao: a.data_inicio, horario_agendado: a.hora_integ, analista_responsavel: a.analista_rs, requisitante: a.requisitante, cargo: a.cargo, matricula: a.matricula, nome: a.nome, telefone: a.telefone, pcd: a.pcd === 'Não' ? 'NÃO' : 'SIM', tipo: (a.ti_itens || []).join(', ') || null, chamado: a.chamado_ti, dias_integracao: a.dias_integ, integracao_nr12: a.nr12 ? 'SIM' : 'NÃO', cc_codigo: a.cc_codigo, cc_nome: a.cc_nome, requisitante_email: a.requisitante_email }));
+    .map((a) => linhaLista(a, { id: a.id, local: a.local, data_admissao: a.data_inicio, horario_agendado: a.hora_integ, analista_responsavel: a.analista_rs, requisitante: a.requisitante, cargo: a.cargo, matricula: a.matricula, nome: a.nome, telefone: a.telefone, pcd: a.pcd === 'Não' ? 'NÃO' : 'SIM', tipo: (a.ti_itens || []).join(', ') || null, chamado: a.chamado_ti, dias_integracao: a.dias_integ, integracao_nr12: a.nr12 ? 'SIM' : 'NÃO', cc_codigo: a.cc_codigo, cc_nome: a.cc_nome, requisitante_email: a.requisitante_email }));
   E.listaAtual = lista;
   const semMat = doDia.filter((a) => E.locaisLista.includes(a.local) && !a.matricula).length;
   const destinos = (() => { const ls = E.locaisLista.map((n) => localDe(n)); const s = new Set(); E.dest.filter((d) => d.ativo && (d.unidade === 'todas' || E.locaisLista.includes(d.unidade) || ls.some((l) => l.tipo === d.unidade || l.grupo_turma === d.unidade))).forEach((d) => (d.emails || []).forEach((e) => s.add(e))); return [...s]; })();
@@ -2353,8 +2370,14 @@ async function importarSindicatos(file) {
   if (c.nome < 0) { toast('Não achei a coluna "Nome do Sindicato Laboral".', true); return; }
   const linhas = rows.slice(h + 1).filter((r) => r && r[c.negocio] && r[c.nome]).map((r) => ({ codigo: String(r[c.codigo] ?? '').trim(), negocio: String(r[c.negocio]).trim(), nome: String(r[c.nome]).trim(), data_base: c.data_base >= 0 ? String(r[c.data_base] ?? '').trim() : '' }));
   if (!linhas.length) { toast('A planilha não tem sindicatos.', true); return; }
+  const probs = []; const porCod = {};
+  linhas.forEach((x) => { if (x.codigo) (porCod[x.codigo] = porCod[x.codigo] || new Set()).add(x.nome); });
+  Object.entries(porCod).filter(([, ns]) => ns.size > 1).forEach(([c, ns]) => probs.push('Código ' + c + ' repetido em sindicatos diferentes: ' + [...ns].join('; ')));
+  linhas.filter((x) => !x.codigo).forEach((x) => probs.push('Sem código: ' + x.negocio + ' (' + x.nome + ')'));
   const res = await tentar(() => api.sindicatosCarregar(linhas, file.name));
   if (!res) return;
+  (res.sem_local || []).forEach((n) => probs.push('Negócio sem local na plataforma: ' + n + '. Se a unidade não existe mais, tire da planilha; se existe, peça à Admissão para cadastrar o local.'));
+  E.sindProbs = { arquivo: file.name, itens: probs };
   toast(`${plural(res.regras, 'regra carregada', 'regras carregadas')} da planilha.${(res.sem_local || []).length ? ' Sem local na plataforma: ' + res.sem_local.join(', ') + '.' : ''} Quem está em andamento foi conferido de novo.`);
   await recarregar(); render();
 }
@@ -2363,7 +2386,8 @@ POS.listas = ligarImportSind;
 function regrasSindicatoBox() {
   const plan = (E.regrasSind || []).filter((r) => r.origem === 'planilha').sort((x, y) => (x.local + (x.uf || '') + (x.cargo_contem || '')).localeCompare(y.local + (y.uf || '') + (y.cargo_contem || '')));
   const pode = tem('admissao') || (tem('especialista') && minhaArea() === 'sindical');
-  const planBox = `<div class="caixa" style="padding:0" id="sindPlan"><div style="padding:14px 16px;border-bottom:1px solid var(--linha)" class="linha-flex"><div style="flex:1"><h2>Base de sindicatos (planilha de Relações Sindicais)</h2><p class="apoio" style="font-size:12.5px">${plan.length ? plural(plan.length, 'regra', 'regras') + ' da planilha ' + esc(plan[0].observacao || '').replace(/^Planilha /, '') + '. ' : 'Ainda sem a planilha. '}Comercial pela UF onde a pessoa atua; CD pelo estado do CD, com a regra do farmacêutico pelo cargo. Para atualizar, carregue a planilha nova: ela substitui esta base, e as regras digitadas à mão ficam.</p></div>${pode ? `<input type="file" id="sindArq" accept=".xlsx,.xls,.csv" hidden><button class="bt peq pri" data-act="sindImportar">Carregar a planilha</button>` : ''}</div>
+  const planBox = `<div class="caixa" style="padding:0" id="sindPlan"><div style="padding:14px 16px;border-bottom:1px solid var(--linha)" class="linha-flex"><div style="flex:1"><h2>Base de sindicatos (planilha de Relações Sindicais)</h2><p class="apoio" style="font-size:12.5px">${plan.length ? plural(plan.length, 'regra', 'regras') + ' da planilha ' + esc(plan[0].observacao || '').replace(/^Planilha /, '') + '. ' : 'Ainda sem a planilha. '}Comercial pela UF onde a pessoa atua; CD pelo estado do CD, com a regra do farmacêutico pelo cargo. Para atualizar, corrija a própria planilha e carregue de novo: ela substitui esta base, e as regras digitadas à mão ficam. Depois da carga aparece aqui o que ainda precisa de correção (código repetido, linha sem código, negócio que não existe mais).</p></div>${pode ? `<input type="file" id="sindArq" accept=".xlsx,.xls,.csv" hidden><button class="bt peq pri" data-act="sindImportar">Carregar a planilha</button>` : ''}</div>
+    ${pode && E.sindProbs ? (E.sindProbs.itens.length ? `<div class="faixa" style="margin:12px 16px"><p><b>Para corrigir na planilha ${esc(E.sindProbs.arquivo)}:</b></p><ul style="margin:6px 0 0 18px">${E.sindProbs.itens.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>` : `<p class="apoio" style="margin:12px 16px;font-size:12.5px">A planilha ${esc(E.sindProbs.arquivo)} carregou sem nada a corrigir.</p>`) : ''}
     ${plan.length ? `<div class="tab-wrap"><table><thead><tr><th>Local</th><th>UF</th><th>Cargo contém</th><th>Código</th><th>Sindicato</th><th>Data-base</th></tr></thead><tbody>${plan.map((r) => `<tr><td>${esc(r.local)}</td><td>${esc(r.uf || '—')}</td><td>${esc(r.cargo_contem || '—')}</td><td class="num">${esc(r.codigo || '—')}</td><td>${esc(r.sindicato)}</td><td>${esc(r.data_base || '—')}</td></tr>`).join('')}</tbody></table></div>` : ''}</div>`;
   return planBox + regrasManuaisBox();
 }
@@ -2532,7 +2556,7 @@ VIEWS.especialistas = () => {
    ${E.bps.map(linhaBp).join('')}${linhaBp({ unidade: 'todas' }, E.bps.length)}</div>
   <div class="caixa" style="padding:0" id="destBox"><div style="padding:14px 16px;border-bottom:1px solid var(--linha)"><h2>Lista da turma: destinatários por unidade</h2><p class="apoio" style="font-size:12.5px">Quem recebe o e-mail "INTEGRAÇÃO SITE I dd/mm/aaaa" com a planilha, enviado pela tela Turma e lista. Listas de distribuição valem.</p></div>
    ${E.dest.map(linhaDest).join('')}${linhaDest({ unidade: 'fabrica' }, E.dest.length)}</div>
-  <div class="caixa pilha"><p class="apoio">Tipo de deficiência e CPF só vão para Saúde, Admissão e Remuneração. As demais áreas recebem "PCD: sim", por ser dado sensível pela LGPD. As respostas do Termo de Transparência só o papel Compliance abre.</p></div>`;
+  <div class="caixa pilha"><p class="apoio">Tipo de deficiência só vai para Saúde, Admissão e Remuneração; as demais áreas recebem "PCD: sim", por ser dado sensível pela LGPD. O CPF vai para Saúde, Admissão, Remuneração, Benefícios, Frotas e a Recepção de SP (o condomínio pede; liberado em 27/10). As respostas do Termo de Transparência só o papel Compliance abre.</p></div>`;
 };
 
 // ------------------------------------------------------------ compliance
@@ -2698,6 +2722,15 @@ document.addEventListener('click', async (e) => {
       toast(plural(n, 'cobrança na fila', 'cobranças na fila')); await recarregar(); break;
     }
     case 'editar': abrirEdicao(id); break;
+    case 'confLiberar': {
+      const a = adm(id); if (!a) break;
+      if (!confirm('Liberar os dados de ' + titulo(a.nome) + ' às áreas?\n\nAs áreas que só receberam o resumo (nível, data e local) recebem agora o nome, o cargo, o setor e o gestor. O nome da pessoa substituída continua fora dos avisos. Não dá para desfazer.')) break;
+      el.disabled = true;
+      const n = await tentar(() => api.liberarConfidencial(id));
+      if (n === undefined) { el.disabled = false; break; }
+      toast(n ? 'Liberada: ' + plural(n, 'aviso', 'avisos') + ' com os dados completos na fila.' : 'Liberada. Nenhuma área tinha recebido o resumo ainda.');
+      await recarregar(); abrirFicha(id); break;
+    }
     case 'edVoltar': abrirFicha(id); break;
     case 'edSalvar': {
       const a = adm(id); const p = mudancasEdicao(a);
@@ -3026,7 +3059,7 @@ document.addEventListener('click', async (e) => {
         'Local: ' + a.local + (l.tipo ? ' (' + l.tipo + ')' : ''), 'Centro de custo: ' + ([a.cc_codigo, a.cc_nome].filter(Boolean).join(' · ') || 'não informado'),
         'Gestor: ' + (a.requisitante || '—') + (a.requisitante_email ? ' · ' + a.requisitante_email : ''),
         'Data de início: ' + dm(a.data_inicio) + (a.formato_integ === 'online' ? ' (integração on-line)' : ' (presencial)'),
-        'Itens: ' + (a.ti_itens || []).join(', ')].concat(a.cd_entrega ? ['Entregar no CD: ' + a.cd_entrega] : []).concat(a.substituicao ? ['Substituição de: ' + (a.pessoa_substituida || '—') + ' (verificar devolução do equipamento)'] : [])
+        'Itens: ' + (a.ti_itens || []).join(', ')].concat(a.cd_entrega ? ['Entregar no CD: ' + a.cd_entrega] : []).concat(a.substituicao && !a.confidencial ? ['Substituição de: ' + (a.pessoa_substituida || '—') + ' (verificar devolução do equipamento)'] : [])
         .concat(['', 'Aberto pela Admissão · Plataforma de Admissão']).join('\n');
       try { await navigator.clipboard.writeText(texto); toast('Texto do chamado copiado. Cole no Jira e depois registre o número aqui.'); }
       catch { await perguntar('Copie o texto abaixo', texto); }
@@ -3121,7 +3154,7 @@ setInterval(() => { if (E.perfil && !$('#camada').innerHTML && !document.querySe
 
 // versão publicada: o navegador pode guardar o index.html antigo e mostrar a tela de antes.
 // O versao.txt diz qual é a atual; se for mais nova, busca o index de novo e recarrega (uma vez por versão).
-const VERSAO = 71;
+const VERSAO = 72;
 async function conferirVersao() {
   try {
     const nova = parseInt(await (await fetch('versao.txt', { cache: 'no-store' })).text(), 10);
