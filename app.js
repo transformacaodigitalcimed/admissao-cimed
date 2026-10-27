@@ -457,12 +457,12 @@ function visaoInicial() {
   const so = !tem('rs', 'admissao');
   const esp = so && tem('especialista') ? minhaArea() : '';
   return so && tem('saude') ? 'saude' : so && tem('remuneracao') ? 'remuneracao' : so && tem('signatario') ? 'kit' : so && tem('compliance') ? 'compliance'
-    : esp === 'sindical' ? 'sindicatos' : esp === 'bp' ? 'examesbp' : ['facilities', 'facilities_resumo'].includes(esp) && api.facilitiesResumo ? 'integracoes' : ['beneficios', 'beneficios_prev', 'beneficios_cancela'].includes(esp) ? 'beneficios' : navVisivel()[0]?.[0];
+    : esp === 'sindical' ? 'sindicatos' : esp === 'bp' ? 'examesbp' : ['facilities', 'facilities_resumo'].includes(esp) && api.facilitiesResumo ? 'integracoes' : ['beneficios', 'beneficios_prev', 'beneficios_cancela'].includes(esp) ? 'beneficios' : navVisivel().filter((n) => !so || n[0] !== 'inicio')[0]?.[0];
 }
 
 // [id, nome, ícone, quem vê, seção do menu]
 const NAV = [
-  ['inicio', 'Início', 'inicio', () => tem('rs', 'admissao'), 1],
+  ['inicio', 'Início', 'inicio', () => veAdmissoes(), 1],
   ['novo', 'Cadastrar aprovado', 'novo', () => tem('rs', 'admissao'), 1],
   ['painel', 'Painel da admissão', 'painel', () => tem('rs', 'admissao', 'saude', 'remuneracao'), 1],
   ['turma', 'Turma e lista', 'esp', () => tem('rs', 'admissao'), 1],
@@ -547,9 +547,12 @@ async function limparExpurgo() {
   } catch (e) { console.warn('Descarte automático não terminou:', e); }
 }
 
+// quem o banco deixa ver a lista de admissões (admissoes_visao); o Início é para todas essas áreas (decisão de 27/10)
+const veAdmissoes = () => tem('rs', 'admissao', 'saude', 'remuneracao', 'signatario') || souSeguranca() || souTi() || souSindical() || souBeneficios();
+
 async function carregar() {
   const tarefas = [];
-  if (tem('rs', 'admissao', 'saude', 'remuneracao', 'signatario') || souSeguranca() || souTi() || souSindical() || souBeneficios()) {
+  if (veAdmissoes()) {
     tarefas.push(api.admissoes().then((r) => (E.admissoes = r || [])));
     if (tem('rs', 'admissao', 'saude', 'remuneracao', 'signatario')) tarefas.push(api.resumoDocs().then((r) => (E.resumo = Object.fromEntries((r || []).map((x) => [x.admissao_id, x])))));
   }
@@ -1118,7 +1121,7 @@ VIEWS.inicio = () => {
   const atencao = listaAtencao();
   const alertaSetor = (x) => (x.cand && pct(x.decl, x.cand) >= lim.desist ? chip('c-cr', 'cr', 'Desistência') : x.cand - x.decl && pct(x.pend, x.cand - x.decl) >= lim.exames ? chip('c-at', 'at', 'Exames') : chip('c-ok', 'ok', 'OK'));
   return `<div class="cab"><div class="t"><span class="olho">Visão geral</span><h1>Admissões</h1><p class="apoio">O painel da planilha de admissão (aba RESUMO), calculado pelo sistema a partir do que cada área registra. Filtre por setor, local e mês de início.</p></div>
-    <div class="linha-flex">${tem('admissao') ? '<button class="bt" data-act="importar">Importar a planilha atual (.xlsx)</button>' : ''}<button class="bt ama" data-act="ir" data-v="novo">${MI.novo} Cadastrar aprovado</button></div></div>
+    <div class="linha-flex">${tem('admissao') ? '<button class="bt" data-act="importar">Importar a planilha atual (.xlsx)</button>' : ''}${tem('rs', 'admissao') ? `<button class="bt ama" data-act="ir" data-v="novo">${MI.novo} Cadastrar aprovado</button>` : ''}</div></div>
   ${proxDia ? faixaCorte(proxDia) : ''}
   <div class="filtros"><label class="olho" for="iSetor">Setor</label><select id="iSetor"><option value="">Todos</option>${setores.map((s) => `<option ${s === F.setor ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>
     <label class="olho" for="iLocal">Local</label><select id="iLocal"><option value="">Todos</option>${locais.map((s) => `<option ${s === F.local ? 'selected' : ''}>${esc(s)}</option>`).join('')}</select>
@@ -1884,8 +1887,8 @@ function laudosParaSaude() {
   return `<div class="tab-wrap"><table><thead><tr><th>Pessoa</th><th>Deficiência</th><th>Integração</th><th></th></tr></thead><tbody>${l.map((a) => `<tr class="clic" data-act="ficha" data-id="${a.id}"><td><b>${esc(titulo(a.nome))}</b><br><span class="apoio" style="font-size:12px">${esc(a.cargo)} · ${esc(a.local)}</span></td><td>${esc(a.pcd)}</td><td class="num">${dmd(a.data_inicio)}</td><td><button class="bt peq" data-act="ficha" data-id="${a.id}">Abrir laudo</button></td></tr>`).join('')}</tbody></table></div>`;
 }
 // Saúde enxuta (reunião de 22/10/2026): à vista, só o agendamento e o resultado
-// SQL 41: inapto volta (trava e o R&S declina); não recomendado é só uma recomendação (o R&S decide com o gestor)
-const RESULTADO_ASO = { apto: 'Apto', apto_restricao: 'Apto com restrição', inapto: 'Inapto', nao_recomendado: 'Não recomendado' };
+// SQL 46: só "Não recomendado" (decisão de 27/10); o R&S decide com o gestor se segue ou declina
+const RESULTADO_ASO = { apto: 'Apto', apto_restricao: 'Apto com restrição', nao_recomendado: 'Não recomendado' };
 function asoEditor(a) {
   const res = RESULTADO_ASO[a.aso_status] ? a.aso_status : '';
   const clin = opcoesLista('clinica_aso');
@@ -1977,7 +1980,7 @@ function vacinasSaude() {
 // tela da Saúde depois do SQL 39: a lista com agendar e resultado; configurações e laudos recolhidos
 function saudeEnxuta() {
   const pcd = E.admissoes.some((a) => a.pcd && a.pcd !== 'Não' && !a.declinou_em && !a.expurgado_em);
-  return `<div class="cab"><div class="t"><span class="olho">Saúde ocupacional</span><h1>Exame admissional</h1><p class="apoio">Agende e registre o resultado direto na lista. Agendar com data envia o e-mail ao candidato com local, exames e preparo. Inapto trava a matrícula e o R&S declina a vaga; não recomendado é uma recomendação, e o R&S decide com o gestor. Exame com a data passada e sem resultado fica em vermelho, e a Saúde recebe essa lista por e-mail às 9h dos dias úteis. Para contato, vacinas, exames da função e envio ao R&S, clique no nome. O ASO oficial continua no SOC.</p></div></div>
+  return `<div class="cab"><div class="t"><span class="olho">Saúde ocupacional</span><h1>Exame admissional</h1><p class="apoio">Agende e registre o resultado direto na lista. Agendar com data envia o e-mail ao candidato com local, exames e preparo. Não recomendado é uma recomendação: o R&S decide com o gestor se a admissão segue ou é declinada, e a matrícula espera a decisão. Exame com a data passada e sem resultado fica em vermelho, e a Saúde recebe essa lista por e-mail às 9h dos dias úteis. Para contato, vacinas, exames da função e envio ao R&S, clique no nome. O ASO oficial continua no SOC.</p></div></div>
  <div class="caixa pilha">${filaSaude()}</div>
  ${pcd ? `<div class="caixa pilha"><h2>Laudos PCD</h2>${laudosParaSaude()}</div>` : ''}
  <details class="caixa pilha mais-saude"><summary>Configurações da Saúde: clínicas credenciadas, preparo dos exames e vacinas obrigatórias</summary>${listasDaSaude()}${vacinasSaude()}</details>`;
@@ -1999,7 +2002,7 @@ function listasDaSaude() {
     ${pode ? `<div class="linha-flex" style="align-items:flex-end;flex-wrap:wrap"><div class="campo" style="min-width:140px"><label for="sl_f_preparo_exame">Exame</label><input id="sl_f_preparo_exame" placeholder="Toxicológico"></div><div class="campo" style="flex:1;min-width:200px"><label for="sl_v_preparo_exame">Preparo</label><input id="sl_v_preparo_exame" placeholder="o que fazer antes do exame"></div><button class="bt" data-act="slAdd" data-t="preparo_exame">Incluir</button></div>` : ''}</div>
   </div>`;
 }
-VIEWS.saude = () => E.params?.vacina_documento != null ? saudeEnxuta() : `<div class="cab"><div class="t"><span class="olho">Saúde ocupacional</span><h1>Exame admissional</h1><p class="apoio">${E.params?.vacinas_obrigatorias == null ? 'Quem precisa de exame, por turma. Clique na pessoa para agendar (data, hora e local: o candidato recebe o e-mail), registrar apto, apto com restrição ou inapto. Apto libera a matrícula e pede à recrutadora a movimentação no LG; inapto avisa o R&S e a Admissão, e a Saúde decide na ficha se remarca o exame ou cancela a admissão. O ASO oficial continua no SOC.' : `Fluxo da Saúde: o R&S cadastra no SOC; cadastro até 12h, a Saúde faz o contato no mesmo dia, depois das 12h no dia útil seguinte. No contato a Saúde confere as vacinas, agenda o exame (rede credenciada, clínica próxima ou reembolso) e dá o parecer. Prazo do ASO: 5 dias úteis só com exame clínico, 10 com exames complementares (pela tabela de exames da função). Sem contato ou falta por 24h, recusa de vacina, segunda remarcação ou erro no SOC vão para o R&S decidir. Clique na pessoa para registrar.${E.params?.vacina_documento != null ? ' Na ficha ficam à vista o agendamento e o resultado (apto, apto com restrição ou não recomendado); o resto fica em "Mais opções". O prazo conta de quando a pessoa aparece no SOC: use "Ainda não está no SOC" e "Apareceu no SOC".' : ''} O ASO oficial continua no SOC.`}</p></div></div>
+VIEWS.saude = () => E.params?.vacina_documento != null ? saudeEnxuta() : `<div class="cab"><div class="t"><span class="olho">Saúde ocupacional</span><h1>Exame admissional</h1><p class="apoio">${E.params?.vacinas_obrigatorias == null ? 'Quem precisa de exame, por turma. Clique na pessoa para agendar (data, hora e local: o candidato recebe o e-mail), registrar apto, apto com restrição ou não recomendado. Apto libera a matrícula e pede à recrutadora a movimentação no LG; não recomendado avisa o R&S, a Admissão e o gestor, e o R&S decide com o gestor se segue ou declina. O ASO oficial continua no SOC.' : `Fluxo da Saúde: o R&S cadastra no SOC; cadastro até 12h, a Saúde faz o contato no mesmo dia, depois das 12h no dia útil seguinte. No contato a Saúde confere as vacinas, agenda o exame (rede credenciada, clínica próxima ou reembolso) e dá o parecer. Prazo do ASO: 5 dias úteis só com exame clínico, 10 com exames complementares (pela tabela de exames da função). Sem contato ou falta por 24h, recusa de vacina, segunda remarcação ou erro no SOC vão para o R&S decidir. Clique na pessoa para registrar.${E.params?.vacina_documento != null ? ' Na ficha ficam à vista o agendamento e o resultado (apto, apto com restrição ou não recomendado); o resto fica em "Mais opções". O prazo conta de quando a pessoa aparece no SOC: use "Ainda não está no SOC" e "Apareceu no SOC".' : ''} O ASO oficial continua no SOC.`}</p></div></div>
  <div class="caixa pilha"><h2>Fila de agendamento</h2>${filaSaude()}</div>
  ${E.params?.vacina_documento != null ? listasDaSaude() : ''}
  ${vacinasSaude()}
@@ -3118,7 +3121,7 @@ setInterval(() => { if (E.perfil && !$('#camada').innerHTML && !document.querySe
 
 // versão publicada: o navegador pode guardar o index.html antigo e mostrar a tela de antes.
 // O versao.txt diz qual é a atual; se for mais nova, busca o index de novo e recarrega (uma vez por versão).
-const VERSAO = 70;
+const VERSAO = 71;
 async function conferirVersao() {
   try {
     const nova = parseInt(await (await fetch('versao.txt', { cache: 'no-store' })).text(), 10);
