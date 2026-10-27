@@ -188,6 +188,9 @@ async function criarApi() {
     // linhas de transporte do LG e itinerários do fretado (SQL 31)
     async transporteLinhas() { return ok(await sb.from('transporte_linhas').select('codigo_lg,nome,fornecedor,unidade,tarifa,ativo').eq('ativo', true).order('codigo_lg')); },
     async itinerarios() { return ok(await sb.from('fretado_itinerarios').select('*').eq('ativo', true).order('unidade').order('turno').order('linha')); },
+    // SQL 44: Benefícios troca o fretado; Frotas confere CNH e extrato de pontos
+    async benFretado(adm, fretado, codigo, itin) { ok(await sb.rpc('beneficios_fretado', { adm, p_fretado: fretado || null, p_codigo: codigo || null, p_itin: itin || null })); return true; },
+    async frotaDocs() { return ok(await sb.rpc('frota_documentos')); },
     async dependentesTodos() { return paginas(() => sb.from('dependentes_visao').select('*').order('admissao_id').order('ordem').order('id')); },
     async opcoesTodas() { return paginas(() => sb.from('opcoes_beneficios').select('admissao_id,dados,recebido_em').order('admissao_id')); },
     async salvarBp(o) { return ok(await sb.from('bps').upsert(o).select('id')); },
@@ -432,6 +435,7 @@ const PERFIS_VER_COMO = [
   ['esp-seguranca', 'Especialista · Segurança do Trabalho', ['especialista'], 'seguranca'],
   ['esp-ti', 'Especialista · TI', ['especialista'], 'ti'],
   ['esp-facilities', 'Especialista · Facilities', ['especialista'], 'facilities'],
+  ['esp-frotas', 'Especialista · Frotas', ['especialista'], 'frotas'],
   ['esp-sindical', 'Especialista · Relações Sindicais', ['especialista'], 'sindical'],
   ['esp-beneficios', 'Especialista · Benefícios', ['especialista'], 'beneficios'],
   ['esp-bp', 'Especialista · BP', ['especialista'], 'bp'],
@@ -552,6 +556,7 @@ async function carregar() {
   if (tem('admissao') && api.whatsapp) tarefas.push(api.whatsapp().then((r) => (E.whatsapp = r || [])).catch(() => (E.whatsapp = [])));
   if (tem('admissao', 'signatario') && api.kitsOnline) tarefas.push(api.kitsOnline().then((r) => (E.kitsOnline = r || [])).catch(() => (E.kitsOnline = [])));
   if (tem('especialista', 'admissao')) tarefas.push(api.entregas().then((r) => (E.entregas = r || [])));
+  if ((souFrotas() || tem('admissao')) && api.frotaDocs) tarefas.push(api.frotaDocs().then((r) => (E.frotaDocs = r || [])).catch(() => (E.frotaDocs = null)));
   if (souBp() && api.bpExames) tarefas.push(api.bpExames().then((r) => (E.bpExames = r || [])).catch(() => (E.bpExames = null)));
   if (tem('rs', 'admissao')) {
     tarefas.push(api.turmas().then((r) => (E.turmasCal = r || [])));
@@ -853,6 +858,7 @@ const minhaArea = () => (E.verComo ? (E.verComo.area_id || '') : (E.perfil && E.
 const souSeguranca = () => tem('admissao') || (tem('especialista') && ['seguranca', 'seguranca_prev'].includes(minhaArea()));
 const souTi = () => tem('admissao') || (tem('especialista') && ['ti', 'tiprev', 'ti_cancela'].includes(minhaArea()));
 const souSindical = () => tem('admissao') || (tem('especialista') && minhaArea() === 'sindical');
+const souFrotas = () => tem('especialista') && ['frotas', 'frotas_docs'].includes(minhaArea());
 const souBeneficios = () => tem('admissao') || (tem('especialista') && ['beneficios', 'beneficios_prev', 'beneficios_cancela'].includes(minhaArea()));
 const souBp = () => tem('especialista') && minhaArea() === 'bp';
 // o que já está instalado no banco (cada SQL grava um parâmetro): sem ele, a tela fica como antes
@@ -1612,7 +1618,7 @@ function desenharFicha(a, docs, evs, arqs = []) {
     <div class="caixa pilha" style="gap:8px"><h3>Integração</h3><span class="num">${dmd(a.data_inicio)} às ${esc(a.hora_integ || '')}</span><span class="apoio">${esc(a.integ || '')} · ${plural(a.dias_integ || 1, 'dia', 'dias')} · ${a.formato_integ === 'online' ? 'on-line (Teams)' : 'presencial'}${a.nr12 ? ' · NR-12' : ''}</span>
      ${a.link_ou_endereco ? `<span class="apoio">${a.formato_integ === 'online' ? 'Link' : 'Endereço'}: ${esc(a.link_ou_endereco)}</span>` : ''}${a.contato_chegada ? `<span class="apoio">Ao chegar, procurar: ${esc(a.contato_chegada)}</span>` : ''}
      <span class="apoio">Turma: ${turmaCal ? esc(turmaCal.nome || GRUPO_TURMA[turmaCal.grupo]) + ' · inclusão até ' + dmh(turmaCal.corte_inclusao) : 'fora do cronograma'}</span><span class="apoio">Corte de documentos: ${dmh(corteA(a))}</span>
-     ${podeRs && !a.declinou_em && !a.matricula ? `<button class="bt peq" data-act="turma" data-id="${a.id}" data-t="${prox}" data-tid="${proxTurma ? proxTurma.id : ''}">Mover para a turma de ${dm(prox)}</button>` : ''}</div>
+     ${!a.declinou_em && (a.matricula ? dp : podeRs) ? `<button class="bt peq" data-act="turma" data-id="${a.id}" data-t="${prox}" data-tid="${proxTurma ? proxTurma.id : ''}">Mover para a turma de ${dm(prox)}</button>` : ''}</div>
     <div class="caixa pilha" style="gap:8px"><h3>Contato</h3><span>${esc(a.telefone || '—')}</span><span>${esc(a.email || 'sem e-mail')}</span>${tem('saude', 'admissao', 'remuneracao') && a.cpf ? `<span class="apoio num">CPF ${fmtCpf(a.cpf)}${a.nasc ? ' · ' + idade(a.nasc) + ' anos' : ''}</span>` : ''}<span class="apoio">Gestor: ${esc(a.requisitante || '—')}${a.requisitante_email ? ' · ' + esc(a.requisitante_email) : ' · <b>sem e-mail</b> (o aviso ao gestor não sai)'}</span></div>
    </div>
    <div class="caixa pilha"><h3>Checklist da admissão</h3><div class="docs">
@@ -2125,10 +2131,19 @@ VIEWS.examesbp = () => {
   return `<div class="cab"><div class="t"><span class="olho">BP</span><h1>Exame admissional</h1><p class="apoio">Quem está chegando nas suas áreas e unidades, com os exames da função e o prazo do exame admissional. O resultado médico fica com a Saúde ocupacional: aqui aparece só se o exame está a agendar, agendado, ok ou com o R&S.</p></div></div>
   <div class="caixa pilha">${l.length ? `<div class="tab-wrap"><table><thead><tr><th>Pessoa</th><th>Unidade</th><th>Integração</th><th>Exames da função</th><th>ASO apto até</th><th>Situação</th></tr></thead><tbody>${l.map(linha).join('')}</tbody></table></div>` : `<div class="vazio">${E.bpExames == null ? 'Ainda não disponível.' : 'Ninguém em andamento para você. Se faltar alguém, peça à Admissão para conferir a tabela de BPs (unidade e área).'}</div>`}</div>`;
 };
+// SQL 44: CNH e extrato de pontos de quem vai usar carro, para Frotas abrir e conferir
+function docsFrota(x) {
+  if (!['frotas', 'frotas_docs'].includes(x.area_id) || !E.frotaDocs) return '';
+  const ds = E.frotaDocs.filter((d) => d.admissao_id === x.id);
+  if (!ds.length) return '';
+  const st = { ok: chip('c-ok', 'ok', 'Conferido'), analise: chip('c-info', 'info', 'Recebido, conferir'), reenviar: chip('c-at', 'at', 'Pedido novo envio'), falta: chip('c-ag', 'ag', 'Não enviado') };
+  const pode = souFrotas() || tem('admissao');
+  return `<tr class="sub-frota"><td colspan="6" style="padding-top:0"><div class="pilha" style="gap:6px;font-size:12.5px">${ds.map((d) => `<div class="linha-flex" style="gap:8px;align-items:center;flex-wrap:wrap"><b style="min-width:170px">${esc(d.nome)}</b>${st[d.status] || st.falta}${d.obs && d.status === 'reenviar' ? `<span class="apoio">${esc(d.obs)}</span>` : ''}${(d.arquivos || []).map((f, i) => `<button class="bt peq" data-act="verArq" data-id="${f.id}" data-c="${esc(f.caminho)}">Ver${d.arquivos.length > 1 ? ' ' + (i + 1) : ''}</button>`).join('')}${pode && d.status === 'analise' ? `<button class="bt peq pri" data-act="frotaDoc" data-id="${x.id}" data-tipo="${esc(d.tipo)}" data-st="ok">Conferido</button>` : ''}${pode && ['analise', 'ok'].includes(d.status) ? `<button class="bt peq fan" data-act="frotaDoc" data-id="${x.id}" data-tipo="${esc(d.tipo)}" data-st="reenviar">Pedir novo envio</button>` : ''}${d.atualizado_por && d.status !== 'falta' ? `<span class="apoio">${esc(d.atualizado_por)} · ${quando(d.atualizado_em)}</span>` : ''}</div>`).join('')}</div></td></tr>`;
+}
 VIEWS.entregas = () => {
   const l = E.entregas;
-  return `<div class="cab"><div class="t"><span class="olho">Especialista</span><h1>Minhas entregas</h1><p class="apoio">Só aparece quem está com a documentação completa e precisa de algo da sua área. Marque quando estiver pronto: a Admissão vê sem precisar de e-mail de volta.</p></div></div>
-  ${l.length ? `<div class="tab-wrap"><table><thead><tr><th>Pessoa</th><th>Área</th><th>Integração</th><th>Detalhe</th><th>O que preparar</th><th>Status</th></tr></thead><tbody>${l.map((x) => `<tr><td><b>${esc(x.nome)}</b><br><span class="apoio" style="font-size:12px">${esc(x.cargo)} · ${esc(x.local)}</span></td><td>${esc(x.area_nome)}</td><td class="num">${dmd(x.data_inicio)} ${esc(x.hora_integ || '')}<br><span class="apoio" style="font-size:12px">${esc(x.integ || '')}</span></td><td style="font-size:12.5px">${esc([x.matricula && 'Matrícula ' + x.matricula, x.camisa && 'Camisa ' + x.camisa, x.fretado && 'Fretado ' + x.fretado, (x.ti_itens || []).length && 'TI: ' + x.ti_itens.join(', '), x.usa_frota && 'Usa frota', x.pcd && 'PCD: sim', x.requisitante && 'Gestor ' + x.requisitante].filter(Boolean).join(' · '))}</td><td style="font-size:12.5px">${esc(x.leva)}</td><td>${x.pronto_em ? chip('c-ok', 'ok', 'Pronto ' + dm(new Date(x.pronto_em))) : `<button class="bt peq" data-act="entregar" data-id="${x.id}" data-area="${esc(x.area_id)}">Marcar pronto</button>`}</td></tr>`).join('')}</tbody></table></div>` : '<div class="vazio">Nada para preparar agora.</div>'}`;
+  return `<div class="cab"><div class="t"><span class="olho">Especialista</span><h1>Minhas entregas</h1><p class="apoio">Quem precisa de algo da sua área. Frotas, Facilities e a previsão da TI veem a pessoa desde o cadastro; as outras áreas, com a documentação completa. Marque quando estiver pronto: a Admissão vê sem precisar de e-mail de volta.${souFrotas() || tem('admissao') ? ' Frotas abre e confere aqui a CNH (só a definitiva e válida) e o extrato de pontos de quem vai usar carro.' : ''}</p></div></div>
+  ${l.length ? `<div class="tab-wrap"><table><thead><tr><th>Pessoa</th><th>Área</th><th>Integração</th><th>Detalhe</th><th>O que preparar</th><th>Status</th></tr></thead><tbody>${l.map((x) => `<tr><td><b>${esc(x.nome)}</b><br><span class="apoio" style="font-size:12px">${esc(x.cargo)} · ${esc(x.local)}</span></td><td>${esc(x.area_nome)}</td><td class="num">${dmd(x.data_inicio)} ${esc(x.hora_integ || '')}<br><span class="apoio" style="font-size:12px">${esc(x.integ || '')}</span></td><td style="font-size:12.5px">${esc([x.matricula && 'Matrícula ' + x.matricula, x.camisa && 'Camisa ' + x.camisa, x.fretado && 'Fretado ' + x.fretado, (x.ti_itens || []).length && 'TI: ' + x.ti_itens.join(', '), x.usa_frota && 'Usa frota', x.pcd && 'PCD: sim', x.requisitante && 'Gestor ' + x.requisitante].filter(Boolean).join(' · '))}</td><td style="font-size:12.5px">${esc(x.leva)}</td><td>${x.pronto_em ? chip('c-ok', 'ok', 'Pronto ' + dm(new Date(x.pronto_em))) : `<button class="bt peq" data-act="entregar" data-id="${x.id}" data-area="${esc(x.area_id)}">Marcar pronto</button>`}</td></tr>${docsFrota(x)}`).join('')}</tbody></table></div>` : '<div class="vazio">Nada para preparar agora.</div>'}`;
 };
 
 // --------------------------------------------------------------- turma
@@ -2376,9 +2391,24 @@ POS.beneficios = () => {
   $('#bTurma')?.addEventListener('change', (e) => { E.benTurma = e.target.value; render(); });
   $('#bTodos')?.addEventListener('change', (e) => document.querySelectorAll('[data-bsel]').forEach((c) => { c.checked = e.target.checked; }));
 };
+// SQL 44: Benefícios troca a linha (mudou o turno, mudou de bairro); com itinerário, o colaborador recebe o novo
+function trocaFretado(a) {
+  if (!temSql31() || !api.benFretado || a.declinou_em || !(tem('admissao') || (tem('especialista') && ['beneficios', 'beneficios_prev', 'beneficios_cancela'].includes(minhaArea())))) return '';
+  const u = UNID_FRETADO[a.local]; const doUni = u && E.itins ? E.itins.filter((i) => i.unidade === u) : [];
+  const ts = turnosItin(a); const its = doUni.filter((i) => !ts.length || ts.includes(i.turno));
+  const lg = linhasFretado(a.local);
+  if (!its.length && !lg.length) return '';
+  const atual = a.fretado_itin_chave || (a.fretado_codigo ? String(a.fretado_codigo) : '');
+  const grupos = [...new Set(its.map((i) => i.turno))];
+  const ops = its.length
+    ? grupos.map((g) => `<optgroup label="${esc(g)}">${its.filter((i) => i.turno === g).map((i) => `<option value="${esc(i.chave)}" ${i.chave === atual ? 'selected' : ''}>${esc(titulo(i.linha))} · chega ${esc(i.chegada || '—')}${i.codigo_lg ? ' · LG ' + i.codigo_lg : ''}</option>`).join('')}</optgroup>`).join('')
+    : lg.map((l) => `<option value="${l.codigo_lg}" ${String(l.codigo_lg) === atual ? 'selected' : ''}>${esc(nomeLinha(l))} · LG ${l.codigo_lg}</option>`).join('');
+  return `<div class="caixa pilha" style="gap:8px"><h3>Trocar o fretado</h3><span class="apoio" style="font-size:12.5px">${its.length ? `Linhas do ${esc(ts.length ? ts.join(' / ').toLowerCase() : 'todos os turnos')} em ${esc(a.local)}. Se o turno mudou no cadastro, a lista já é do turno novo. Com itinerário, o colaborador recebe o novo por e-mail.` : `Linhas do LG de ${esc(a.local)} (sem itinerário cadastrado).`}</span>
+    <div class="linha-flex" style="gap:8px"><select id="benFr" class="sel-doc" style="flex:1;min-width:220px" aria-label="Linha do fretado"><option value="">Não usa</option>${ops}</select><button class="bt peq pri" data-act="benFretado" data-id="${a.id}">Salvar fretado</button></div></div>`;
+}
 async function abrirBen(id) {
   const a = adm(id); if (!a) return;
-  if ((a.fretado || a.fretado_codigo || a.fretado_itin_chave || a.fretado_integ) && UNID_FRETADO[a.local]) await garantirItins();
+  if (UNID_FRETADO[a.local]) await garantirItins();
   const its = benDe(id).slice().sort((x, y) => (benCat(x.beneficio).ordem || 0) - (benCat(y.beneficio).ordem || 0));
   const deps = depsDe(id); const opc = opcDe(id);
   const alerta = (d) => (d.parentesco === 'Filho(a)' || d.parentesco === 'Enteado(a)') && d.idade != null ? (d.idade >= 24 ? 'acima de 24: não entra no plano' : d.idade >= 21 && !d.universitario ? 'de 21 a 24: só universitário com declaração' : d.idade >= 21 ? 'universitário: declaração semestral' : '') : (['Pai', 'Mãe'].includes(d.parentesco) ? 'pais: só no odonto SulAmérica' : '');
@@ -2387,6 +2417,7 @@ async function abrirBen(id) {
    <div class="caixa pilha"><h3>Pacote e checklist</h3><div class="docs">${its.map((x) => { const c = benCat(x.beneficio); return `<div class="doc"><div><div class="dn">${esc(c.nome)}${c.natureza === 'compulsorio' ? ' <span class="apoio" style="font-weight:400">· compulsório</span>' : c.natureza === 'regra' ? ' <span class="apoio" style="font-weight:400">· pela regra do grupo</span>' : ''}</div><div class="dm">${chipBen(x.status)}${x.plano ? ' · ' + esc(x.plano) : ''} <span class="apoio" style="font-size:12px">${esc(c.vigencia || '')}</span>${x.wkf_ref ? `<div class="motivo">WKF: ${esc(x.wkf_ref)}${x.enviado_em ? ' · enviado ' + quando(x.enviado_em) : ''}</div>` : ''}${x.pendencia ? `<div class="motivo">${esc(x.pendencia)}</div>` : ''}${x.atualizado_por && x.atualizado_por !== 'Sistema' ? `<div class="motivo">${esc(x.atualizado_por)} · ${quando(x.atualizado_em)}</div>` : ''}</div></div>
      <div class="acoes" data-benbox="${esc(x.beneficio)}"><select class="sel-doc" data-f="st" aria-label="Situação">${x.status === 'previsto' ? '<option value="previsto" selected disabled>Previsto (sem matrícula)</option>' : ''}${['aguardando_escolha', 'escolhido', 'recusado', 'pendente_documento', 'pronto', 'enviado', 'ativo', 'com_pendencia', 'cancelado'].map((s) => `<option value="${s}" ${s === x.status ? 'selected' : ''}>${BEN_ST[s][2]}</option>`).join('')}</select><input class="sel-doc" data-f="plano" value="${esc(x.plano || '')}" placeholder="plano" style="width:120px" aria-label="Plano"><input class="sel-doc" data-f="pend" value="${esc(x.pendencia || '')}" placeholder="pendência" style="width:140px" aria-label="Pendência"><button class="bt peq" data-act="benSalvar" data-id="${a.id}" data-b="${esc(x.beneficio)}">Salvar</button></div></div>`; }).join('') || '<div class="vazio">Sem pacote previsto (temporário ou local a definir).</div>'}</div></div>
    ${(a.fretado || a.fretado_codigo || a.fretado_itin_chave || a.fretado_integ) && UNID_FRETADO[a.local] && temSql31() ? `<div class="caixa pilha" style="gap:6px"><h3>Fretado · itinerários</h3>${blocoItinerario(a)}</div>` : ''}
+   ${trocaFretado(a)}
    <div class="caixa pilha"><h3>Dependentes · ${deps.length}</h3>${deps.length ? `<div class="tab-wrap"><table><thead><tr><th>Nome</th><th>Parentesco</th><th>Idade</th><th>CPF</th><th>Plano</th><th>Odonto</th><th>Regra</th></tr></thead><tbody>${deps.map((d) => `<tr><td>${esc(titulo(d.nome))}</td><td>${esc(d.parentesco)}</td><td class="num">${d.idade ?? '—'}</td><td class="num">${d.cpf ? fmtCpf(d.cpf) : '—'}</td><td>${d.plano_saude ? 'sim' : '—'}</td><td>${d.odonto ? 'sim' : '—'}</td><td style="font-size:12px">${esc(alerta(d))}</td></tr>`).join('')}</tbody></table></div>` : '<span class="apoio">Nenhum dependente informado no cadastro.</span>'}</div>
    <div class="caixa pilha"><h3>Escolhas feitas no kit</h3>${opc ? `<span class="apoio" style="font-size:12.5px">Recebidas em ${quando(opc.recebido_em)}</span><div class="grade g2" style="gap:4px 16px;font-size:13px">${resumoOpcoes(opc.dados) || '<span class="apoio">nenhuma escolha registrada</span>'}</div>` : '<span class="apoio">Chegam aqui quando o colaborador assina o kit.</span>'}</div>
    ${tem('rs', 'admissao') ? `<div><button class="bt" data-act="ficha" data-id="${a.id}">Abrir a ficha completa</button></div>` : ''}
@@ -2618,7 +2649,16 @@ document.addEventListener('click', async (e) => {
       if (await tentar(() => api.atualizar(id, p), 'Cadastro atualizado: ' + plural(Object.keys(p).length, 'campo', 'campos') + '. As áreas já avisadas recebem a mudança' + (integ ? ' e o candidato recebe a nova integração.' : '.'))) { await recarregar(); abrirFicha(id); }
       break;
     }
-    case 'turma': if (await tentar(() => api.atualizar(id, { data_inicio: el.dataset.t, turma_id: el.dataset.tid || null }), 'Turma alterada')) { E.turma = el.dataset.t; await recarregar(); abrirFicha(id); } break;
+    case 'turma': {
+      const a = adm(id);
+      // depois da matrícula a data de admissão já está no LG (e talvez no eSocial): a Admissão muda aqui e acerta lá
+      if (a.matricula && !confirm(`A matrícula ${a.matricula} já foi gerada. Mudar a integração para ${dm(el.dataset.t)}? As áreas e o colaborador recebem o aviso da mudança; a data de admissão no LG${a.esocial_enviado_em ? ' e o S-2200 do eSocial' : ''} você acerta lá.`)) break;
+      if (await tentar(() => api.atualizar(id, { data_inicio: el.dataset.t, turma_id: el.dataset.tid || null }), 'Turma alterada')) {
+        if (a.matricula) await tentar(() => api.anotar(id, 'Pendência no LG: a integração mudou depois da matrícula ' + a.matricula + '. Alterar a data de admissão no LG' + (a.esocial_enviado_em ? '; o eSocial foi enviado em ' + dm(a.esocial_enviado_em) + ', retificar o S-2200.' : ' e, se o eSocial já tiver sido enviado, retificar o S-2200.')));
+        E.turma = el.dataset.t; await recarregar(); abrirFicha(id);
+      }
+      break;
+    }
     case 'salvarAso': {
       // dois cliques (Saúde, 22/10/2026): com resultado vale o resultado; só com data, agendado
       const res = $('#asoRes')?.value || ''; const dataAso = $('#asoData').value || null;
@@ -2858,6 +2898,20 @@ document.addEventListener('click', async (e) => {
       break;
     }
     case 'enviarArq': E.alvoArq = { adm: el.dataset.adm, tipo: el.dataset.tipo }; $('#arquivoDoc').click(); break;
+    case 'frotaDoc': {
+      let obs = null;
+      if (el.dataset.st === 'reenviar') { obs = await perguntar('Por que precisa de um novo envio?', 'Ex.: é a permissão para dirigir, não a definitiva; extrato antigo; CNH vencida', ''); if (obs === null) return; if (!obs.trim()) { toast('Escreva o motivo: ele vai para o colaborador.', true); return; } }
+      const r2 = await tentar(() => api.marcarDoc(id, el.dataset.tipo, el.dataset.st, obs), el.dataset.st === 'ok' ? 'Conferido' : 'Pedido novo envio');
+      if (r2 && !r2.length) toast('Você não tem permissão para mudar este documento.', true);
+      await recarregar(); render(); break;
+    }
+    case 'benFretado': {
+      const s = $('#benFr'); if (!s) break;
+      const v = s.value; let it = null; let cod = null; let txt = null;
+      if (v.includes('|')) it = v; else if (/^\d+$/.test(v)) { cod = +v; const l = (E.tLinhas || []).find((x) => x.codigo_lg === cod); txt = l ? nomeLinha(l) : null; }
+      if (await tentar(() => api.benFretado(id, txt, cod, it), it ? 'Fretado alterado. O colaborador recebe o novo itinerário por e-mail.' : 'Fretado alterado')) { await recarregar(); abrirBen(id); }
+      break;
+    }
     case 'verArq': {
       const janela = window.open('', '_blank');   // abre já no clique, senão o navegador bloqueia
       const link = await tentar(() => api.verArquivo(el.dataset.id, el.dataset.c));
@@ -2899,7 +2953,7 @@ document.addEventListener('click', async (e) => {
         'Local: ' + a.local + (l.tipo ? ' (' + l.tipo + ')' : ''), 'Centro de custo: ' + ([a.cc_codigo, a.cc_nome].filter(Boolean).join(' · ') || 'não informado'),
         'Gestor: ' + (a.requisitante || '—') + (a.requisitante_email ? ' · ' + a.requisitante_email : ''),
         'Data de início: ' + dm(a.data_inicio) + (a.formato_integ === 'online' ? ' (integração on-line)' : ' (presencial)'),
-        'Itens: ' + (a.ti_itens || []).join(', ')].concat(a.substituicao ? ['Substituição de: ' + (a.pessoa_substituida || '—') + ' (verificar devolução do equipamento)'] : [])
+        'Itens: ' + (a.ti_itens || []).join(', ')].concat(a.cd_entrega ? ['Entregar no CD: ' + a.cd_entrega] : []).concat(a.substituicao ? ['Substituição de: ' + (a.pessoa_substituida || '—') + ' (verificar devolução do equipamento)'] : [])
         .concat(['', 'Aberto pela Admissão · Plataforma de Admissão']).join('\n');
       try { await navigator.clipboard.writeText(texto); toast('Texto do chamado copiado. Cole no Jira e depois registre o número aqui.'); }
       catch { await perguntar('Copie o texto abaixo', texto); }
@@ -2994,7 +3048,7 @@ setInterval(() => { if (E.perfil && !$('#camada').innerHTML && !document.querySe
 
 // versão publicada: o navegador pode guardar o index.html antigo e mostrar a tela de antes.
 // O versao.txt diz qual é a atual; se for mais nova, busca o index de novo e recarrega (uma vez por versão).
-const VERSAO = 68;
+const VERSAO = 69;
 async function conferirVersao() {
   try {
     const nova = parseInt(await (await fetch('versao.txt', { cache: 'no-store' })).text(), 10);
