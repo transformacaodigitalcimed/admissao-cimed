@@ -191,6 +191,10 @@ async function criarApi() {
     // SQL 44: Benefícios troca o fretado; Frotas confere CNH e extrato de pontos
     async benFretado(adm, fretado, codigo, itin) { ok(await sb.rpc('beneficios_fretado', { adm, p_fretado: fretado || null, p_codigo: codigo || null, p_itin: itin || null })); return true; },
     async frotaDocs() { return ok(await sb.rpc('frota_documentos')); },
+    // SQL 45: base de sindicatos do Ico, resumo de Facilities por turma e sala da integração
+    async sindicatosCarregar(linhas, arquivo) { return ok(await sb.rpc('sindicatos_carregar', { p_linhas: linhas, p_arquivo: arquivo || null })); },
+    async facilitiesResumo(de, ate) { return ok(await sb.rpc('facilities_resumo', { p_de: de, p_ate: ate })); },
+    async integracaoSala(data, local, sala) { ok(await sb.rpc('integracao_sala', { p_data: data, p_local: local, p_sala: sala || null })); return true; },
     async dependentesTodos() { return paginas(() => sb.from('dependentes_visao').select('*').order('admissao_id').order('ordem').order('id')); },
     async opcoesTodas() { return paginas(() => sb.from('opcoes_beneficios').select('admissao_id,dados,recebido_em').order('admissao_id')); },
     async salvarBp(o) { return ok(await sb.from('bps').upsert(o).select('id')); },
@@ -357,8 +361,8 @@ const ETAPAS = [
   { id: 'pronto', n: 'Pronto para o Dia 1', d: 'Kit assinado' },
 ];
 const ETAPA = Object.fromEntries(ETAPAS.map((e) => [e.id, e]));
-const GATILHO = { cadastro: 'Quando o R&S cadastra', docs_ok: 'Quando a documentação fica completa', matricula: 'Quando a matrícula é gerada', declinou: 'Quando a admissão é cancelada (declínio ou não comparecimento)', termo: 'Quando o Termo de Transparência tem resposta "Sim"' };
-const TIPO_EMAIL = { cadastro: 'Novo aprovado', boasvindas: 'Boas-vindas', cobranca: 'Cobrança', docs_ok: 'Documentação completa', matricula: 'Matrícula', lg: 'Movimentar no LG', convite: 'Convite da integração', turma: 'Lista da turma', beneficios_opcoes: 'Opções de benefícios', termo: 'Termo de Transparência', via_assinada: 'Via assinada do kit', aso: 'Exame admissional (ASO)', aso_inapto: 'ASO inapto', lg_cobranca: 'Cobrança: movimentar no LG', itinerario: 'Itinerário do fretado', turma_concluida: 'Admissões concluídas', exame_etapa: 'Etapa de exame médico', saude_rs: 'Saúde → R&S', declinou: 'Admissão cancelada', aso_nr: 'Não recomendado pela Saúde', soc_ausente: 'Ainda não está no SOC', gestor_apto: 'Gestor: exame ok', gestor_declinou: 'Gestor: admissão cancelada', gestor_vespera: 'Gestor: véspera do primeiro dia' };
+const GATILHO = { cadastro: 'Quando o R&S cadastra', docs_ok: 'Quando a documentação fica completa', matricula: 'Quando a matrícula é gerada', declinou: 'Quando a admissão é cancelada (declínio ou não comparecimento)', termo: 'Quando o Termo de Transparência tem resposta "Sim"', resumo: 'Resumo da turma, sem nomes (dois dias úteis antes da integração)' };
+const TIPO_EMAIL = { cadastro: 'Novo aprovado', boasvindas: 'Boas-vindas', cobranca: 'Cobrança', docs_ok: 'Documentação completa', matricula: 'Matrícula', lg: 'Movimentar no LG', convite: 'Convite da integração', turma: 'Lista da turma', beneficios_opcoes: 'Opções de benefícios', termo: 'Termo de Transparência', via_assinada: 'Via assinada do kit', aso: 'Exame admissional (ASO)', aso_inapto: 'ASO inapto', lg_cobranca: 'Cobrança: movimentar no LG', itinerario: 'Itinerário do fretado', turma_concluida: 'Admissões concluídas', exame_etapa: 'Etapa de exame médico', saude_rs: 'Saúde → R&S', declinou: 'Admissão cancelada', aso_nr: 'Não recomendado pela Saúde', soc_ausente: 'Ainda não está no SOC', gestor_apto: 'Gestor: exame ok', gestor_declinou: 'Gestor: admissão cancelada', gestor_vespera: 'Gestor: véspera do primeiro dia', facilities_resumo: 'Facilities: resumo da turma' };
 // a jornada de e-mails do colaborador, na ordem (os demais e-mails vão para as áreas e a equipe)
 const JORNADA_EMAILS = [
   ['boasvindas', 'Cadastro do aprovado pelo R&S', 'Boas-vindas: data da integração, lista de documentos, como enviar (LG), prazo do corte da turma, link do Código de Conduta e aviso de privacidade.'],
@@ -406,7 +410,7 @@ const TERMO_PERGUNTAS = [
   ['q10', 'Presta serviço a outra empresa?', 'Nome da empresa, CNPJ, função e carga horária'],
   ['q11', 'Há outra situação que possa gerar conflito de interesses?', 'Descreva'],
 ];
-const CONDICAO = { todos: 'Todos', frota: 'Só quem usa veículo da frota', ti: 'Só quem precisa de equipamento', comercial: 'Só comercial', fabrica_cd: 'Fábricas e CDs', fabrica: 'Fábricas' };
+const CONDICAO = { todos: 'Todos', frota: 'Só quem usa veículo da frota', ti: 'Só quem precisa de equipamento', comercial: 'Só comercial', fabrica_cd: 'Fábricas e CDs', fabrica: 'Fábricas', sp: 'Lotação em SP ou integração presencial na Angélica' };
 const ST_DOC = { falta: 'Não enviado', analise: 'Recebido, conferir', reenviar: 'Pedir novo envio', ok: 'Conferido' };
 
 // ============================================================= ESTADO
@@ -453,7 +457,7 @@ function visaoInicial() {
   const so = !tem('rs', 'admissao');
   const esp = so && tem('especialista') ? minhaArea() : '';
   return so && tem('saude') ? 'saude' : so && tem('remuneracao') ? 'remuneracao' : so && tem('signatario') ? 'kit' : so && tem('compliance') ? 'compliance'
-    : esp === 'sindical' ? 'sindicatos' : esp === 'bp' ? 'examesbp' : ['beneficios', 'beneficios_prev', 'beneficios_cancela'].includes(esp) ? 'beneficios' : navVisivel()[0]?.[0];
+    : esp === 'sindical' ? 'sindicatos' : esp === 'bp' ? 'examesbp' : ['facilities', 'facilities_resumo'].includes(esp) && api.facilitiesResumo ? 'integracoes' : ['beneficios', 'beneficios_prev', 'beneficios_cancela'].includes(esp) ? 'beneficios' : navVisivel()[0]?.[0];
 }
 
 // [id, nome, ícone, quem vê, seção do menu]
@@ -473,6 +477,7 @@ const NAV = [
   ['seguranca', 'Segurança do Trabalho', 'esp', () => souSeguranca(), 1],
   ['ti', 'TI · equipamentos e acessos', 'esp', () => souTi(), 1],
   ['examesbp', 'Exame admissional', 'saude', () => souBp(), 1],
+  ['integracoes', 'Integrações · coffee e restaurante', 'esp', () => (souFacilities() || tem('rs', 'admissao')) && !!E.facResumo, 1],
   ['entregas', 'Minhas entregas', 'esp', () => tem('especialista', 'admissao'), 1],
   ['especialistas', 'Especialistas e avisos', 'esp', () => tem('admissao'), 2],
   ['listas', 'Listas e regras', 'esp', () => tem('admissao') && temSql27(), 2],
@@ -556,6 +561,7 @@ async function carregar() {
   if (tem('admissao') && api.whatsapp) tarefas.push(api.whatsapp().then((r) => (E.whatsapp = r || [])).catch(() => (E.whatsapp = [])));
   if (tem('admissao', 'signatario') && api.kitsOnline) tarefas.push(api.kitsOnline().then((r) => (E.kitsOnline = r || [])).catch(() => (E.kitsOnline = [])));
   if (tem('especialista', 'admissao')) tarefas.push(api.entregas().then((r) => (E.entregas = r || [])));
+  if ((souFacilities() || tem('rs', 'admissao')) && api.facilitiesResumo) tarefas.push(api.facilitiesResumo(iso(new Date()), iso(new Date(Date.now() + 35 * DIA))).then((r) => (E.facResumo = r || [])).catch(() => (E.facResumo = null)));
   if ((souFrotas() || tem('admissao')) && api.frotaDocs) tarefas.push(api.frotaDocs().then((r) => (E.frotaDocs = r || [])).catch(() => (E.frotaDocs = null)));
   if (souBp() && api.bpExames) tarefas.push(api.bpExames().then((r) => (E.bpExames = r || [])).catch(() => (E.bpExames = null)));
   if (tem('rs', 'admissao')) {
@@ -859,6 +865,8 @@ const souSeguranca = () => tem('admissao') || (tem('especialista') && ['seguranc
 const souTi = () => tem('admissao') || (tem('especialista') && ['ti', 'tiprev', 'ti_cancela'].includes(minhaArea()));
 const souSindical = () => tem('admissao') || (tem('especialista') && minhaArea() === 'sindical');
 const souFrotas = () => tem('especialista') && ['frotas', 'frotas_docs'].includes(minhaArea());
+const souFacilities = () => tem('especialista') && ['facilities', 'facilities_resumo'].includes(minhaArea());
+const UFS = ['AC', 'AL', 'AM', 'AP', 'BA', 'CE', 'DF', 'ES', 'GO', 'MA', 'MG', 'MS', 'MT', 'PA', 'PB', 'PE', 'PI', 'PR', 'RJ', 'RN', 'RO', 'RR', 'RS', 'SC', 'SE', 'SP', 'TO'];
 const souBeneficios = () => tem('admissao') || (tem('especialista') && ['beneficios', 'beneficios_prev', 'beneficios_cancela'].includes(minhaArea()));
 const souBp = () => tem('especialista') && minhaArea() === 'bp';
 // o que já está instalado no banco (cada SQL grava um parâmetro): sem ele, a tela fica como antes
@@ -973,10 +981,10 @@ function selLista(id, tipo, sel, o = {}) {
 const valLista = (id) => { const s = $('#' + id); if (!s) return ''; return s.value === '__outra' ? ($('#' + id + '_outra')?.value || '').trim() : String(s.value || '').trim(); };
 const mostrarOutras = (raiz = document) => raiz.querySelectorAll('select[data-lista]').forEach((s) => { const i = $('#' + s.id + '_outra'); if (i) i.hidden = s.value !== '__outra'; });
 // regra de sindicato do local (mesma do banco: a do cargo ganha da geral)
-function sindSugerido(local, cargo) {
-  const c = semAcento(cargo || '');
-  const rs = (E.regrasSind || []).filter((r) => r.ativo !== false && r.local === local && (!r.cargo_contem || c.includes(semAcento(r.cargo_contem))));
-  rs.sort((x, y) => (x.cargo_contem ? 0 : 1) - (y.cargo_contem ? 0 : 1) || String(y.cargo_contem || '').length - String(x.cargo_contem || '').length);
+function sindSugerido(local, cargo, uf) {
+  const c = semAcento(cargo || ''); const u = String(uf || '').toUpperCase();
+  const rs = (E.regrasSind || []).filter((r) => r.ativo !== false && r.local === local && (!r.uf || r.uf === u) && (!r.cargo_contem || c.includes(semAcento(r.cargo_contem))));
+  rs.sort((x, y) => (x.uf ? 0 : 1) - (y.uf ? 0 : 1) || (x.cargo_contem ? 0 : 1) - (y.cargo_contem ? 0 : 1) || String(y.cargo_contem || '').length - String(x.cargo_contem || '').length);
   return rs[0]?.sindicato || '';
 }
 const SIND_ST = { pendente: ['c-ag', 'ag', 'Sindicato não informado'], conforme: ['c-ok', 'ok', 'Conforme a regra'], divergente: ['c-at', 'at', 'Diferente da regra'], sem_regra: ['c-at', 'at', 'Sem regra para o local'], conferido: ['c-ok', 'ok', 'Conferido'] };
@@ -1252,6 +1260,7 @@ VIEWS.novo = () => {
     <div class="campo"><label for="n_turno">Turno</label>${selLista('n_turno', 'turno', '', { vazio: '—', padrao: ['1º turno', '2º turno', '3º turno', 'Administrativo', 'Comercial'] })}</div>
     <div class="campo"><label for="n_cc_cod">Centro de custo (código)</label><input id="n_cc_cod" inputmode="numeric"><span class="ajuda">Vai na lista da turma (U1/U2) e para a TI.</span></div>
     <div class="campo l2"><label for="n_cc_nome">Centro de custo (nome)</label><input id="n_cc_nome"></div>
+    <div class="campo" id="n_ufBox" hidden><label for="n_uf">UF onde vai atuar</label><select id="n_uf"><option value="">Escolha</option>${UFS.map((u) => `<option>${u}</option>`).join('')}</select><span class="ajuda">Comercial: o sindicato é o da UF onde a pessoa atua.</span></div>
     ${temSql27() ? `<div class="campo l2"><label for="n_sind">Sindicato</label><input id="n_sind" list="dlSindN" placeholder="Escolha ou digite"><datalist id="dlSindN">${sinds.map((s) => `<option value="${esc(s)}">`).join('')}</datalist><span class="ajuda" id="n_sindAj"></span></div>` : ''}
     <div class="campo l2"><label>Integração NR-12</label><div class="marcas"><label><input type="checkbox" id="n_nr12"> Opera máquina (NR-12 teórica e prática no 2º dia)</label></div></div>
     <div class="secao-form">Integração</div>
@@ -1305,9 +1314,16 @@ POS.novo = () => {
     if (!nr12Manual) $('#n_nr12').checked = l.tipo === 'fabrica' && /operador|produc|produç|máquina|maquina/i.test($('#n_cargo').value);
     if (ligado('dependentes_ativo')) $('#n_filhos').value = E.depsNovo.filter((d) => ['Filho(a)', 'Enteado(a)'].includes(d.parentesco)).length;
     mostrarOutras(f);
+    $('#n_ufBox').hidden = l.tipo !== 'comercial';
     if ($('#n_sindAj')) {
-      const sug = sindSugerido($('#n_local').value, $('#n_cargo').value); const inf = $('#n_sind').value.trim();
-      $('#n_sindAj').textContent = sug ? 'Regra do local: ' + sug + (inf && semAcento(inf) !== semAcento(sug) ? ' · diferente do informado: Relações Sindicais vai conferir' : '') : 'Sem regra cadastrada para este local: Relações Sindicais confere.';
+      const comercial = l.tipo === 'comercial'; const uf = comercial ? $('#n_uf').value : '';
+      const sug = sindSugerido($('#n_local').value, $('#n_cargo').value, uf);
+      // a regra preenche o campo; o que a recrutadora digita fica
+      const s = $('#n_sind'); if (!s.value.trim() || s.dataset.auto === '1') { s.value = sug; s.dataset.auto = sug ? '1' : ''; }
+      const inf = s.value.trim();
+      $('#n_sindAj').textContent = comercial && !uf ? 'Escolha a UF onde a pessoa vai atuar: o sindicato do comercial é o da UF.'
+        : sug ? (s.dataset.auto === '1' ? 'Pela regra do local' + (comercial ? ' e da UF' : '') + '. Relações Sindicais confere.' : 'Regra: ' + sug + (inf && semAcento(inf) !== semAcento(sug) ? ' · diferente do informado: Relações Sindicais vai conferir' : ''))
+        : 'Sem regra cadastrada para este local: Relações Sindicais confere.';
     }
   };
   const refazTurmas = () => { const sel = $('#n_turma').value; $('#n_turma').innerHTML = opcoesTurma($('#n_local').value, sel, $('#n_cpf').value); };
@@ -1326,7 +1342,7 @@ POS.novo = () => {
   $('#n_dias').addEventListener('input', () => { diasManual = true; });
   $('#n_hora').addEventListener('input', () => { horaManual = true; });
   $('#n_nr12').addEventListener('change', () => { nr12Manual = true; });
-  f.addEventListener('change', upd); f.addEventListener('input', (e) => { if (['n_cargo', 'n_sind'].includes(e.target.id)) upd(); });
+  f.addEventListener('change', upd); f.addEventListener('input', (e) => { if (e.target.id === 'n_sind') e.target.dataset.auto = ''; if (['n_cargo', 'n_sind'].includes(e.target.id)) upd(); });
   // SQL 39: a posição é conferida na base da Remuneração enquanto a recrutadora preenche
   let posVez = 0;
   const conferirPos = async () => {
@@ -1385,6 +1401,7 @@ POS.novo = () => {
       agencia: v('n_tipo') === 'Temporário' ? v('n_agencia') || null : null,
       ti_itens: [...document.querySelectorAll('#n_ti input:checked')].map((x) => x.value),
       ...($('#n_sind') ? { sindicato: v('n_sind') || null } : {}),
+      ...(localDe($('#n_local').value).tipo === 'comercial' && $('#n_uf').value ? { uf_atuacao: $('#n_uf').value } : {}),
       ...($('#n_eradep') ? { era_dependente_cimed: $('#n_eradep').checked } : {}),
       ...($('#n_frotaTipoBox') ? { frota_tipo: $('#n_frota').checked ? v('n_frota_tipo') || null : null } : {}),
     }, depsP));
@@ -1508,7 +1525,7 @@ async function abrirFicha(id) {
 // candidato é avisado quando a integração muda (data, horário, local, formato, endereço)
 const CAMPOS_EDICAO = ['nome', 'email', 'telefone', 'nasc', 'sexo', 'estado_civil', 'tipo_contrato', 'cargo', 'setor', 'cc_codigo', 'cc_nome',
   'requisitante', 'requisitante_email', 'local', 'turno', 'escala', 'hora_integ', 'dias_integ', 'formato_integ', 'link_ou_endereco', 'contato_chegada',
-  'camisa', 'usa_frota', 'frota_tipo', 'motorista_profissional', 'ti_itens', 'cd_entrega'];
+  'camisa', 'usa_frota', 'frota_tipo', 'motorista_profissional', 'ti_itens', 'cd_entrega', 'uf_atuacao'];
 function abrirEdicao(id) {
   const a = adm(id); if (!a) return;
   const opt = (arr, sel) => arr.map((v) => `<option ${v === sel ? 'selected' : ''}>${esc(v)}</option>`).join('');
@@ -1547,6 +1564,7 @@ function abrirEdicao(id) {
     <div class="secao-form">Para as áreas</div>
     ${campo('Tamanho de camisa', `<select id="e_camisa">${opt(['PP', 'P', 'M', 'G', 'GG', 'XGG', 'Não usa uniforme'], a.camisa)}</select>`)}
     ${campo('CD de entrega', inp('cd_entrega', 'placeholder="Só comercial"'))}
+    ${'uf_atuacao' in a ? campo('UF onde atua (comercial)', `<select id="e_uf_atuacao"><option value="">—</option>${opt(UFS, a.uf_atuacao)}</select>`) : ''}
     ${campo('Carro da empresa', `<div class="marcas"><label><input type="checkbox" id="e_usa_frota" ${a.usa_frota ? 'checked' : ''}> Vai dirigir carro da empresa</label><label><input type="checkbox" id="e_motorista_profissional" ${a.motorista_profissional ? 'checked' : ''}> Motorista profissional</label></div>${temSql35() ? `<div class="sub-campo"><label for="e_frota_tipo">Uso do carro</label><select id="e_frota_tipo"><option value="">—</option>${Object.entries(FROTA_TIPO).map(([k, x]) => `<option value="${k}" ${a.frota_tipo === k ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></div>` : ''}`, 'l2')}
     ${campo('Equipamentos e acessos', `<div class="marcas" id="e_ti">${itensTi.map((x) => `<label><input type="checkbox" value="${esc(x)}" ${(a.ti_itens || []).includes(x) ? 'checked' : ''}> ${esc(x)}</label>`).join('')}</div>`, 'l4')}
    </div></form>
@@ -1644,7 +1662,7 @@ function desenharFicha(a, docs, evs, arqs = []) {
    ${dp && (E.acessosFicha || []).length ? `<div class="caixa pilha" style="gap:6px"><h3>Quem abriu documentos</h3>${E.acessosFicha.map((x) => `<span class="apoio" style="font-size:12.5px">${esc((docs.find((d) => d.tipo === x.tipo) || {}).nome || x.tipo)} · ${esc(x.quem)} · ${quando(x.em)}</span>`).join('')}</div>` : ''}
    <div class="caixa pilha"><h3>Linha do tempo</h3><div class="tempo">${evs.map((h) => `<div class="ev"><span class="pt"></span><div>${esc(textoEvento(h.texto))}<small>${quando(h.em)} · ${esc(h.quem)}</small></div></div>`).join('') || '<span class="apoio">Sem registros.</span>'}</div>
     ${tem('rs', 'admissao', 'saude', 'remuneracao') ? `<form id="fObs" class="linha-flex"><input id="obsTx" maxlength="1000" placeholder="${comentario ? 'Comentar · escreva @Nome Sobrenome para avisar alguém (acende o sino dela)' : 'Escrever uma observação (fica com seu nome e a hora)'}" style="flex:1;min-width:200px;border:1px solid var(--linha);border-radius:10px;padding:9px 12px;background:var(--sup)"><button class="bt" type="submit">${comentario ? 'Comentar' : 'Anotar'}</button></form>` : ''}</div>
-   <div class="caixa pilha"><h3>Dados da vaga</h3><div class="grade g2" style="gap:6px 16px;font-size:13px">${[['Escala', a.escala], ['Turno', a.turno], ['Posição', a.posicao], ['Processo seletivo', a.processo], ['Centro de custo', [a.cc_codigo, a.cc_nome].filter(Boolean).join(' · ')], ['Vaga', a.substituicao ? 'Substituição de ' + (a.pessoa_substituida || '?') : 'Aumento de quadro'], ['Requisitante', a.requisitante], ['E-mail do requisitante', a.requisitante_email], ['Analista R&S', a.analista_rs], ['Analista DP', a.analista_dp], ...('sindicato' in a ? [['Sindicato', a.sindicato]] : []), ['Dias de integração', a.dias_integ], ['Horário da integração', a.hora_integ], ['CBO', a.cbo], ['Estado civil', a.estado_civil], ['Filhos', a.filhos], ['Formato da integração', a.formato_integ === 'online' ? 'On-line' : 'Presencial'], ['Chamado de TI', a.chamado_ti]].map(([k, v]) => `<div><span class="apoio">${esc(k)}:</span> <b>${esc(v || '—')}</b></div>`).join('')}</div>
+   <div class="caixa pilha"><h3>Dados da vaga</h3><div class="grade g2" style="gap:6px 16px;font-size:13px">${[['Escala', a.escala], ['Turno', a.turno], ...(a.uf_atuacao ? [['UF onde atua', a.uf_atuacao]] : []), ['Posição', a.posicao], ['Processo seletivo', a.processo], ['Centro de custo', [a.cc_codigo, a.cc_nome].filter(Boolean).join(' · ')], ['Vaga', a.substituicao ? 'Substituição de ' + (a.pessoa_substituida || '?') : 'Aumento de quadro'], ['Requisitante', a.requisitante], ['E-mail do requisitante', a.requisitante_email], ['Analista R&S', a.analista_rs], ['Analista DP', a.analista_dp], ...('sindicato' in a ? [['Sindicato', a.sindicato]] : []), ['Dias de integração', a.dias_integ], ['Horário da integração', a.hora_integ], ['CBO', a.cbo], ['Estado civil', a.estado_civil], ['Filhos', a.filhos], ['Formato da integração', a.formato_integ === 'online' ? 'On-line' : 'Presencial'], ['Chamado de TI', a.chamado_ti]].map(([k, v]) => `<div><span class="apoio">${esc(k)}:</span> <b>${esc(v || '—')}</b></div>`).join('')}</div>
     ${podeRs && !a.declinou_em && !a.matricula ? `<form id="fDecl" class="linha-flex"><input id="declTx" placeholder="Motivo do declínio" style="flex:1;min-width:200px;border:1px solid var(--linha);border-radius:10px;padding:9px 12px;background:var(--sup)"><label class="apoio" style="font-size:12.5px;display:flex;align-items:center;gap:6px"><input type="checkbox" id="declSens"> Motivo sensível: as áreas recebem só "cancelada"</label><button class="bt" type="submit">Registrar declínio</button></form>` : ''}
     ${tem('admissao') && !a.declinou_em && a.matricula ? `<form id="fNaoVeio" class="linha-flex"><input id="naoVeioTx" placeholder="Não compareceu ou desistiu depois da matrícula: o que aconteceu?" style="flex:1;min-width:200px;border:1px solid var(--linha);border-radius:10px;padding:9px 12px;background:var(--sup)"><button class="bt" type="submit">Registrar não comparecimento</button></form>` : ''}</div>
   </aside></div>`;
@@ -2140,6 +2158,18 @@ function docsFrota(x) {
   const pode = souFrotas() || tem('admissao');
   return `<tr class="sub-frota"><td colspan="6" style="padding-top:0"><div class="pilha" style="gap:6px;font-size:12.5px">${ds.map((d) => `<div class="linha-flex" style="gap:8px;align-items:center;flex-wrap:wrap"><b style="min-width:170px">${esc(d.nome)}</b>${st[d.status] || st.falta}${d.obs && d.status === 'reenviar' ? `<span class="apoio">${esc(d.obs)}</span>` : ''}${(d.arquivos || []).map((f, i) => `<button class="bt peq" data-act="verArq" data-id="${f.id}" data-c="${esc(f.caminho)}">Ver${d.arquivos.length > 1 ? ' ' + (i + 1) : ''}</button>`).join('')}${pode && d.status === 'analise' ? `<button class="bt peq pri" data-act="frotaDoc" data-id="${x.id}" data-tipo="${esc(d.tipo)}" data-st="ok">Conferido</button>` : ''}${pode && ['analise', 'ok'].includes(d.status) ? `<button class="bt peq fan" data-act="frotaDoc" data-id="${x.id}" data-tipo="${esc(d.tipo)}" data-st="reenviar">Pedir novo envio</button>` : ''}${d.atualizado_por && d.status !== 'falta' ? `<span class="apoio">${esc(d.atualizado_por)} · ${quando(d.atualizado_em)}</span>` : ''}</div>`).join('')}</div></td></tr>`;
 }
+// SQL 45: quantas pessoas por unidade e por dia, sem nome, para o coffee (Sapore) e o restaurante
+function gruposFac() {
+  const g = {};
+  (E.facResumo || []).forEach((r) => { const k = r.data + '|' + r.local; (g[k] = g[k] || { data: r.data, local: r.local, horario: r.horario, sala: r.sala, dias: [] }).dias.push(r); });
+  return Object.values(g).sort((x, y) => (x.data + x.local).localeCompare(y.data + y.local));
+}
+VIEWS.integracoes = () => {
+  const gs = gruposFac(); const pode = souFacilities() || tem('rs', 'admissao');
+  return `<div class="cab"><div class="t"><span class="olho">Facilities</span><h1>Integrações · coffee e restaurante</h1><p class="apoio">Quantas pessoas por unidade e por dia de integração nas fábricas, sem nomes, para pedir o coffee à Sapore (24 horas úteis antes) e passar a previsão de refeições ao restaurante. Conta quem está cadastrado agora; quem ainda não concluiu a admissão pode cair. Facilities recebe este resumo por e-mail dois dias úteis antes de cada integração, e de novo se a quantidade, o horário ou a sala mudarem.</p></div></div>
+  <div class="filtros"><button class="bt peq" data-act="facXlsx" ${gs.length ? '' : 'disabled'}>Baixar em Excel</button></div>
+  <div class="caixa pilha">${gs.length ? `<div class="tab-wrap"><table><thead><tr><th>Integração</th><th>Unidade</th><th>Horário</th><th>Pessoas por dia</th><th>Sala</th></tr></thead><tbody>${gs.map((g, i) => `<tr><td class="num">${dmd(g.data)}</td><td>${esc(g.local)}</td><td>${esc(g.horario || 'a confirmar')}</td><td style="font-size:12.5px">${g.dias.map((d) => `Dia ${d.dia} (${dm(d.dia_data)}): <b>${d.pessoas}</b>${d.matriculadas < d.pessoas ? ` <span class="apoio">(${d.matriculadas} concluída${d.matriculadas === 1 ? '' : 's'})</span>` : ''}`).join('<br>')}</td><td>${pode ? `<div class="linha-flex" style="gap:6px"><input id="sala_${i}" class="sel-doc" value="${esc(g.sala || '')}" placeholder="Ex.: Auditório (dia 1), sala 3 (dias 2 a 5)" style="min-width:200px;flex:1"><button class="bt peq" data-act="salaSalvar" data-i="${i}">Salvar</button></div>` : esc(g.sala || 'a definir')}</td></tr>`).join('')}</tbody></table></div>` : '<div class="vazio">Nenhuma integração presencial nas fábricas nos próximos 35 dias.</div>'}</div>`;
+};
 VIEWS.entregas = () => {
   const l = E.entregas;
   return `<div class="cab"><div class="t"><span class="olho">Especialista</span><h1>Minhas entregas</h1><p class="apoio">Quem precisa de algo da sua área. Frotas, Facilities e a previsão da TI veem a pessoa desde o cadastro; as outras áreas, com a documentação completa. Marque quando estiver pronto: a Admissão vê sem precisar de e-mail de volta.${souFrotas() || tem('admissao') ? ' Frotas abre e confere aqui a CNH (só a definitiva e válida) e o extrato de pontos de quem vai usar carro.' : ''}</p></div></div>
@@ -2306,11 +2336,39 @@ VIEWS.listas = () => {
   <div class="caixa" style="padding:0"><div style="padding:14px 16px;border-bottom:1px solid var(--linha)"><h2>${esc((TIPOS_LISTA.find((x) => x[0] === tipo) || [])[1] || '')}</h2></div>${itens.map(linha).join('')}${linha({ tipo, filtro: tipo === 'fretado' ? fabricas[0] : null })}</div>
   ${regrasSindicatoBox()}`;
 };
+// SQL 45: a planilha do Ico ("Lista Sindicatos"): Código, Negócio, Nome do Sindicato Laboral e Data-base
+async function importarSindicatos(file) {
+  if (!window.XLSX) { toast('O leitor de Excel não carregou. Verifique a internet.', true); return; }
+  let rows;
+  try { const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' }); rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: false, defval: null }); }
+  catch (e) { toast('Não consegui ler este arquivo: ' + e.message, true); return; }
+  const n = (x) => semAcento(String(x ?? '')).toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const h = rows.findIndex((r) => (r || []).some((x) => n(x).startsWith('codigo do sindicato')) && (r || []).some((x) => n(x) === 'negocio'));
+  if (h < 0) { toast('Não achei as colunas "Código do Sindicato" e "Negócio". É a planilha Lista Sindicatos?', true); return; }
+  const cab = rows[h].map(n); const ci = (f) => cab.findIndex(f);
+  const c = { codigo: ci((x) => x.startsWith('codigo do sindicato')), negocio: ci((x) => x === 'negocio'), nome: ci((x) => x.startsWith('nome do sindicato')), data_base: ci((x) => x === 'data base') };
+  if (c.nome < 0) { toast('Não achei a coluna "Nome do Sindicato Laboral".', true); return; }
+  const linhas = rows.slice(h + 1).filter((r) => r && r[c.negocio] && r[c.nome]).map((r) => ({ codigo: String(r[c.codigo] ?? '').trim(), negocio: String(r[c.negocio]).trim(), nome: String(r[c.nome]).trim(), data_base: c.data_base >= 0 ? String(r[c.data_base] ?? '').trim() : '' }));
+  if (!linhas.length) { toast('A planilha não tem sindicatos.', true); return; }
+  const res = await tentar(() => api.sindicatosCarregar(linhas, file.name));
+  if (!res) return;
+  toast(`${plural(res.regras, 'regra carregada', 'regras carregadas')} da planilha.${(res.sem_local || []).length ? ' Sem local na plataforma: ' + res.sem_local.join(', ') + '.' : ''} Quem está em andamento foi conferido de novo.`);
+  await recarregar(); render();
+}
+function ligarImportSind() { $('#sindArq')?.addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importarSindicatos(f); }); }
+POS.listas = ligarImportSind;
 function regrasSindicatoBox() {
+  const plan = (E.regrasSind || []).filter((r) => r.origem === 'planilha').sort((x, y) => (x.local + (x.uf || '') + (x.cargo_contem || '')).localeCompare(y.local + (y.uf || '') + (y.cargo_contem || '')));
+  const pode = tem('admissao') || (tem('especialista') && minhaArea() === 'sindical');
+  const planBox = `<div class="caixa" style="padding:0" id="sindPlan"><div style="padding:14px 16px;border-bottom:1px solid var(--linha)" class="linha-flex"><div style="flex:1"><h2>Base de sindicatos (planilha de Relações Sindicais)</h2><p class="apoio" style="font-size:12.5px">${plan.length ? plural(plan.length, 'regra', 'regras') + ' da planilha ' + esc(plan[0].observacao || '').replace(/^Planilha /, '') + '. ' : 'Ainda sem a planilha. '}Comercial pela UF onde a pessoa atua; CD pelo estado do CD, com a regra do farmacêutico pelo cargo. Para atualizar, carregue a planilha nova: ela substitui esta base, e as regras digitadas à mão ficam.</p></div>${pode ? `<input type="file" id="sindArq" accept=".xlsx,.xls,.csv" hidden><button class="bt peq pri" data-act="sindImportar">Carregar a planilha</button>` : ''}</div>
+    ${plan.length ? `<div class="tab-wrap"><table><thead><tr><th>Local</th><th>UF</th><th>Cargo contém</th><th>Código</th><th>Sindicato</th><th>Data-base</th></tr></thead><tbody>${plan.map((r) => `<tr><td>${esc(r.local)}</td><td>${esc(r.uf || '—')}</td><td>${esc(r.cargo_contem || '—')}</td><td class="num">${esc(r.codigo || '—')}</td><td>${esc(r.sindicato)}</td><td>${esc(r.data_base || '—')}</td></tr>`).join('')}</tbody></table></div>` : ''}</div>`;
+  return planBox + regrasManuaisBox();
+}
+function regrasManuaisBox() {
   const linha = (r) => `<div class="area" data-rid="${r.id || ''}"><div><b>${r.id ? esc(r.local) : 'Nova regra'}</b>${r.cargo_contem ? `<div class="apoio" style="font-size:12px">cargo contém "${esc(r.cargo_contem)}"</div>` : ''}</div>
     <div class="ac" style="grid-column:span 2"><div class="linha-flex" style="gap:6px"><select class="sel-doc" data-f="local">${E.locais.map((l) => `<option ${l.nome === r.local ? 'selected' : ''}>${esc(l.nome)}</option>`).join('')}</select><input class="sel-doc" data-f="cargo_contem" value="${esc(r.cargo_contem || '')}" placeholder="cargo contém (opcional)" style="width:170px"></div><input class="sel-doc" data-f="sindicato" value="${esc(r.sindicato || '')}" placeholder="Sindicato" style="width:100%;margin-top:4px"><input class="sel-doc" data-f="observacao" value="${esc(r.observacao || '')}" placeholder="Observação (convenção, CNPJ…)" style="width:100%;margin-top:4px"></div>
     <div class="linha-flex"><button class="bt peq" data-act="regraSalvar">Salvar</button>${r.id ? `<button class="bt peq fan" data-act="regraApagar" data-id="${r.id}">Apagar</button>` : ''}</div></div>`;
-  return `<div class="caixa" style="padding:0" id="regrasSind"><div style="padding:14px 16px;border-bottom:1px solid var(--linha)"><h2>Regras de sindicato por local</h2><p class="apoio" style="font-size:12.5px">Uma linha por local (e, se preciso, por cargo). O cadastro compara o sindicato escolhido com a regra: igual fica "conforme"; diferente ou sem regra vai para Relações Sindicais conferir. Regra a confirmar com o Ico: base territorial do local de trabalho e empresa; comercial externo segue a cidade onde atua.</p></div>${(E.regrasSind || []).map(linha).join('')}${linha({ local: E.locais[0]?.nome })}</div>`;
+  return `<div class="caixa" style="padding:0" id="regrasSind"><div style="padding:14px 16px;border-bottom:1px solid var(--linha)"><h2>Regras digitadas à mão</h2><p class="apoio" style="font-size:12.5px">Para o que a planilha não cobre. Uma linha por local (e, se preciso, por cargo). O cadastro compara o sindicato escolhido com a regra: igual fica "conforme"; diferente ou sem regra vai para Relações Sindicais conferir. Regra a confirmar com o Ico: base territorial do local de trabalho e empresa; comercial externo segue a cidade onde atua.</p></div>${(E.regrasSind || []).filter((r) => r.origem !== 'planilha').map(linha).join('')}${linha({ local: E.locais[0]?.nome })}</div>`;
 }
 
 // --------------------------------------------------------- sindicatos (Relações Sindicais)
@@ -2323,7 +2381,7 @@ VIEWS.sindicatos = () => {
   <div class="caixa pilha">${l.length ? `<div class="tab-wrap"><table><thead><tr><th>Pessoa</th><th>Cargo · local</th><th>Integração</th><th>Escolhido</th><th>Regra do local</th><th>Situação</th><th>Conferir</th></tr></thead><tbody>${l.map((a) => `<tr><td class="clic" data-act="ficha" data-id="${a.id}"><b>${esc(titulo(a.nome))}</b><br><span class="apoio" style="font-size:12px">${esc(a.analista_rs || '')}</span></td><td>${esc(a.cargo)}<br><span class="apoio" style="font-size:12px">${esc(a.local)}${a.setor ? ' · ' + esc(a.setor) : ''}</span></td><td class="num">${dmd(a.data_inicio)}</td><td>${esc(a.sindicato || '—')}</td><td>${esc(a.sindicato_sugerido || '—')}</td><td>${chipSind(a)}${a.sindicato_conferido_por ? `<br><span class="apoio" style="font-size:11.5px">${esc(a.sindicato_conferido_por)}</span>` : ''}</td><td><div class="linha-flex" style="gap:4px"><input class="sel-doc" list="dlSindL" data-sind="${a.id}" value="${esc(a.sindicato || a.sindicato_sugerido || '')}" style="width:190px" aria-label="Sindicato"><button class="bt peq" data-act="sindConferirLinha" data-id="${a.id}">Conferir</button></div></td></tr>`).join('')}</tbody></table></div>` : '<div class="vazio">Nada para conferir agora.</div>'}</div>
   ${regrasSindicatoBox()}`;
 };
-POS.sindicatos = () => { $('#sindTodos')?.addEventListener('change', (e) => { E.sindTodos = e.target.checked; render(); }); };
+POS.sindicatos = () => { $('#sindTodos')?.addEventListener('change', (e) => { E.sindTodos = e.target.checked; render(); }); ligarImportSind(); };
 
 // --------------------------------------------------------- Benefícios (SQL 28)
 const BEN_ST = { previsto: ['c-ag', '', 'Previsto'], aguardando_escolha: ['c-ag', 'ag', 'Aguardando escolha'], escolhido: ['c-info', 'info', 'Escolhas recebidas'], recusado: ['c-ag', '', 'Recusou'], pendente_documento: ['c-at', 'at', 'Falta documento'], pronto: ['c-info', '', 'Pronto para envio'], enviado: ['c-info', 'ag', 'Enviado'], ativo: ['c-ok', 'ok', 'Ativo'], com_pendencia: ['c-cr', 'cr', 'Com pendência'], cancelado: ['c-ag', 'cr', 'Cancelado'] };
@@ -2898,6 +2956,18 @@ document.addEventListener('click', async (e) => {
       break;
     }
     case 'enviarArq': E.alvoArq = { adm: el.dataset.adm, tipo: el.dataset.tipo }; $('#arquivoDoc').click(); break;
+    case 'sindImportar': $('#sindArq')?.click(); break;
+    case 'salaSalvar': {
+      const g = gruposFac()[+el.dataset.i]; if (!g) break;
+      if (await tentar(() => api.integracaoSala(g.data, g.local, $('#sala_' + el.dataset.i).value.trim()), 'Sala salva. Se o resumo já foi para Facilities, vai de novo com a sala nova.')) { await recarregar(); render(); }
+      break;
+    }
+    case 'facXlsx': {
+      const linhas = [['Integração', 'Unidade', 'Dia', 'Data do dia', 'Pessoas', 'Com a admissão concluída', 'Horário', 'Sala']];
+      gruposFac().forEach((g) => g.dias.forEach((d) => linhas.push([dmd(g.data), g.local, d.dia, dm(d.dia_data), d.pessoas, d.matriculadas, g.horario || '', g.sala || ''])));
+      try { const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(linhas), 'Integrações'); XLSX.writeFile(wb, 'integracoes-coffee-restaurante.xlsx'); } catch (e2) { toast(e2.message, true); }
+      break;
+    }
     case 'frotaDoc': {
       let obs = null;
       if (el.dataset.st === 'reenviar') { obs = await perguntar('Por que precisa de um novo envio?', 'Ex.: é a permissão para dirigir, não a definitiva; extrato antigo; CNH vencida', ''); if (obs === null) return; if (!obs.trim()) { toast('Escreva o motivo: ele vai para o colaborador.', true); return; } }
@@ -3048,7 +3118,7 @@ setInterval(() => { if (E.perfil && !$('#camada').innerHTML && !document.querySe
 
 // versão publicada: o navegador pode guardar o index.html antigo e mostrar a tela de antes.
 // O versao.txt diz qual é a atual; se for mais nova, busca o index de novo e recarrega (uma vez por versão).
-const VERSAO = 69;
+const VERSAO = 70;
 async function conferirVersao() {
   try {
     const nova = parseInt(await (await fetch('versao.txt', { cache: 'no-store' })).text(), 10);
