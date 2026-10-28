@@ -1463,8 +1463,8 @@ POS.painel = () => {
 function cartao(a) {
   const r = resumo(a); const chips = [];
   if (['aguardando', 'pendencia', 'conferencia'].includes(a.etapa)) {
-    (r.pendentes || []).slice(0, 3).forEach((p) => chips.push(chip('c-ag', 'ag', String(p).replace(', frente e verso', ''))));
-    if ((r.pendentes || []).length > 3) chips.push(chip('c-ag', '', '+' + (r.pendentes.length - 3)));
+    const pend = r.pendentes || [];
+    if (pend.length) chips.push(`<span title="${esc(pend.map((p) => String(p).replace(', frente e verso', '')).join(', '))}">${chip('c-ag', 'ag', pend.length === 1 ? 'Falta ' + String(pend[0]).replace(', frente e verso', '') : 'Faltam ' + pend.length + ' documentos')}</span>`);
     if (r.analise) chips.push(chip('c-info', 'info', r.analise + ' para conferir'));
   }
   if (['docs_ok', 'registro'].includes(a.etapa)) { chips.push(chipAso(a)); chips.push(chipRemun(a)); }
@@ -1475,7 +1475,7 @@ function cartao(a) {
 }
 function quadro(lista) {
   const decl = lista.filter((a) => a.declinou_em).length;
-  return `<div class="quadro-wrap"><div class="quadro">${ETAPAS.map((e) => { const cs = lista.filter((a) => !a.declinou_em && a.etapa === e.id); return `<section class="coluna" aria-label="${esc(e.n)}"><h3>${esc(e.n)}<span class="n num">${cs.length}</span></h3><p class="dica">${esc(e.d)}</p>${cs.map(cartao).join('') || '<div class="vazio-col">Ninguém nesta etapa</div>'}</section>`; }).join('')}</div></div>
+  return `<div class="quadro-wrap"><div class="quadro">${ETAPAS.map((e) => { const cs = lista.filter((a) => !a.declinou_em && a.etapa === e.id); return `<section class="coluna${cs.length ? '' : ' vazia'}" aria-label="${esc(e.n)}"><h3>${esc(e.n)}<span class="n num">${cs.length}</span></h3><p class="dica">${esc(e.d)}</p>${cs.map(cartao).join('') || '<div class="vazio-col">Ninguém nesta etapa</div>'}</section>`; }).join('')}</div></div>
   ${decl ? `<p class="apoio" style="font-size:12.5px">${plural(decl, 'pessoa declinou', 'pessoas declinaram')} nesta seleção. Veja na tabela.</p>` : ''}`;
 }
 function tabela(lista) {
@@ -3261,7 +3261,7 @@ setInterval(() => { if (E.perfil && !$('#camada').innerHTML && !document.querySe
 
 // versão publicada: o navegador pode guardar o index.html antigo e mostrar a tela de antes.
 // O versao.txt diz qual é a atual; se for mais nova, busca o index de novo e recarrega (uma vez por versão).
-const VERSAO = 73;
+const VERSAO = 74;
 async function conferirVersao() {
   try {
     const nova = parseInt(await (await fetch('versao.txt', { cache: 'no-store' })).text(), 10);

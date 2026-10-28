@@ -639,3 +639,15 @@ details.itin .tab-wrap{margin-top:8px}
 .t-saude td:nth-child(3){min-width:150px}
 .t-saude td:nth-child(5){min-width:230px}
 .t-saude td:nth-child(1){max-width:220px}
+
+/* =====================================================================
+   v74 (28/10/2026): quadro do Painel e menu lateral
+   - coluna vazia fica estreita e a cheia ocupa o espaço que sobra
+   - a etiqueta do cartão nunca passa da borda
+   - o nome do menu quebra em duas linhas em vez de ser cortado
+   ===================================================================== */
+.quadro{display:flex;gap:12px;min-width:0;align-items:stretch}
+.coluna{flex:1 1 240px;min-width:240px}
+.coluna.vazia{flex:0 1 180px;min-width:170px}
+.cartao .chips .chip{max-width:100%;white-space:normal;text-align:left}
+.menu button .rot-item{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.25}
