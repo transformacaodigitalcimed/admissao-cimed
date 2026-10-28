@@ -2772,7 +2772,8 @@ async function baixarTrechoKit(pdf, qual, nome) {
 // indicadores do Termo de Transparência para o Compliance (28/10/2026)
 const TERMO_CURTO = { q1: 'Familiar na Cimed', q2: 'Relacionamento na mesma área', q3: 'Serviço a órgão público', q4: 'Familiar agente público', q5: 'Vínculo com concorrente', q6: 'Vínculo com parceiro ou fornecedor', q7: 'Vínculo com empresa em litígio', q8: 'Sócio de parceiro ou fornecedor', q9: 'Sócio de outra empresa', q10: 'Serviço a outra empresa', q11: 'Outra situação' };
 function painelTermos() {
-  const todos = E.termos || []; if (!todos.length) return '';
+  const todos = E.termos || [];
+  if (!todos.length) return `<div class="cab" style="margin-top:22px"><div class="t"><span class="olho">Indicadores</span><h2>Termo de Transparência em números</h2><p class="apoio">Os indicadores aparecem aqui assim que os primeiros termos forem assinados no kit admissional: termos assinados, quantos têm "Sim", em quais perguntas, por local e por mês, e quantos esperam parecer.</p></div></div><div class="grade g4">${['termos assinados', 'com algum "Sim"', 'esperando parecer', 'com parecer'].map((r) => `<div class="caixa kpi"><b class="num">0</b><span>${r}</span></div>`).join('')}</div>`;
   const mesDe = (x) => String(x.assinado_em || x.criado_em || '').slice(0, 7);
   const locais = [...new Set(todos.map((x) => x.local).filter(Boolean))].sort();
   const meses = [...new Set(todos.map(mesDe).filter(Boolean))].sort().reverse();
@@ -3459,7 +3460,7 @@ document.addEventListener('change', async (ev) => {
 });
 // versão publicada: o navegador pode guardar o index.html antigo e mostrar a tela de antes.
 // O versao.txt diz qual é a atual; se for mais nova, busca o index de novo e recarrega (uma vez por versão).
-const VERSAO = 77;
+const VERSAO = 78;
 async function conferirVersao() {
   try {
     const nova = parseInt(await (await fetch('versao.txt', { cache: 'no-store' })).text(), 10);
