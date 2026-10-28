@@ -3368,19 +3368,38 @@ const redeUnimed = (valor)=>{
   const x = (UNIMED_CID[m[2]] || []).find(([c])=>c === m[1]); return x ? x[1] : '';
 };
 let TERMO_URL = 'https://www.canalconfidencial.com.br/atitudecimed/files/730_CODIGO%20DE%20CONDUTA_2023.pdf';
+/* Termo de Transparência igual ao termo físico do Compliance ("Versão Kit Admissional IA", 28/10/2026):
+   a pergunta, a nota de rodapé dela e, quando a resposta é Sim, um campo para cada informação.
+   [id, pergunta, nota, [[sufixo do campo, rótulo], ...]]; a resposta do campo fica em id + '_' + sufixo */
 const TERMO_PERGUNTAS = [
-  ['q1', 'Possui familiar de 1o grau (pais, filhos, irmaos, conjuge ou companheiro(a)) trabalhando na Cimed?', 'Nome, parentesco, cargo, area e turno'],
-  ['q2', 'Mantem relacionamento amoroso com alguem da mesma area ou sob a mesma gestao?', 'Nome e area'],
-  ['q3', 'Presta servico a orgao publico?', 'Tipo de servico, orgao, cargo e carga horaria'],
-  ['q4', 'Possui familiar de 1o grau que seja agente publico ou politico?', 'Nome, parentesco, orgao e cargo'],
-  ['q5', 'Possui familiar ou relacionamento em empresa concorrente da Cimed?', 'Nome, vinculo e empresa'],
-  ['q6', 'Possui familiar ou relacionamento em empresa que tem negocios ou esta em negociacao com a Cimed?', 'Nome, vinculo e empresa'],
-  ['q7', 'Possui familiar ou relacionamento com participacao em empresa em litigio contra a Cimed?', 'Nome, vinculo e empresa'],
-  ['q8', 'Tem participacao societaria em empresa que tem negocios com a Cimed?', 'Nome da empresa, CNPJ e ramo'],
-  ['q9', 'Tem participacao societaria em qualquer outra empresa?', 'Nome da empresa, CNPJ e ramo'],
-  ['q10', 'Presta servico a outra empresa?', 'Nome da empresa, CNPJ, funcao e carga horaria'],
-  ['q11', 'Ha outra situacao que possa gerar conflito de interesses?', 'Descreva']
+  ['q1', 'Você possui familiares de primeiro grau(*) que trabalham na CIMED & CO?',
+   '(*) Parentes de primeiro grau consanguíneo: pais, cônjuges e filhos.',
+   [['nome', 'Nome do colaborador'], ['parentesco', 'Grau de parentesco'], ['cargo', 'Cargo do colaborador'], ['area', 'Área de atuação do colaborador'], ['turno', 'Turno de atuação do colaborador']]],
+  ['q2', 'Você possui algum relacionamento amoroso que trabalha na mesma área que você na CIMED & CO ou sob a mesma gestão?', '',
+   [['nome', 'Nome do colaborador'], ['cargo', 'Cargo do colaborador'], ['area', 'Área de atuação do colaborador'], ['turno', 'Turno de atuação do colaborador']]],
+  ['q3', 'Você presta algum tipo de serviço à órgão público(*), concursado ou não?',
+   '(*) Órgãos são unidades integrantes da estrutura da administração pública.',
+   [['tipo', 'Tipo de contratação (concursado ou contratado)'], ['orgao', 'Nome do Órgão Público'], ['cargo', 'Cargo que ocupa'], ['carga', 'Carga horária']]],
+  ['q4', 'Você possui algum familiar de primeiro grau que é Agente Público(**) ou Político?',
+   '(**) Agentes públicos: (i) qualquer autoridade ou agente de um governo, de uma organização pública nacional ou internacional ou de algum de seus departamentos, órgãos ou agências, qualquer que seja a hierarquia; (ii) qualquer alto funcionário, autoridade ou empregado de um partido político; (iii) os partidos políticos propriamente ditos.',
+   [['nome', 'Nome do agente público ou político'], ['orgao', 'Órgão Público'], ['cargo', 'Cargo público'], ['parentesco', 'Grau de parentesco']]],
+  ['q5', 'Você possui algum familiar ou relacionamento amoroso com alguém que seja colaborador ou possua participação em empresa concorrente?', '',
+   [['nome', 'Nome da pessoa que trabalha na empresa concorrente'], ['empresa', 'Nome da empresa concorrente'], ['parentesco', 'Grau de parentesco ou relacionamento amoroso'], ['cargo', 'Cargo que ocupa ou vínculo com a empresa']]],
+  ['q6', 'Você possui familiares ou relacionamento amoroso que são colaboradores ou possuem participação societária em empresas que possuem negócios ou contratos firmados com a CIMED & CO (parceiros, terceiros, subcontratados, fornecedores, consultores ou prestadores de serviço), ou que estejam em fase de negociação com a Empresa?', '',
+   [['nome', 'Nome da pessoa'], ['parentesco', 'Grau de parentesco ou relacionamento'], ['empresa', 'Nome da empresa'], ['cargo', 'Cargo que ocupa ou vínculo com a empresa']]],
+  ['q7', 'Você possui algum familiar ou relacionamento amoroso com alguém que possui participação societária em Empresa que atue em conflitos administrativos ou judiciais contra a CIMED & CO?', '',
+   [['nome', 'Nome da pessoa que possui participação societária'], ['parentesco', 'Grau de parentesco ou relacionamento'], ['empresa', 'Nome da empresa'], ['cargo', 'Cargo que ocupa ou vínculo com a empresa']]],
+  ['q8', 'Você possui participação societária em empresas que possuem negócios ou contratos firmados com a CIMED & CO (parceiros, terceiros, subcontratados, fornecedores, consultores ou prestadores de serviço), ou que estejam em fase de negociação com a Empresa?', '',
+   [['empresa', 'Nome da empresa'], ['cnpj', 'CNPJ da empresa'], ['ramo', 'Ramo de atividade da empresa']]],
+  ['q9', 'Você possui participação societária em Empresas, independente do ramo de atividade?', '',
+   [['empresa', 'Nome da empresa'], ['cnpj', 'CNPJ da empresa'], ['ramo', 'Ramo de atividade da empresa']]],
+  ['q10', 'Você presta algum tipo de serviço (ex.: autônomo, prestador ou empregado) para outra Empresa, independente do ramo de atividade?', '',
+   [['empresa', 'Nome da empresa'], ['cnpj', 'CNPJ da empresa'], ['funcao', 'Função desempenhada'], ['carga', 'Carga horária']]],
+  ['q11', 'Você está envolvido em alguma outra relação ou situação que possa ser avaliada como conflito de interesses que não tenha sido contemplada nas perguntas deste formulário?', '',
+   [['det', 'Descreva a situação']]]
 ];
+/* as chaves de resposta de um campo do termo: q1, q1_nome... (q11_det é a descrição) */
+const RE_CHAVE_TERMO = /^q\d{1,2}(_[a-z]+)?$/;
 
 /* formulários on-line, por documento */
 /* Cada campo pode ter:
@@ -3475,9 +3494,10 @@ const FORMULARIOS = {
 FORMULARIOS[CHAVE_TERMO] = {titulo:'Termo de Transparência (Compliance)', campos:[
   {t:'link', id:'codigo_conduta_aberto_em', l:'Leia o Código de Conduta da Cimed antes de responder'},
   {t:'opcao', id:'codigo_conduta_ciente', l:'Li e estou ciente do Código de Conduta', op:['Sim']}
-].concat(TERMO_PERGUNTAS.flatMap(([id, l, dica], i)=>[
-  {t:'opcao', id:id, l:(i + 1) + '. ' + l.replace('1o', '1º').replace(/conjuge/g,'cônjuge').replace(/area/g,'área').replace(/orgao/g,'órgão').replace(/servico/g,'serviço').replace(/publico/g,'público').replace(/politico/g,'político').replace(/negocios/g,'negócios').replace(/negociacao/g,'negociação').replace(/participacao/g,'participação').replace(/societaria/g,'societária').replace(/litigio/g,'litígio').replace(/Mantem/,'Mantém').replace(/alguem/,'alguém').replace(/gestao/,'gestão').replace(/situacao/,'situação').replace(/Ha /,'Há ').replace(/irmaos/,'irmãos').replace(/esta em/,'está em'), op:['Sim','Não']},
-  {t:'texto', id:id + '_det', se:{id:id, vale:['Sim']}, l:'Comentário (obrigatório): ' + dica.replace(/area/g,'área').replace(/orgao/g,'órgão').replace(/servico/g,'serviço').replace(/horaria/g,'horária').replace(/funcao/g,'função').replace(/vinculo/g,'vínculo')}
+].concat(TERMO_PERGUNTAS.flatMap(([id, l, nota, campos], i)=>[
+  {t:'opcao', id:id, l:(i + 1) + '. ' + l + (nota ? ' ' + nota : ''), op:['Sim','Não']},
+  ...campos.map(([suf, rot])=>({t:'texto', id:id + '_' + suf, se:{id:id, vale:['Sim']},
+    l:rot + (id === 'q11' ? '' : ' (se não se aplicar, escreva "não se aplica")')}))
 ]))};
 const FORM_TERMO = FORMULARIOS[CHAVE_TERMO];
 
@@ -6106,107 +6126,187 @@ function desenharOS(doc, p, reg, neg){
 }
 
 /* ---- Termo de Transparência: folhas, escrita das respostas e envio ---- */
-const T_L = 56, T_W = 595.28, T_H = 841.89, T_Q0 = 520, T_PASSO = 70, T_POR_PAGINA = 6, T_Q0_P2 = 745;
-const TXT_FINALIDADE = 'Finalidade: dar a Cimed conhecimento previo de relacoes pessoais, de parentesco e de outras situacoes que possam configurar conflito de interesses. Havendo conflito, o caso e encaminhado a Comissao de Etica e Conduta. Responda com sinceridade: a omissao e tratada pelo Codigo de Conduta.';
-const TXT_LGPD = 'Tratamento de dados: ao preencher este termo, declaro ter lido o Termo de Consentimento de Tratamento de Dados Pessoais (home.grupocimed.com.br) e o Aviso de Privacidade da admissao, e consinto com o tratamento destas informacoes pelas empresas do Grupo Cimed, como controladoras, para a finalidade acima. As respostas ficam restritas ao Compliance.';
-/* y do cabecalho (folha 1) e da linha "abertura do link" (folha 2): a mesma conta ao desenhar e ao escrever */
-function yCabecalhoTermo(reg){ return T_H - 92 - 11 * quebrar(limpoPDF(TXT_FINALIDADE), reg, 8.5, T_W - 2 * T_L).length - 10; }
-function yLinkTermo(reg){ return posicaoTermo(TERMO_PERGUNTAS.length - 1).y - 75 - 11 * quebrar(limpoPDF(TXT_LGPD), reg, 8.5, T_W - 2 * T_L).length - 10 - 26; }
-function posicaoTermo(i){   /* i = 0..10 → {pag, y} dentro das folhas do termo */
-  return i < T_POR_PAGINA ? {pag:0, y:T_Q0 - i * T_PASSO} : {pag:1, y:T_Q0_P2 - (i - T_POR_PAGINA) * T_PASSO};
+const T_L = 56, T_W = 595.28, T_H = 841.89, T_RODAPE = 70;
+const TXT_FINALIDADE = 'A finalidade do Termo de Transparência é para que a CIMED tenha conhecimento prévio sobre possíveis situações de relações pessoais/parentesco ou possível conflito de interesse. Para situações em que for identificado Conflito de Interesse, haverá direcionamento para avaliação da Comissão de Ética e Conduta.';
+const TXT_DECLARE = 'Declare as informações abaixo assinalando "SIM" ou "NÃO" e detalhando quando necessário.';
+const TXT_LGPD = 'Ao prosseguir com o preenchimento do presente Termo de Transparência, em conformidade com o previsto na Lei nº 13.709, de 2018, Lei Geral de Proteção de Dados Pessoais - LGPD, o(a) colaborador(a), doravante denominado(a) Titular, declara ter lido integralmente o Termo de Consentimento de Tratamento de Dados Pessoais ("Termo de Consentimento"), disponível no link abaixo, e registra sua manifestação livre, informada e inequívoca, concordando, portanto, com o tratamento de seus dados pessoais por todas as empresas do GRUPO CIMED, na qualidade de "Controladoras", para que estas tomem decisões referentes ao tratamento de seus dados pessoais, bem como para que realizem o tratamento de tais dados para as finalidades expressamente determinadas no aludido Termo de Consentimento.';
+const URL_LGPD = 'https://home.grupocimed.com.br/images/uploads/194_Termo%20de%20Consentimento%20Colaborador%20-%20LGPD%20-%20Termo%20de%20conflito%20de%20interesses.pdf';
+/* y do cabeçalho na folha 1 (a data de admissão é escrita na mesma conta) */
+function yCabecalhoTermo(reg){
+  return T_H - 92 - 11 * quebrar(limpoPDF(TXT_FINALIDADE), reg, 8.5, T_W - 2 * T_L).length - 6
+    - 11 * quebrar(limpoPDF(TXT_LGPD), reg, 8.5, T_W - 2 * T_L).length - 30;
+}
+/* Onde fica cada coisa nas folhas do termo. Desenhar e escrever as respostas usam a mesma conta,
+   então a resposta cai sempre na linha certa. */
+function layoutTermo(reg, neg){
+  const larg = T_W - 2 * T_L, out = {perguntas: [], pags: 1};
+  let pag = 0, y = yCabecalhoTermo(reg) - 4 * 22 - 8;
+  const cabe = (h)=>{ if(y - h < T_RODAPE){ pag++; y = T_H - 92; } };
+  TERMO_PERGUNTAS.forEach(([id, texto, nota, campos], i)=>{
+    const lq = quebrar(limpoPDF((i + 1) + '. ' + texto), neg, 9, larg);
+    const ln = nota ? quebrar(limpoPDF(nota), reg, 7.5, larg) : [];
+    const q11 = id === 'q11';
+    const h = lq.length * 12 + ln.length * 10 + 22 + 14 + (q11 ? 16 + 3 * 15 : campos.length * 17) + 10;
+    cabe(h);
+    const o = {id, pag, y, lq, ln, campos: []};
+    let yy = y - lq.length * 12 - ln.length * 10;
+    o.ySim = yy - 6;
+    yy -= 22;
+    o.yCaso = yy;
+    yy -= 14;
+    if(q11){
+      o.campos.push({id: id + '_det', rot: 'Descreva a situação', x: T_L, y: yy - 2, linhas: [yy - 16, yy - 31, yy - 46], multi: true});
+    }else{
+      campos.forEach(([suf, rot])=>{
+        const r = 'Informe ' + rot.charAt(0).toLowerCase() + rot.slice(1) + ':';
+        const w = reg.widthOfTextAtSize(limpoPDF(r), 8.5);
+        o.campos.push({id: id + '_' + suf, rot: r, x: T_L, xv: T_L + w + 6, y: yy});
+        yy -= 17;
+      });
+    }
+    out.perguntas.push(o);
+    y -= h;
+  });
+  /* fechamento: Código de Conduta, data e assinatura; cabe inteiro na última folha */
+  cabe(165);
+  out.fim = {pag, y, yLocal: Math.min(215, y - 62)};
+  out.pags = pag + 1;
+  return out;
 }
 function desenharTermo(doc, p, reg, neg){
   const cor = rgb(0.09, 0.086, 0.055), cinza = rgb(0.42, 0.40, 0.32), risco = rgb(0.62, 0.60, 0.52);
   const P = (pg, txt, x, y, tam, fonte, c)=>pg.drawText(limpoPDF(txt), {x:x, y:y, size:tam || 9, font:fonte || reg, color:c || cor});
-  const nova = ()=>{
+  const L = layoutTermo(reg, neg), pgs = [];
+  for(let i = 0; i < L.pags; i++){
     const pg = doc.addPage([T_W, T_H]);
     pg.drawRectangle({x:0, y:T_H - 61, width:T_W, height:61, color:rgb(0.984, 0.769, 0)});
-    P(pg, 'CIMED', 56, T_H - 36, 16, neg);
-    P(pg, 'TERMO DE TRANSPARENCIA E CONFLITO DE INTERESSES', 140, T_H - 36, 11, neg);
-    return pg;
-  };
-  const pergunta = (pg, i)=>{
-    const [, texto, dica] = TERMO_PERGUNTAS[i];
-    const {y} = posicaoTermo(i);
-    const linhas = quebrar(limpoPDF((i + 1) + '. ' + texto), neg, 9, T_W - 2 * T_L).slice(0, 2);
-    linhas.forEach((l, k)=>P(pg, l, T_L, y - k * 12, 9, neg));
-    /* caixinhas de Sim e Nao, e uma linha de comentario em cada pergunta */
-    pg.drawRectangle({x:T_L, y:y - 33, width:10, height:10, borderWidth:0.8, borderColor:cor});
-    P(pg, 'Sim', T_L + 15, y - 31, 9.5);
-    pg.drawRectangle({x:T_L + 60, y:y - 33, width:10, height:10, borderWidth:0.8, borderColor:cor});
-    P(pg, 'Nao', T_L + 75, y - 31, 9.5);
-    P(pg, 'Comentario (' + dica + '):', T_L + 130, y - 31, 7.5, reg, cinza);
-    pg.drawLine({start:{x:T_L, y:y - 47}, end:{x:T_W - T_L, y:y - 47}, thickness:0.6, color:risco});
-  };
-  /* folha 1: finalidade, cabeçalho e perguntas 1 a 6 */
-  const pg1 = nova();
+    P(pg, 'TERMO DE TRANSPARÊNCIA', T_L, T_H - 38, 13, neg);
+    P(pg, 'Página ' + (i + 1) + ' de ' + L.pags, T_W - T_L - 60, 40, 7.5, reg, cinza);
+    pgs.push(pg);
+  }
+  /* folha 1: finalidade, LGPD com o link do Termo de Consentimento e o cabeçalho */
+  const pg1 = pgs[0];
   let y = T_H - 92;
-  quebrar(limpoPDF(TXT_FINALIDADE), reg, 8.5, T_W - 2 * T_L)
-    .forEach(l=>{ P(pg1, l, T_L, y, 8.5, reg, cinza); y -= 11; });
+  quebrar(limpoPDF(TXT_FINALIDADE), reg, 8.5, T_W - 2 * T_L).forEach(l=>{ P(pg1, l, T_L, y, 8.5, reg, cinza); y -= 11; });
+  y -= 6;
+  quebrar(limpoPDF(TXT_DECLARE + ' ' + TXT_LGPD), reg, 8.5, T_W - 2 * T_L).forEach(l=>{ P(pg1, l, T_L, y, 8.5, reg, cinza); y -= 11; });
+  P(pg1, cabeNaLargura(limpoPDF(URL_LGPD), reg, 7, T_W - 2 * T_L), T_L, y - 2, 7, reg, rgb(0.12, 0.31, 0.55));
   y = yCabecalhoTermo(reg);
-  /* Area = centro de custo da ficha de registro; Data = data de admissao (Josianny, 20/10/2026) */
-  const cab = [['Nome', p.nome], ['CPF', cpfTxt(p.cpf)], ['Area', p.cc || p.setor || ''], ['Cargo', p.cargo || ''], ['Matricula', p.matricula || ''], ['Local', p.unidade || ''], ['Data', admissaoTxt(p) || p.admissao || '']];
+  /* Área = centro de custo da ficha de registro; Data = data de admissão (Josianny, 20/10/2026) */
+  const cab = [['Nome completo', p.nome], ['Nº CPF', cpfTxt(p.cpf)], ['Área', p.cc || p.setor || ''], ['Cargo', p.cargo || ''], ['Matrícula', p.matricula || ''], ['Local', p.unidade || ''], ['Data', admissaoTxt(p) || p.admissao || '']];
   cab.forEach(([k, v], i)=>{
     const col = i % 2, lin = Math.floor(i / 2);
     const x = T_L + col * ((T_W - 2 * T_L) / 2), yy = y - lin * 22;
     P(pg1, k + ':', x, yy, 8, neg, cinza);
-    P(pg1, String(v || ''), x + 48, yy, 9.5);
-    pg1.drawLine({start:{x:x + 46, y:yy - 3}, end:{x:x + (T_W - 2 * T_L) / 2 - 12, y:yy - 3}, thickness:0.6, color:risco});
+    P(pg1, String(v || ''), x + 66, yy, 9.5);
+    pg1.drawLine({start:{x:x + 64, y:yy - 3}, end:{x:x + (T_W - 2 * T_L) / 2 - 12, y:yy - 3}, thickness:0.6, color:risco});
   });
-  P(pg1, 'Marque Sim ou Nao em cada pergunta e use a linha de comentario. Quando Sim, o comentario e obrigatorio.', T_L, T_Q0 + 22, 8, reg, cinza);
-  for(let i = 0; i < T_POR_PAGINA; i++) pergunta(pg1, i);
-  P(pg1, 'Pagina 1 de 2', T_W - T_L - 60, 40, 7.5, reg, cinza);
-  /* folha 2: perguntas 7 a 11, LGPD, Codigo de Conduta e assinatura */
-  const pg2 = nova();
-  for(let i = T_POR_PAGINA; i < TERMO_PERGUNTAS.length; i++) pergunta(pg2, i);
-  y = posicaoTermo(TERMO_PERGUNTAS.length - 1).y - 75;
-  quebrar(limpoPDF(TXT_LGPD), reg, 8.5, T_W - 2 * T_L)
-    .forEach(l=>{ P(pg2, l, T_L, y, 8.5, reg, cinza); y -= 11; });
-  y -= 10;
-  P(pg2, 'Codigo de Conduta Cimed: ' + TERMO_URL, T_L, y, 8.5, neg); y -= 13;
-  P(pg2, 'Declaro que li e estou ciente do Codigo de Conduta.', T_L, y, 8.5); y -= 13;
-  P(pg2, 'Abertura do link registrada em: ', T_L, y, 8, reg, cinza);
-  P(pg2, 'Local e data: ', T_L, 215, 9, neg, cinza);
-  pg2.drawLine({start:{x:T_L + 62, y:212}, end:{x:T_W - T_L, y:212}, thickness:0.6, color:risco});
-  pg2.drawLine({start:{x:T_L, y:150}, end:{x:T_L + 260, y:150}, thickness:1, color:cor});
-  P(pg2, 'Assinatura do colaborador', T_L, 136, 8.5, reg, cinza);
-  P(pg2, p.nome, T_L, 124, 8.5, reg, cinza);
-  P(pg2, 'Pagina 2 de 2', T_W - T_L - 60, 40, 7.5, reg, cinza);
-  return 2;
+  /* as perguntas, com Sim e Não e um campo para cada informação */
+  L.perguntas.forEach(o=>{
+    const pg = pgs[o.pag];
+    o.lq.forEach((l, k)=>P(pg, l, T_L, o.y - k * 12, 9, neg));
+    o.ln.forEach((l, k)=>P(pg, l, T_L, o.y - o.lq.length * 12 - k * 10, 7.5, reg, cinza));
+    pg.drawRectangle({x:T_L, y:o.ySim - 2, width:10, height:10, borderWidth:0.8, borderColor:cor});
+    P(pg, 'Sim', T_L + 15, o.ySim, 9.5);
+    pg.drawRectangle({x:T_L + 60, y:o.ySim - 2, width:10, height:10, borderWidth:0.8, borderColor:cor});
+    P(pg, 'Não', T_L + 75, o.ySim, 9.5);
+    P(pg, 'Caso tenha respondido "SIM"', T_L, o.yCaso, 8, neg, cinza);
+    o.campos.forEach(c=>{
+      if(c.multi){
+        P(pg, c.rot + ':', c.x, c.y, 8.5, reg, cinza);
+        c.linhas.forEach(yl=>pg.drawLine({start:{x:T_L, y:yl - 3}, end:{x:T_W - T_L, y:yl - 3}, thickness:0.6, color:risco}));
+      }else{
+        P(pg, c.rot, c.x, c.y, 8.5, reg, cinza);
+        pg.drawLine({start:{x:c.xv - 2, y:c.y - 3}, end:{x:T_W - T_L, y:c.y - 3}, thickness:0.6, color:risco});
+      }
+    });
+  });
+  /* fechamento: Código de Conduta, local e data, assinatura */
+  const pf = pgs[L.fim.pag];
+  y = L.fim.y - 6;
+  P(pf, 'Código de Conduta Cimed: ' + TERMO_URL, T_L, y, 8.5, neg); y -= 13;
+  P(pf, 'Declaro que li e estou ciente do Código de Conduta.', T_L, y, 8.5); y -= 13;
+  P(pf, 'Abertura do link registrada em: ', T_L, y, 8, reg, cinza);
+  const yl = L.fim.yLocal;
+  P(pf, 'Local e data: ', T_L, yl, 9, neg, cinza);
+  pf.drawLine({start:{x:T_L + 62, y:yl - 3}, end:{x:T_W - T_L, y:yl - 3}, thickness:0.6, color:risco});
+  pf.drawLine({start:{x:T_L, y:yl - 65}, end:{x:T_L + 260, y:yl - 65}, thickness:1, color:cor});
+  P(pf, 'Assinatura do colaborador', T_L, yl - 79, 8.5, reg, cinza);
+  P(pf, p.nome, T_L, yl - 91, 8.5, reg, cinza);
+  return L.pags;
 }
 /* escreve X, detalhes, data e abertura do link nas folhas do termo */
+/* desenho antigo (até a v74): 2 folhas, 6 perguntas por folha e uma linha de comentário */
+const TA_Q0 = 520, TA_PASSO = 70, TA_POR_PAGINA = 6, TA_Q0_P2 = 745;
+const TA_FINALIDADE = 'Finalidade: dar a Cimed conhecimento previo de relacoes pessoais, de parentesco e de outras situacoes que possam configurar conflito de interesses. Havendo conflito, o caso e encaminhado a Comissao de Etica e Conduta. Responda com sinceridade: a omissao e tratada pelo Codigo de Conduta.';
+const TA_LGPD = 'Tratamento de dados: ao preencher este termo, declaro ter lido o Termo de Consentimento de Tratamento de Dados Pessoais (home.grupocimed.com.br) e o Aviso de Privacidade da admissao, e consinto com o tratamento destas informacoes pelas empresas do Grupo Cimed, como controladoras, para a finalidade acima. As respostas ficam restritas ao Compliance.';
+const posicaoTermoAntigo = (i)=>i < TA_POR_PAGINA ? {pag:0, y:TA_Q0 - i * TA_PASSO} : {pag:1, y:TA_Q0_P2 - (i - TA_POR_PAGINA) * TA_PASSO};
+async function estamparTermoAntigo(bytes, p, st, it){
+  const resp = st.resp || {};
+  const doc = await PDFDocument.load(bytes);
+  const reg = await doc.embedFont(StandardFonts.Helvetica);
+  const neg = await doc.embedFont(StandardFonts.HelveticaBold);
+  const tinta = rgb(0.05, 0.11, 0.42);
+  const pags = [doc.getPage(it.ini), doc.getPage(it.ini + 1)];
+  TERMO_PERGUNTAS.forEach(([q, , , campos], i)=>{
+    const v = String(resp[q] || '');
+    if(!v) return;
+    const {pag, y} = posicaoTermoAntigo(i);
+    pags[pag].drawText('X', {x:(v === 'Sim' ? T_L : T_L + 60) + 1.5, y:y - 31, size:10, font:neg, color:tinta});
+    const det = v === 'Sim' ? (campos.map(([suf])=>String(resp[q + '_' + suf] || '').trim()).filter(Boolean).join(' | ') || String(resp[q + '_det'] || '').trim()) : '';
+    if(det) pags[pag].drawText(cabeNaLargura(limpoPDF(det), reg, 8, T_W - 2 * T_L - 4), {x:T_L + 2, y:y - 44, size:8, font:reg, color:tinta});
+  });
+  const agora = agoraCerta();
+  const cidade = String(p.unidade || '').replace(/^(CDS?|F.BRICA|ESCRIT.RIO|UNIDADE|FILIAL|LOJA)\s+/i, '').trim();
+  pags[1].drawText(limpoPDF((cidade ? cidade + ', ' : '') + agora.getDate() + ' de ' + MESES[agora.getMonth()] + ' de ' + agora.getFullYear()), {x:T_L + 66, y:215, size:9, font:reg, color:tinta});
+  const yCab = T_H - 92 - 11 * quebrar(limpoPDF(TA_FINALIDADE), reg, 8.5, T_W - 2 * T_L).length - 10;
+  if(!p.admissao) pags[0].drawText(limpoPDF(agora.getDate() + '/' + String(agora.getMonth() + 1).padStart(2, '0') + '/' + agora.getFullYear()), {x:T_L + 48, y:yCab - 3 * 22, size:9.5, font:reg, color:tinta});
+  if(resp.codigo_conduta_aberto_em){
+    const yLink = posicaoTermoAntigo(TERMO_PERGUNTAS.length - 1).y - 75 - 11 * quebrar(limpoPDF(TA_LGPD), reg, 8.5, T_W - 2 * T_L).length - 10 - 26;
+    pags[1].drawText(limpoPDF(hojeTxt(new Date(resp.codigo_conduta_aberto_em))), {x:T_L + 118, y:yLink, size:8, font:reg, color:tinta});
+  }
+  return await doc.save();
+}
 async function estamparTermo(bytes, p, st, kit){
   const it = (kit && kit.indice || []).find(x=>chaveDoc(x.nome) === CHAVE_TERMO);
   if(!it) return bytes;
+  if(it.qtd === 2 && TERMO_PERGUNTAS.some(([q])=>(st.resp || {})[q])) return await estamparTermoAntigo(bytes, p, st, it);
   const resp = st.resp || {};
   if(!TERMO_PERGUNTAS.some(([q])=>resp[q])) return bytes;
   const doc = await PDFDocument.load(bytes);
   const reg = await doc.embedFont(StandardFonts.Helvetica);
   const neg = await doc.embedFont(StandardFonts.HelveticaBold);
   const tinta = rgb(0.05, 0.11, 0.42);
-  const pags = [doc.getPage(it.ini), doc.getPage(it.ini + 1)];
-  TERMO_PERGUNTAS.forEach(([q], i)=>{
-    const v = String(resp[q] || '');
+  const L = layoutTermo(reg, neg);
+  const pags = []; for(let i = 0; i < L.pags; i++) pags.push(doc.getPage(it.ini + i));
+  L.perguntas.forEach(o=>{
+    const v = String(resp[o.id] || '');
     if(!v) return;
-    const {pag, y} = posicaoTermo(i);
-    const pg = pags[pag];
-    pg.drawText('X', {x:(v === 'Sim' ? T_L : T_L + 60) + 1.5, y:y - 31, size:10, font:neg, color:tinta});
-    const det = v === 'Sim' ? String(resp[q + '_det'] || '').trim() : '';
-    if(det) pg.drawText(cabeNaLargura(limpoPDF(det), reg, 8, T_W - 2 * T_L - 4), {x:T_L + 2, y:y - 44, size:8, font:reg, color:tinta});
+    const pg = pags[o.pag];
+    pg.drawText('X', {x:(v === 'Sim' ? T_L : T_L + 60) + 1.5, y:o.ySim - 0.5, size:10, font:neg, color:tinta});
+    if(v !== 'Sim') return;
+    o.campos.forEach(c=>{
+      /* resposta antiga, de antes dos campos separados: vai no primeiro campo */
+      const val = String(resp[c.id] || (c === o.campos[0] ? resp[o.id + '_det'] || '' : '')).trim();
+      if(!val) return;
+      if(c.multi) quebrar(limpoPDF(val), reg, 8.5, T_W - 2 * T_L - 4).slice(0, c.linhas.length)
+        .forEach((l, k)=>pg.drawText(l, {x:T_L + 2, y:c.linhas[k], size:8.5, font:reg, color:tinta}));
+      else pg.drawText(cabeNaLargura(limpoPDF(val), reg, 8.5, T_W - T_L - c.xv - 2), {x:c.xv, y:c.y, size:8.5, font:reg, color:tinta});
+    });
   });
   const agora = agoraCerta();
   const cidade = String(p.unidade || '').replace(/^(CDS?|F.BRICA|ESCRIT.RIO|UNIDADE|FILIAL|LOJA)\s+/i, '').trim();
-  pags[1].drawText(limpoPDF((cidade ? cidade + ', ' : '') + agora.getDate() + ' de ' + MESES[agora.getMonth()] + ' de ' + agora.getFullYear()), {x:T_L + 66, y:215, size:9, font:reg, color:tinta});
+  pags[L.fim.pag].drawText(limpoPDF((cidade ? cidade + ', ' : '') + agora.getDate() + ' de ' + MESES[agora.getMonth()] + ' de ' + agora.getFullYear()), {x:T_L + 66, y:L.fim.yLocal, size:9, font:reg, color:tinta});
   /* data do cabecalho: a data de admissao ja sai impressa ao gerar; sem ela, vale o dia da assinatura */
-  if(!p.admissao) pags[0].drawText(limpoPDF(agora.getDate() + '/' + String(agora.getMonth() + 1).padStart(2, '0') + '/' + agora.getFullYear()), {x:T_L + 48, y:yCabecalhoTermo(reg) - 3 * 22, size:9.5, font:reg, color:tinta});
+  if(!p.admissao) pags[0].drawText(limpoPDF(agora.getDate() + '/' + String(agora.getMonth() + 1).padStart(2, '0') + '/' + agora.getFullYear()), {x:T_L + 66, y:yCabecalhoTermo(reg) - 3 * 22, size:9.5, font:reg, color:tinta});
   if(resp.codigo_conduta_aberto_em){
-    pags[1].drawText(limpoPDF(hojeTxt(new Date(resp.codigo_conduta_aberto_em))), {x:T_L + 118, y:yLinkTermo(reg), size:8, font:reg, color:tinta});
+    pags[L.fim.pag].drawText(limpoPDF(hojeTxt(new Date(resp.codigo_conduta_aberto_em))), {x:T_L + 118, y:L.fim.y - 6 - 26, size:8, font:reg, color:tinta});
   }
   return await doc.save();
 }
 function respSemTermo(resp){
   const out = {};
-  Object.keys(resp || {}).forEach(k=>{ if(!/^q\d{1,2}(_det)?$/.test(k) && k.indexOf('codigo_conduta') !== 0 && k.indexOf('termo_') !== 0) out[k] = resp[k]; });
+  Object.keys(resp || {}).forEach(k=>{ if(!RE_CHAVE_TERMO.test(k) && k.indexOf('codigo_conduta') !== 0 && k.indexOf('termo_') !== 0) out[k] = resp[k]; });
   return out;
 }
 function opcoesDoKit(st){ return respSemTermo(st && st.resp); }
@@ -6215,8 +6315,9 @@ function termoDoKit(st, kit){
   if(!(kit && kit.indice || []).some(x=>chaveDoc(x.nome) === CHAVE_TERMO)) return null;
   if(!TERMO_PERGUNTAS.some(([q])=>resp[q])) return null;
   const out = {};
-  Object.keys(resp).forEach(k=>{ if(/^q\d{1,2}(_det)?$/.test(k) || k.indexOf('codigo_conduta') === 0) out[k] = resp[k]; });
-  TERMO_PERGUNTAS.forEach(([q])=>{ if(out[q] !== 'Sim') delete out[q + '_det']; });
+  Object.keys(resp).forEach(k=>{ if(RE_CHAVE_TERMO.test(k) || k.indexOf('codigo_conduta') === 0) out[k] = resp[k]; });
+  /* campo de uma pergunta respondida com Não não vai ao Compliance */
+  Object.keys(out).forEach(k=>{ const m = k.match(/^(q\d{1,2})_[a-z]+$/); if(m && out[m[1]] !== 'Sim') delete out[k]; });
   out.assinado_em = (st.colab && st.colab.em) || agoraCerta().toISOString();
   out.codigo = (st.colab && st.colab.codigo) || '';
   return out;
@@ -6979,7 +7080,8 @@ function renderColab(){
        de assinatura dela. O desenho da página entra depois, dentro da
        moldura. Assim o campo existe mesmo se o desenho demorar. */
     /* Termo de Confidencialidade: antes do documento, o Termo de Compromisso com o Codigo de Conduta (Josianny, 21/10/2026) */
-    if(/confidencialidade/.test(doc.chave)){
+    /* 28/10: o compromisso vale para todos; sem Termo de Confidencialidade no kit, aparece no primeiro documento */
+    if(/confidencialidade/.test(doc.chave) || (C.passo === 0 && !kitTemConfidencialidade(k))){
       h += '<div class="doc-card"><h4 style="margin:0 0 8px">TERMO DE COMPROMISSO</h4>'
         + TXT_COMPROMISSO.map((x, i)=>'<p style="margin:0 0 ' + (i ? 10 : 8) + 'px">' + esc(x) + '</p>').join('')
         + '<a class="b peq" href="' + esc(TERMO_URL) + '" target="_blank" rel="noopener">Ler o Código de Conduta</a></div>';
@@ -7080,7 +7182,7 @@ const kitTemConfidencialidade = (k)=>(k.indice || []).some(it=>/confidencialidad
 function termoRespondido(st){
   const r = (st && st.resp) || {};
   if(r.codigo_conduta_ciente !== 'Sim') return false;
-  return TERMO_PERGUNTAS.every(([q])=>r[q] === 'Sim' ? String(r[q + '_det'] || '').trim() !== '' : r[q] === 'Não');
+  return TERMO_PERGUNTAS.every(([q, , , campos])=>r[q] === 'Sim' ? campos.every(([suf])=>String(r[q + '_' + suf] || '').trim() !== '') : r[q] === 'Não');
 }
 
 /* Campo por campo, o que ficou em branco neste formulario.
@@ -7581,7 +7683,7 @@ function ligarColaborador(p, k, st){
   const bp = corpo.querySelector('#cbProx');
   if(bp) bp.addEventListener('click', ()=>{ C.passo++; C.captura = null; salvar(); renderColab(); aoTopo(); });
   const btr = corpo.querySelector('#cbTermoRevisar');
-  if(btr) btr.addEventListener('click', ()=>{ if(!termoRespondido(st)){ torrada('Responda todas as perguntas (e comente quando a resposta for Sim).', 5000); return; } st.resp.termo_etapa = 'revisao'; salvar(); renderColab(); aoTopo(); });
+  if(btr) btr.addEventListener('click', ()=>{ if(!termoRespondido(st)){ torrada('Responda todas as perguntas e, quando a resposta for Sim, preencha todos os campos dela.', 5000); return; } st.resp.termo_etapa = 'revisao'; salvar(); renderColab(); aoTopo(); });
   const bte = corpo.querySelector('#cbTermoEditar');
   if(bte) bte.addEventListener('click', ()=>{ st.resp.termo_etapa = 'perguntas'; salvar(); renderColab(); aoTopo(); });
   /* o botao "ver o termo" acompanha as respostas sem redesenhar a tela */
@@ -7853,8 +7955,11 @@ async function assinar(p, k, st, quem){
     });
   }
 
-  if(stDepois.colab && kitTemConfidencialidade(k)){
+  /* 28/10: o Termo de Compromisso é uma página própria no kit de todos, com ou sem Confidencialidade e Transparência */
+  let pgComp = null;
+  if(stDepois.colab){
     const pc = doc.addPage([595.28,841.89]);
+    pgComp = doc.getPageCount() - 1;
     const W = 595.28, L = 56, tx = rgb(0.11,0.106,0.07);
     pc.drawRectangle({x:0,y:841.89-70,width:W,height:70,color:rgb(0.984,0.769,0)});
     pc.drawText('TERMO DE COMPROMISSO', {x:L,y:841.89-42,size:12,font:neg,color:rgb(0.078,0.075,0.031)});
@@ -7983,7 +8088,15 @@ async function assinar(p, k, st, quem){
     {x:L,y:56,size:8,font:reg,color:rgb(0.55,0.53,0.45)});
 
   st.pgAssin = doc.getPageCount() - 1;
-  try{ doc.setKeywords(['cimed-extra:' + extraEm]); }catch(e){}
+  /* onde fica cada termo neste PDF (página começa em 0): o Compliance baixa só o documento que quiser */
+  const mapa = (k.indice || []).map(it=>{
+    const c = chaveDoc(it.nome);
+    const nome = c === CHAVE_TERMO ? 'transparencia' : /confidencialidade/.test(c) ? 'confidencialidade' : null;
+    return nome ? nome + '-' + it.ini + '-' + it.qtd : null;
+  }).filter(Boolean);
+  if(pgComp != null) mapa.push('compromisso-' + pgComp + '-1');
+  mapa.push('assinaturas-' + st.pgAssin + '-1');
+  try{ doc.setKeywords(['cimed-extra:' + extraEm, 'cimed-docs:' + mapa.join('|')]); }catch(e){}
   st.pdfAssinado = await doc.save();
   if(quem.papel==='colaborador') st.colab = nova;
   else{

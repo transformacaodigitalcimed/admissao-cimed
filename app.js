@@ -197,6 +197,13 @@ async function criarApi() {
     async cobrarVacina(id) { return ok(await sb.rpc('cobrar_vacina', { p_id: id })); },
     async osAssinadas() { return ok(await sb.rpc('os_assinadas')); },
     async itinerarioLink(id) { return ok(await sb.rpc('itinerario_link', { adm: id })); },
+    // SQL 50
+    async integracaoEtapas() { return ok(await sb.from('integracao_etapas').select('*').order('ordem')); },
+    async integracaoMarcas() { return ok(await sb.from('integracao_marcas').select('*').gte('em', new Date(Date.now() - 120 * 864e5).toISOString())); },
+    async integracaoMarcar(adm, etapa, status, motivo) { return ok(await sb.rpc('integracao_marcar', { p_adm: adm, p_etapa: etapa, p_status: status || null, p_motivo: motivo || null })); },
+    async salvarEtapaInt(o) { return ok(await sb.from('integracao_etapas').upsert(o).select('id')); },
+    async apagarEtapaInt(id) { return ok(await sb.from('integracao_etapas').delete().eq('id', id)); },
+    async complianceKits() { return ok(await sb.rpc('compliance_kits')); },
     // SQL 45: base de sindicatos do Ico, resumo de Facilities por turma e sala da integração
     async sindicatosCarregar(linhas, arquivo) { return ok(await sb.rpc('sindicatos_carregar', { p_linhas: linhas, p_arquivo: arquivo || null })); },
     async facilitiesResumo(de, ate) { return ok(await sb.rpc('facilities_resumo', { p_de: de, p_ate: ate })); },
@@ -403,18 +410,20 @@ const EMAILS_EQUIPE = [
 const PARENTESCOS = ['Filho(a)', 'Enteado(a)', 'Cônjuge', 'Companheiro(a)', 'Pai', 'Mãe'];
 const ESOCIAL = ['S-2200 (admissão)', 'S-2300 (estágio, sem vínculo)', 'S-2200 retificação', 'S-3000 (exclusão)'];
 const GRUPO_TURMA = { todos: 'Todas as unidades', pa_sp_comercial: 'PA / SP / Comercial', ssbv_cds: 'SSBV e CDs' };
+// Termo de Transparência igual ao termo físico do Compliance (28/10/2026): [id, pergunta, nota, [[sufixo, campo], ...]]
+// a resposta de cada campo fica em id + '_' + sufixo; termos de antes de 28/10 têm só id + '_det' (um comentário)
 const TERMO_PERGUNTAS = [
-  ['q1', 'Possui familiar de 1º grau (pais, filhos, irmãos, cônjuge ou companheiro(a)) trabalhando na Cimed?', 'Nome, parentesco, cargo, área e turno'],
-  ['q2', 'Mantém relacionamento amoroso com alguém da mesma área ou sob a mesma gestão?', 'Nome e área'],
-  ['q3', 'Presta serviço a órgão público?', 'Tipo de serviço, órgão, cargo e carga horária'],
-  ['q4', 'Possui familiar de 1º grau que seja agente público ou político?', 'Nome, parentesco, órgão e cargo'],
-  ['q5', 'Possui familiar ou relacionamento em empresa concorrente da Cimed?', 'Nome, vínculo e empresa'],
-  ['q6', 'Possui familiar ou relacionamento em empresa que tem negócios ou está em negociação com a Cimed?', 'Nome, vínculo e empresa'],
-  ['q7', 'Possui familiar ou relacionamento com participação em empresa em litígio contra a Cimed?', 'Nome, vínculo e empresa'],
-  ['q8', 'Tem participação societária em empresa que tem negócios com a Cimed?', 'Nome da empresa, CNPJ e ramo'],
-  ['q9', 'Tem participação societária em qualquer outra empresa?', 'Nome da empresa, CNPJ e ramo'],
-  ['q10', 'Presta serviço a outra empresa?', 'Nome da empresa, CNPJ, função e carga horária'],
-  ['q11', 'Há outra situação que possa gerar conflito de interesses?', 'Descreva'],
+  ['q1', 'Você possui familiares de primeiro grau (pais, cônjuges e filhos) que trabalham na CIMED & CO?', '', [['nome', 'Nome do colaborador'], ['parentesco', 'Grau de parentesco'], ['cargo', 'Cargo do colaborador'], ['area', 'Área de atuação'], ['turno', 'Turno de atuação']]],
+  ['q2', 'Você possui algum relacionamento amoroso que trabalha na mesma área que você na CIMED & CO ou sob a mesma gestão?', '', [['nome', 'Nome do colaborador'], ['cargo', 'Cargo do colaborador'], ['area', 'Área de atuação'], ['turno', 'Turno de atuação']]],
+  ['q3', 'Você presta algum tipo de serviço à órgão público, concursado ou não?', '', [['tipo', 'Tipo de contratação'], ['orgao', 'Órgão Público'], ['cargo', 'Cargo que ocupa'], ['carga', 'Carga horária']]],
+  ['q4', 'Você possui algum familiar de primeiro grau que é Agente Público ou Político?', '', [['nome', 'Nome do agente público ou político'], ['orgao', 'Órgão Público'], ['cargo', 'Cargo público'], ['parentesco', 'Grau de parentesco']]],
+  ['q5', 'Você possui algum familiar ou relacionamento amoroso com alguém que seja colaborador ou possua participação em empresa concorrente?', '', [['nome', 'Nome da pessoa'], ['empresa', 'Empresa concorrente'], ['parentesco', 'Parentesco ou relacionamento'], ['cargo', 'Cargo ou vínculo com a empresa']]],
+  ['q6', 'Você possui familiares ou relacionamento amoroso que são colaboradores ou sócios de empresas com negócios ou contratos com a CIMED & CO, ou em negociação com ela?', '', [['nome', 'Nome da pessoa'], ['parentesco', 'Parentesco ou relacionamento'], ['empresa', 'Empresa'], ['cargo', 'Cargo ou vínculo com a empresa']]],
+  ['q7', 'Você possui algum familiar ou relacionamento amoroso com alguém que é sócio de Empresa em conflitos administrativos ou judiciais contra a CIMED & CO?', '', [['nome', 'Nome da pessoa'], ['parentesco', 'Parentesco ou relacionamento'], ['empresa', 'Empresa'], ['cargo', 'Cargo ou vínculo com a empresa']]],
+  ['q8', 'Você possui participação societária em empresas com negócios ou contratos com a CIMED & CO, ou em negociação com ela?', '', [['empresa', 'Empresa'], ['cnpj', 'CNPJ'], ['ramo', 'Ramo de atividade']]],
+  ['q9', 'Você possui participação societária em Empresas, independente do ramo de atividade?', '', [['empresa', 'Empresa'], ['cnpj', 'CNPJ'], ['ramo', 'Ramo de atividade']]],
+  ['q10', 'Você presta algum tipo de serviço (autônomo, prestador ou empregado) para outra Empresa?', '', [['empresa', 'Empresa'], ['cnpj', 'CNPJ'], ['funcao', 'Função desempenhada'], ['carga', 'Carga horária']]],
+  ['q11', 'Você está envolvido em alguma outra relação ou situação que possa ser avaliada como conflito de interesses?', '', [['det', 'Situação descrita']]],
 ];
 const CONDICAO = { todos: 'Todos', frota: 'Só quem usa veículo da frota', ti: 'Só quem precisa de equipamento', comercial: 'Só comercial', fabrica_cd: 'Fábricas e CDs', fabrica: 'Fábricas', sp: 'Lotação em SP ou integração presencial na Angélica' };
 const ST_DOC = { falta: 'Não enviado', analise: 'Recebido, conferir', reenviar: 'Pedir novo envio', ok: 'Conferido' };
@@ -473,6 +482,7 @@ const NAV = [
   ['painel', 'Painel da admissão', 'painel', () => tem('rs', 'admissao', 'saude', 'remuneracao'), 1],
   ['turma', 'Turma e lista', 'esp', () => tem('rs', 'admissao'), 1],
   ['cronograma', 'Cronograma e corte', 'esp', () => tem('rs', 'admissao'), 1],
+  ['integracao', 'Integração · etapas', 'esp', () => tem('admissao') && temSql50(), 1],
   ['documentos', 'Documentos', 'docs', () => tem('admissao'), 1],
   ['compliance', 'Termo de Transparência', 'docs', () => tem('compliance'), 1],
   ['kit', 'Esteira de assinatura', 'kit', () => tem('admissao', 'signatario'), 1],
@@ -555,6 +565,64 @@ async function limparExpurgo() {
 
 // quem o banco deixa ver a lista de admissões (admissoes_visao); o Início é para todas essas áreas (decisão de 27/10; SQL 47 abriu para Facilities, Frotas, BP e Compliance)
 const veAdmissoes = () => tem('rs', 'admissao', 'saude', 'remuneracao', 'signatario', 'compliance') || souSeguranca() || souTi() || souSindical() || souBeneficios() || souFacilities() || souFrotas() || souBp();
+// SQL 50: etapas da integração. Cada área marca a sua no próprio menu; a Admissão vê o geral
+const temSql50 = () => Array.isArray(E.etapasInt);
+const ST_ETAPA = { feito: ['c-ok', 'ok', 'Cumpriu'], faltou: ['c-cr', 'cr', 'Não cumpriu'], nao_aplica: ['c-ag', '', 'Não se aplica'] };
+const AREAS_ETAPA = [['rs', 'R&S (DHO)'], ['saude', 'Saúde ocupacional'], ['facilities', 'Facilities'], ['admissao', 'Admissão (Adm. de RH)'], ['excelencia', 'Excelência Operacional'], ['qualidade', 'Garantia da Qualidade'], ['meio_ambiente', 'Meio Ambiente'], ['seguranca', 'Segurança do Trabalho'], ['ti', 'TI'], ['beneficios', 'Benefícios']];
+const podeEtapa = (e) => tem('admissao') || (e.area === 'rs' && tem('rs')) || (e.area === 'saude' && tem('saude')) || (tem('especialista') && (minhaArea() || '').startsWith(e.area));
+const etapasDe = (a) => (E.etapasInt || []).filter((e) => e.ativo && (e.dia === 1 || (a.dias_integ || 1) >= e.dia) && (!e.so_nr12 || a.nr12)).sort((x, y) => x.ordem - y.ordem);
+const marcaDe = (a, e) => (E.marcasInt || []).find((m) => m.admissao_id === a.id && m.etapa_id === e.id);
+const etapaPendente = (a, e) => { const m = marcaDe(a, e); return !m || m.status === 'faltou'; };
+const fimIntegracao = (a) => iso(new Date(deIso(a.data_inicio).getTime() + (Math.max(a.dias_integ || 1, 1) - 1) * DIA));
+function datasIntegracao() {
+  const ini = iso(new Date(Date.now() - 21 * DIA)); const fim = iso(new Date(Date.now() + 7 * DIA));
+  return [...new Set(vivas().filter((a) => a.data_inicio >= ini && a.data_inicio <= fim).map((a) => a.data_inicio))].sort();
+}
+function celulaEtapa(a, e) {
+  const m = marcaDe(a, e); const s = m ? ST_ETAPA[m.status] : null;
+  const mot = m && m.motivo ? `<br><span class="apoio" style="font-size:11.5px">${esc(m.motivo)}</span>` : '';
+  if (!podeEtapa(e)) return (s ? chip(s[0], s[1], s[2]) : '<span class="apoio">sem check</span>') + mot;
+  return `<select class="sel-doc" data-etapa="${e.id}" data-adm="${a.id}" aria-label="${esc(e.nome)}: ${esc(titulo(a.nome))}"><option value="">Sem check</option>${Object.entries(ST_ETAPA).map(([k, x]) => `<option value="${k}" ${m && m.status === k ? 'selected' : ''}>${x[2]}</option>`).join('')}</select>${mot}`;
+}
+function checklistIntegracao(soMinhas) {
+  if (!temSql50()) return '';
+  const ds = datasIntegracao();
+  if (!ds.length) return soMinhas ? '' : '<div class="caixa pilha"><div class="vazio">Nenhuma integração nas últimas 3 semanas nem na próxima.</div></div>';
+  if (!E.intData || !ds.includes(E.intData)) E.intData = [...ds].reverse().find((d) => d <= iso(new Date())) || ds[0];
+  const pessoas = vivas().filter((a) => a.data_inicio === E.intData).sort((x, y) => (x.local + x.nome).localeCompare(y.local + y.nome));
+  const mapa = new Map(); pessoas.forEach((a) => etapasDe(a).forEach((e) => mapa.set(e.id, e)));
+  const etapas = [...mapa.values()].filter((e) => !soMinhas || podeEtapa(e)).sort((x, y) => x.ordem - y.ordem);
+  if (soMinhas && !etapas.length) return '';
+  const conta = (e) => { const aplica = pessoas.filter((a) => etapasDe(a).includes(e)); return aplica.filter((a) => !etapaPendente(a, e)).length + ' de ' + aplica.length; };
+  return `<div class="caixa pilha"><div class="linha-flex"><h2 style="flex:1">${soMinhas ? 'Integração · sua etapa' : 'Quem cumpriu cada etapa'}</h2><label class="olho" for="intData">Turma</label><select id="intData" class="sel-doc">${ds.map((d) => `<option value="${d}" ${d === E.intData ? 'selected' : ''}>${dmd(d)}</option>`).join('')}</select></div>
+  <p class="apoio" style="font-size:12.5px">${soMinhas ? 'Marque se cada pessoa cumpriu a etapa da sua área na integração. Se alguém saiu no meio (ex.: o gestor tirou para uma reunião), marque "Não cumpriu" e diga o motivo: a Admissão vê no painel e remarca.' : 'Cada área marca a sua no próprio menu. Etapa sem check ou não cumprida fica pendente. A Admissão pode marcar qualquer etapa, inclusive das áreas sem acesso à plataforma.'}</p>
+  ${pessoas.length ? `<div class="tab-wrap"><table><thead><tr><th>Pessoa</th>${etapas.map((e) => `<th>${esc(e.nome)}${soMinhas ? '' : `<br><span class="apoio" style="font-size:11px;font-weight:400">${conta(e)}</span>`}</th>`).join('')}</tr></thead><tbody>${pessoas.map((a) => `<tr><td class="clic" data-act="ficha" data-id="${a.id}"><b>${esc(titulo(a.nome))}</b><br><span class="apoio" style="font-size:12px">${esc(a.local)}${(a.dias_integ || 1) > 1 ? ' · ' + a.dias_integ + ' dias' : ''}</span></td>${etapas.map((e) => `<td>${etapasDe(a).includes(e) ? celulaEtapa(a, e) : '<span class="apoio" style="font-size:12px">não se aplica</span>'}</td>`).join('')}</tr>`).join('')}</tbody></table></div>` : '<div class="vazio">Ninguém nesta turma.</div>'}</div>`;
+}
+function pendenciasIntegracao() {
+  if (!temSql50()) return '';
+  const hoje = iso(new Date()); const ini = iso(new Date(Date.now() - 30 * DIA));
+  const l = vivas().filter((a) => a.data_inicio >= ini && fimIntegracao(a) < hoje).map((a) => [a, etapasDe(a).filter((e) => etapaPendente(a, e))]).filter(([, es]) => es.length);
+  return `<div class="caixa pilha"><h2>O que ficou faltando</h2><p class="apoio" style="font-size:12.5px">Integrações dos últimos 30 dias que já terminaram e têm etapa sem check ou não cumprida.</p>
+  ${l.length ? `<div class="tab-wrap"><table><thead><tr><th>Pessoa</th><th>Integração</th><th>Etapas pendentes</th></tr></thead><tbody>${l.map(([a, es]) => `<tr><td class="clic" data-act="ficha" data-id="${a.id}"><b>${esc(titulo(a.nome))}</b><br><span class="apoio" style="font-size:12px">${esc(a.local)}</span></td><td class="num">${dmd(a.data_inicio)}</td><td style="font-size:12.5px">${es.map((e) => { const m = marcaDe(a, e); return esc(e.nome) + (m && m.motivo ? ' (' + esc(m.motivo) + ')' : ' (sem check)'); }).join('<br>')}</td></tr>`).join('')}</tbody></table></div>` : '<div class="vazio">Nada pendente: todas as etapas das integrações recentes tiveram check.</div>'}</div>`;
+}
+const viewIntegracao = () => `<div class="cab"><div class="t"><span class="olho">Integração</span><h1>Etapas da integração</h1><p class="apoio">Quem conduz a integração garante que o colaborador passou por todas as etapas. Cada área marca a sua no próprio menu: Saúde na tela da Saúde, Segurança na tela da Segurança, Facilities em Integrações, R&S em Turma e lista e as outras em Minhas entregas. Aqui a Admissão vê o geral, o que teve check e o que falta, e marca as etapas das áreas que ainda não têm acesso. A lista de etapas fica em Listas e regras.</p></div></div>
+  ${checklistIntegracao(false)}${pendenciasIntegracao()}`;
+function blocoEtapasFicha(a) {
+  if (!temSql50() || a.declinou_em || a.data_inicio > iso(new Date())) return '';
+  const es = etapasDe(a); if (!es.length) return '';
+  return `<div class="caixa pilha" style="gap:6px"><h3>Integração · etapas</h3><div class="linha-flex" style="flex-wrap:wrap;gap:6px">${es.map((e) => { const m = marcaDe(a, e); const s = m ? ST_ETAPA[m.status] : ['c-ag', 'ag', 'sem check']; return `<span title="${esc((m && (m.motivo || m.por)) || '')}">${chip(s[0], s[1], e.nome + ': ' + s[2])}</span>`; }).join('')}</div></div>`;
+}
+function etapasEditor() {
+  if (!temSql50() || !tem('admissao')) return '';
+  const linha = (e, i) => `<div class="area" data-et="${i}"><div class="ac" style="flex:2;min-width:180px"><label class="olho">Etapa</label><input class="sel-doc" data-f="nome" value="${esc(e.nome || '')}" style="width:100%"></div>
+    <div class="ac"><label class="olho">Quem marca</label><select class="sel-doc" data-f="area">${AREAS_ETAPA.map(([k, n]) => `<option value="${k}" ${k === e.area ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></div>
+    <div class="ac"><label class="olho">Dia</label><select class="sel-doc" data-f="dia"><option value="1" ${e.dia !== 2 ? 'selected' : ''}>1º dia</option><option value="2" ${e.dia === 2 ? 'selected' : ''}>2º dia</option></select></div>
+    <div class="ac"><label class="olho">Ordem</label><input class="sel-doc" data-f="ordem" type="number" value="${e.ordem ?? ''}" style="width:70px"></div>
+    <div class="ac"><label class="marcas"><label><input type="checkbox" data-f="so_nr12" ${e.so_nr12 ? 'checked' : ''}> Só NR-12</label><label><input type="checkbox" data-f="ativo" ${e.ativo !== false ? 'checked' : ''}> Ativa</label></label></div>
+    <div class="ac"><button class="bt peq pri" data-act="etSalvar" data-i="${i}">Salvar</button>${e.id ? `<button class="bt peq fan" data-act="etApagar" data-id="${e.id}">Remover</button>` : ''}</div></div>`;
+  const l = E.etapasInt;
+  return `<div class="caixa pilha" style="margin-top:12px"><h2>Etapas da integração</h2><p class="apoio" style="font-size:12.5px">O checklist que cada área marca no dia da integração. Veio da aba PROGRAMAÇÃO AREAS da planilha de admissão. Etapa do 2º dia só vale para quem tem 2 dias de integração; "Só NR-12" só para quem tem NR-12.</p>${l.map(linha).join('')}${linha({ area: 'admissao', dia: 1, ordem: ((l[l.length - 1] || {}).ordem || 0) + 10 }, l.length)}</div>`;
+}
 // SQL 49: lacunas da revisão de 27/10
 const temSql49 = () => 'ti_freeze_inicio' in (E.params || {});
 const primeiroNome = (a) => titulo(a.nome || '').split(' ')[0];
@@ -590,6 +658,12 @@ async function carregar() {
     tarefas.push(api.destinatariosTurma().then((r) => (E.dest = r || [])));
   }
   if (tem('compliance')) tarefas.push(api.termos().then((r) => (E.termos = r || [])));
+  if (tem('compliance') && api.complianceKits) tarefas.push(api.complianceKits().then((r) => (E.compKits = r || [])).catch(() => (E.compKits = null)));
+  // SQL 50: etapas da integração (sem o SQL rodado fica null e o checklist some)
+  if (veAdmissoes() && api.integracaoEtapas) {
+    tarefas.push(api.integracaoEtapas().then((r) => (E.etapasInt = r || [])).catch(() => (E.etapasInt = null)));
+    tarefas.push(api.integracaoMarcas().then((r) => (E.marcasInt = r || [])).catch(() => (E.marcasInt = [])));
+  }
   // SQL 39: base da Remuneração (sem o SQL rodado fica null e a caixa some)
   if (tem('remuneracao', 'admissao') && api.remunCargas) tarefas.push(api.remunCargas().then((r) => (E.remCargas = r || [])).catch(() => (E.remCargas = null)));
   // SQL 27 e 28: cada carga falha calada se o SQL ainda não foi rodado
@@ -1049,6 +1123,7 @@ function listaAtencao() {
     if (a.aso_status === 'inapto' && !a.declinou_em && !a.matricula && tem('rs', 'admissao')) atencao.push([0, a, 'ASO inapto: alinhe com a Saúde e decline a vaga na ficha']);
     if (a.aso_status === 'nao_recomendado' && !a.declinou_em && !a.matricula && tem('rs', 'admissao')) atencao.push([0, a, 'Não recomendado pela Saúde: decida com o gestor se a admissão segue ou é declinada']);
     if (tem('rs', 'admissao') && (a.soc_ausente_dias || []).length && !a.soc_refletido_em && pendenteSaude(a)) atencao.push([0, a, 'Ainda não aparece no SOC (' + plural(a.soc_ausente_dias.length, 'dia', 'dias') + '): confira o cadastro; o prazo da Saúde está parado']);
+    if (tem('admissao') && temSql50() && a.data_inicio >= iso(new Date(Date.now() - 30 * DIA)) && fimIntegracao(a) < iso(new Date())) { const pe = etapasDe(a).filter((e) => etapaPendente(a, e)); if (pe.length) atencao.push([1, a, 'Integração: ' + plural(pe.length, 'etapa pendente', 'etapas pendentes') + ' (' + pe.map((e) => e.nome).join(', ') + ')']); }
     if (tem('rs', 'admissao') && a.sigilo && !a.declinou_em) atencao.push([(deIso(a.data_inicio).getTime() - Date.now()) / DIA <= 5 ? 0 : 2, a, 'Admissão confidencial: libere os dados às áreas na ficha quando a substituição puder ser conhecida']);
     if (a.etapa === 'docs_ok' && !asoOk(a) && !['inapto', 'nao_recomendado'].includes(a.aso_status)) atencao.push([1, a, 'Documentação completa, falta o ASO']);
     // fluxo da Saúde (SQL 26)
@@ -1674,6 +1749,7 @@ function desenharFicha(a, docs, evs, arqs = []) {
    ${a.oculta ? `<div class="faixa"><p><b>Admissão confidencial.</b> O nome, o cargo, o setor e o gestor chegam quando o R&amp;S ou a Admissão liberarem. Por enquanto, prepare só o que é da sua área e mantenha em sigilo.</p></div>` : ''}
    ${a.confidencial && a.confidencial_liberado_em && podeRs ? `<p class="apoio" style="font-size:12.5px;margin:0">Confidencial liberada às áreas em ${quando(a.confidencial_liberado_em)}${a.confidencial_liberado_por ? ' por ' + esc(a.confidencial_liberado_por) : ''}. O nome de quem sai continua fora dos avisos.</p>` : ''}
    ${!a.declinou_em ? fluxoVisual(a) : ''}
+   ${blocoEtapasFicha(a)}
    ${a.declinou_em ? `<div class="faixa"><p><b>Declinou</b> em ${quando(a.declinou_em)}: ${esc(a.declinou_motivo || '')}.${a.declinou_sensivel ? ' <span class="apoio">Motivo sensível: as áreas receberam só o aviso de cancelamento.</span>' : ''}</p></div>` : ''}
    <div class="grade g2">
     <div class="caixa pilha" style="gap:8px"><h3>Integração</h3><span class="num">${dmd(a.data_inicio)} às ${esc(a.hora_integ || '')}</span><span class="apoio">${esc(a.integ || '')} · ${plural(a.dias_integ || 1, 'dia', 'dias')} · ${a.formato_integ === 'online' ? 'on-line (Teams)' : 'presencial'}${a.nr12 ? ' · NR-12' : ''}</span>
@@ -2037,6 +2113,7 @@ function saudeEnxuta() {
   return `<div class="cab"><div class="t"><span class="olho">Saúde ocupacional</span><h1>Exame admissional</h1><p class="apoio">Agende e registre o resultado direto na lista. Agendar com data envia o e-mail ao candidato com local, exames e preparo. Não recomendado é uma recomendação: o R&S decide com o gestor se a admissão segue ou é declinada, e a matrícula espera a decisão. Exame com a data passada e sem resultado fica em vermelho, e a Saúde recebe essa lista por e-mail às 9h dos dias úteis. Para contato, vacinas, exames da função e envio ao R&S, clique no nome. O ASO oficial continua no SOC.</p></div></div>
  <div class="caixa pilha">${filaSaude()}</div>
  ${vacinasDepoisApto()}
+ ${checklistIntegracao(true)}
  ${pcd ? `<div class="caixa pilha"><h2>Laudos PCD</h2>${laudosParaSaude()}</div>` : ''}
  <details class="caixa pilha mais-saude"><summary>Configurações da Saúde: clínicas credenciadas, preparo dos exames e vacinas obrigatórias</summary>${listasDaSaude()}${vacinasSaude()}</details>`;
 }
@@ -2122,6 +2199,7 @@ VIEWS.seguranca = () => {
    ${l.map((a) => `<tr><td><b>${esc(titulo(a.nome))}</b>${a.nr12 ? ' ' + chip('c-ag', '', 'NR-12') : ''}</td><td>${esc(a.cargo)}<br><span class="apoio" style="font-size:12px">${esc(a.setor || '')}</span></td><td>${esc(a.local)}</td><td class="num">${dmd(a.data_inicio)}</td><td class="num">${esc(a.cbo || '—')}</td><td>${chipOs(a)}</td><td><button class="bt peq ${a.os_status === 'validada' ? '' : 'pri'}" data-act="osAbrir" data-id="${a.id}">${a.os_status === 'validada' ? 'Ver OS' : 'Preencher e validar'}</button></td></tr>`).join('')}
    </tbody></table></div>` : '<div class="vazio">Ninguém de fábrica ou CD em admissão.</div>'}</div>
   ${osAssinadasBox()}
+  ${checklistIntegracao(true)}
   <div class="caixa pilha"><div class="linha-flex"><h2 style="flex:1">Matriz cargo → riscos, EPI e EPC</h2>${temSql49() ? '<input type="file" id="mosArq" accept=".xlsx,.xls,.csv" hidden><button class="bt peq" data-act="mosImportar">Importar planilha (.xlsx)</button>' : ''}</div><p class="apoio">Compilada pela Segurança a partir do PGR de cada unidade, por grupo homogêneo de exposição. Linha com setor vale só para aquele setor; sem setor, vale para o cargo na unidade inteira. Cada alteração vira uma versão nova, e a OS impressa diz de qual versão saiu. Para lançar várias de uma vez, importe uma planilha com as colunas Unidade, Setor, Cargo, GHE, Atividades, Riscos, EPI, EPC e NRs: a linha com a mesma unidade, setor e cargo é atualizada, e as outras entram como novas.</p>
    ${(E.matrizOs || []).map(linha).join('')}${linha({ unidade: unidades[0] || '' }, (E.matrizOs || []).length)}</div>`;
 };
@@ -2274,13 +2352,15 @@ function gruposFac() {
   (E.facResumo || []).forEach((r) => { const k = r.data + '|' + r.local; (g[k] = g[k] || { data: r.data, local: r.local, horario: r.horario, sala: r.sala, dias: [] }).dias.push(r); });
   return Object.values(g).sort((x, y) => (x.data + x.local).localeCompare(y.data + y.local));
 }
-VIEWS.integracoes = () => {
+VIEWS.integracoes = () => integracoesBase() + checklistIntegracao(true);
+function integracoesBase() {
   const gs = gruposFac(); const pode = souFacilities() || tem('rs', 'admissao');
   return `<div class="cab"><div class="t"><span class="olho">Facilities</span><h1>Integrações · coffee e restaurante</h1><p class="apoio">Quantas pessoas por unidade e por dia de integração nas fábricas, sem nomes, para pedir o coffee à Sapore (24 horas úteis antes) e passar a previsão de refeições ao restaurante. Conta quem está cadastrado agora; quem ainda não concluiu a admissão pode cair. Facilities recebe este resumo por e-mail dois dias úteis antes de cada integração, e de novo se a quantidade, o horário ou a sala mudarem.</p></div></div>
   <div class="filtros"><button class="bt peq" data-act="facXlsx" ${gs.length ? '' : 'disabled'}>Baixar em Excel</button></div>
   <div class="caixa pilha">${gs.length ? `<div class="tab-wrap"><table><thead><tr><th>Integração</th><th>Unidade</th><th>Horário</th><th>Pessoas por dia</th><th>Sala</th></tr></thead><tbody>${gs.map((g, i) => `<tr><td class="num">${dmd(g.data)}</td><td>${esc(g.local)}</td><td>${esc(g.horario || 'a confirmar')}</td><td style="font-size:12.5px">${g.dias.map((d) => `Dia ${d.dia} (${dm(d.dia_data)}): <b>${d.pessoas}</b>${d.matriculadas < d.pessoas ? ` <span class="apoio">(${d.matriculadas} concluída${d.matriculadas === 1 ? '' : 's'})</span>` : ''}`).join('<br>')}</td><td>${pode ? `<div class="linha-flex" style="gap:6px"><input id="sala_${i}" class="sel-doc" value="${esc(g.sala || '')}" placeholder="Ex.: Auditório (dia 1), sala 3 (dias 2 a 5)" style="min-width:200px;flex:1"><button class="bt peq" data-act="salaSalvar" data-i="${i}">Salvar</button></div>` : esc(g.sala || 'a definir')}</td></tr>`).join('')}</tbody></table></div>` : '<div class="vazio">Nenhuma integração presencial nas fábricas nos próximos 35 dias.</div>'}</div>`;
 };
-VIEWS.entregas = () => {
+VIEWS.entregas = () => entregasBase() + checklistIntegracao(true);
+function entregasBase() {
   const l = E.entregas;
   return `<div class="cab"><div class="t"><span class="olho">Especialista</span><h1>Minhas entregas</h1><p class="apoio">Quem precisa de algo da sua área. Frotas, Facilities e a previsão da TI veem a pessoa desde o cadastro; as outras áreas, com a documentação completa. Marque quando estiver pronto: a Admissão vê sem precisar de e-mail de volta.${souFrotas() || tem('admissao') ? ' Frotas abre e confere aqui a CNH (só a definitiva e válida) e o extrato de pontos de quem vai usar carro.' : ''}</p></div></div>
   ${l.length ? `<div class="tab-wrap"><table><thead><tr><th>Pessoa</th><th>Área</th><th>Integração</th><th>Detalhe</th><th>O que preparar</th><th>Status</th></tr></thead><tbody>${l.map((x) => `<tr><td><b>${esc(x.nome)}</b><br><span class="apoio" style="font-size:12px">${esc(x.cargo)} · ${esc(x.local)}</span></td><td>${esc(x.area_nome)}</td><td class="num">${dmd(x.data_inicio)} ${esc(x.hora_integ || '')}<br><span class="apoio" style="font-size:12px">${esc(x.integ || '')}</span></td><td style="font-size:12.5px">${esc([x.matricula && 'Matrícula ' + x.matricula, x.camisa && 'Camisa ' + x.camisa, x.fretado && 'Fretado ' + x.fretado, (x.ti_itens || []).length && 'TI: ' + x.ti_itens.join(', '), x.usa_frota && 'Usa frota', x.pcd && 'PCD: sim', x.requisitante && 'Gestor ' + x.requisitante].filter(Boolean).join(' · '))}</td><td style="font-size:12.5px">${esc(x.leva)}</td><td>${x.pronto_em ? chip('c-ok', 'ok', 'Pronto ' + dm(new Date(x.pronto_em))) : `<button class="bt peq" data-act="entregar" data-id="${x.id}" data-area="${esc(x.area_id)}">Marcar pronto</button>`}</td></tr>${docsFrota(x)}`).join('')}</tbody></table></div>` : '<div class="vazio">Nada para preparar agora.</div>'}`;
@@ -2306,7 +2386,8 @@ function planilhaLista(l) {
 }
 // SQL 47: a confidencial ainda não liberada vai na lista sem nome, cargo, gestor, telefone, matrícula nem centro de custo
 const linhaLista = (a, x) => (a.sigilo ? Object.assign(x, { nome: 'ADMISSÃO CONFIDENCIAL', cargo: a.nivel_cargo || 'Confidencial', requisitante: null, matricula: null, telefone: null, chamado: null, cc_codigo: null, cc_nome: null, requisitante_email: null }) : x);
-VIEWS.turma = () => {
+VIEWS.turma = () => turmaBase() + (tem('admissao') ? '' : checklistIntegracao(true));
+function turmaBase() {
   const ds = datasTurma(); if (!E.turmaLista || !ds.includes(E.turmaLista)) E.turmaLista = ds.find((d) => d >= iso(new Date())) || ds[ds.length - 1] || null;
   const doDia = vivas().filter((a) => a.data_inicio === E.turmaLista && !a.teste);
   const locaisDia = [...new Set(doDia.map((a) => a.local))].sort();
@@ -2437,7 +2518,8 @@ POS.cronograma = () => {
 
 // --------------------------------------------------------- listas e regras (Admissão)
 const TIPOS_LISTA = [['analista_rs', 'Analistas de R&S'], ['escala', 'Escalas'], ['turno', 'Turnos'], ['fretado', 'Linhas do fretado'], ['conferente_docs', 'Conferência dos documentos'], ['agendador_aso', 'Agendamento do exame'], ['aso_obs', 'Observações do ASO'], ['clinica_aso', 'Clínicas credenciadas'], ['preparo_exame', 'Preparo dos exames'], ['sindicato', 'Sindicatos'], ['acesso_ti', 'Equipamentos e acessos']];
-VIEWS.listas = () => {
+VIEWS.listas = () => listasBase() + etapasEditor();
+function listasBase() {
   const tipo = E.listaTipo; const itens = (E.listas || []).filter((x) => x.tipo === tipo);
   const fabricas = E.locais.filter((l) => l.tipo === 'fabrica').map((l) => l.nome);
   const linha = (x) => `<div class="area" data-lid="${x.id || ''}"><div><b>${x.id ? esc(x.valor) : 'Novo item'}</b>${x.filtro ? `<div class="apoio" style="font-size:12px">${esc(x.filtro)}</div>` : ''}</div>
@@ -2652,17 +2734,75 @@ VIEWS.especialistas = () => {
 };
 
 // ------------------------------------------------------------ compliance
+VIEWS.integracao = viewIntegracao;
+// SQL 50: o Compliance baixa só um termo assinado (as páginas dele e a página de assinaturas), sem o kit inteiro
+const DOCS_COMPLIANCE = [['transparencia', 'Termo de Transparência', 'TERMO DE TRANSPARENCIA'], ['compromisso', 'Termo de Compromisso', 'TERMO DE COMPROMISSO'], ['confidencialidade', 'Termo de Confidencialidade', 'TERMO DE CONFIDENCIALIDADE']];
+const kitDoTermo = (t) => (E.compKits || []).find((k) => (t.kit_id && k.kit_id === t.kit_id) || (t.admissao_id && k.admissao_id === t.admissao_id));
+function botoesDocsKit(k, nome) {
+  if (E.compKits == null) return '';
+  if (!k) return '<span class="apoio" style="font-size:12.5px">O PDF do kit assinado não está na plataforma.</span>';
+  return DOCS_COMPLIANCE.map(([q, n]) => `<button class="bt peq" data-act="compDoc" data-p="${esc(k.pdf)}" data-q="${q}" data-n="${esc(nome || '')}">${n} (PDF)</button>`).join('');
+}
+function documentosAssinadosBox() {
+  if (E.compKits == null) return '';
+  const b = semAcento(E.compBusca || '').toLowerCase();
+  const l = E.compKits.filter((k) => !b || semAcento(k.nome || '').toLowerCase().includes(b) || String(k.matricula || '').includes(b)).slice(0, 100);
+  return `<div class="caixa pilha" style="margin-top:12px"><h2>Documentos assinados</h2><p class="apoio">Todos os kits assinados, com ou sem "Sim" no Termo de Transparência. Baixe só o termo que precisar: vêm as páginas dele e a página de assinaturas. Kits assinados antes de 28/10/2026 não guardam onde fica cada termo; para eles, peça o kit inteiro à Admissão.</p>
+  <div class="filtros"><input id="compBusca" placeholder="Buscar pelo nome ou matrícula" value="${esc(E.compBusca || '')}" style="min-width:260px"></div>
+  ${l.length ? `<div class="tab-wrap"><table><thead><tr><th>Pessoa</th><th>Cargo · local</th><th>Assinado em</th><th>Documentos</th></tr></thead><tbody>${l.map((k) => `<tr><td><b>${esc(titulo(k.nome || ''))}</b>${k.matricula ? `<br><span class="apoio" style="font-size:12px">matrícula ${esc(k.matricula)}</span>` : ''}</td><td>${esc(k.cargo || '')}<br><span class="apoio" style="font-size:12px">${esc(k.local || '')}</span></td><td class="num">${k.assinado_em ? quando(k.assinado_em) : '—'}</td><td><div class="linha-flex" style="gap:4px;flex-wrap:wrap">${botoesDocsKit(k, k.nome)}</div></td></tr>`).join('')}</tbody></table></div>` : '<div class="vazio">Nenhum kit assinado encontrado.</div>'}</div>`;
+}
+async function baixarTrechoKit(pdf, qual, nome) {
+  if (!window.PDFLib) { toast('O leitor de PDF não carregou. Verifique a internet e recarregue a página.', true); return; }
+  const doc = DOCS_COMPLIANCE.find((x) => x[0] === qual);
+  const b = await tentar(() => api.baixarKitArquivo(pdf)); if (!b) return;
+  let src;
+  try { src = await PDFLib.PDFDocument.load(await b.arrayBuffer(), { ignoreEncryption: true }); } catch (e) { toast('Não consegui abrir o PDF do kit: ' + e.message, true); return; }
+  const m = String(src.getKeywords() || '').match(/cimed-docs:(\S+)/);
+  const partes = {};
+  if (m) m[1].split('|').forEach((s) => { const [n, i, q] = s.split('-'); partes[n] = [+i, +q]; });
+  const alvo = partes[qual];
+  if (!alvo) { toast(m ? 'Este kit não tem o ' + doc[1] + '.' : 'Kit assinado antes de 28/10/2026: ele não guarda onde fica cada termo. Peça o kit inteiro à Admissão.', true); return; }
+  const idx = []; for (let i = 0; i < alvo[1]; i++) idx.push(alvo[0] + i);
+  if (partes.assinaturas) idx.push(partes.assinaturas[0]);
+  const out = await PDFLib.PDFDocument.create(); (await out.copyPages(src, idx)).forEach((pg) => out.addPage(pg));
+  const url = URL.createObjectURL(new Blob([await out.save()], { type: 'application/pdf' }));
+  const a = document.createElement('a'); a.href = url; a.download = nomeArquivoSeguro(doc[2] + ' - ' + (nome || '')) + '.pdf'; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+// relatório com todos os campos respondidos do Termo de Transparência
+function excelTermos() {
+  if (!window.XLSX) { toast('O gerador de Excel não carregou. Verifique a internet.', true); return; }
+  const antigo = (E.termos || []).some((x) => TERMO_PERGUNTAS.some(([k]) => k !== 'q11' && (x.respostas || {})[k + '_det']));
+  const cab = ['Nome', 'CPF', 'Cargo', 'Setor', 'Local', 'Matrícula', 'Assinado em', 'Código do kit', 'Onde assinou', 'Há "Sim"', 'Código de Conduta aberto em', 'Declarou ciência', 'Tratado em', 'Tratado por', 'Parecer'];
+  TERMO_PERGUNTAS.forEach(([k, , , campos]) => { cab.push(k.toUpperCase() + ' · resposta'); campos.forEach(([, r]) => cab.push(k.toUpperCase() + ' · ' + r)); if (antigo && k !== 'q11') cab.push(k.toUpperCase() + ' · comentário (termo de antes de 28/10)'); });
+  const linhas = (E.termos || []).map((x) => {
+    const r = x.respostas || {};
+    const l = [titulo(x.nome || ''), x.cpf ? fmtCpf(x.cpf) : '', x.cargo || '', x.setor || '', x.local || '', x.matricula || '', x.assinado_em ? quando(x.assinado_em) : '', x.codigo || '', x.origem === 'kit_online' ? 'celular' : 'computador da integração', x.algum_sim ? 'Sim' : 'Não', r.codigo_conduta_aberto_em ? quando(r.codigo_conduta_aberto_em) : '', r.codigo_conduta_ciente || '', x.tratado_em ? quando(x.tratado_em) : '', x.tratado_por || '', x.parecer || ''];
+    TERMO_PERGUNTAS.forEach(([k, , , campos]) => { l.push(r[k] || ''); campos.forEach(([s]) => l.push(r[k + '_' + s] || '')); if (antigo && k !== 'q11') l.push(r[k + '_det'] || ''); });
+    return l;
+  });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([cab, ...linhas]), 'Respostas');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Pergunta', 'Texto'], ...TERMO_PERGUNTAS.map(([k, q]) => [k.toUpperCase(), q])]), 'Perguntas');
+  XLSX.writeFile(wb, 'termos-de-transparencia-' + iso(new Date()) + '.xlsx');
+}
 VIEWS.compliance = () => {
   const l = E.termos; const t = l.find((x) => x.id === E.selTermo);
   const linha = (x) => `<button class="item-esq" data-act="selTermo" data-id="${x.id}" aria-current="${x.id === E.selTermo}"><span class="linha-flex" style="gap:6px">${x.algum_sim ? chip('c-at', 'at', 'Há "Sim"') : chip('c-ok', 'ok', 'Tudo "Não"')}${x.tratado_em ? chip('c-ag', 'ok', 'Tratado') : ''}<small class="num">${quando(x.assinado_em || x.criado_em)}</small></span><b>${esc(titulo(x.nome))}</b><small>${esc(x.cargo || '')}${x.local ? ' · ' + esc(x.local) : ''}${x.matricula ? ' · ' + esc(x.matricula) : ''}</small></button>`;
   const resp = t ? t.respostas || {} : {};
-  return `<div class="cab"><div class="t"><span class="olho">Compliance</span><h1>Termo de Transparência</h1><p class="apoio">Os termos assinados no kit admissional, com as respostas às 11 perguntas. Só quem tem o papel Compliance vê esta tela e estas respostas: nem o R&S, nem a Admissão, nem o gestor. Qualquer "Sim" gera um e-mail para a área Compliance; registre aqui o parecer quando a Comissão de Ética e Conduta concluir.</p></div></div>
+  return `<div class="cab"><div class="t"><span class="olho">Compliance</span><h1>Termo de Transparência</h1><p class="apoio">Os termos assinados no kit admissional, com as respostas às 11 perguntas. Só quem tem o papel Compliance vê esta tela e estas respostas: nem o R&S, nem a Admissão, nem o gestor. Qualquer "Sim" gera um e-mail para a área Compliance; registre aqui o parecer quando a Comissão de Ética e Conduta concluir.</p></div>${l.length ? '<div class="linha-flex"><button class="bt" data-act="compExcel">Baixar relatório em Excel</button></div>' : ''}</div>
   ${l.length ? `<div class="grade" style="grid-template-columns:minmax(0,360px) minmax(0,1fr)"><div class="lista-esq">${l.map(linha).join('')}</div>
    ${t ? `<article class="caixa pilha"><div><span class="olho">Termo assinado em ${quando(t.assinado_em || t.criado_em)}${t.codigo ? ' · código ' + esc(t.codigo) : ''} · ${t.origem === 'kit_online' ? 'celular do colaborador' : 'computador de apoio da integração'}</span><h2>${esc(titulo(t.nome))}</h2><span class="apoio">${esc(t.cargo || '—')}${t.setor ? ' · ' + esc(t.setor) : ''} · ${esc(t.local || '—')}${t.matricula ? ' · matrícula ' + esc(t.matricula) : ''}${t.cpf ? ' · CPF ' + fmtCpf(t.cpf) : ''}</span></div>
-     <div class="docs">${TERMO_PERGUNTAS.map(([k, p, d]) => { const v = resp[k]; const sim = String(v || '').toLowerCase() === 'sim'; return `<div class="doc" ${sim ? 'style="border-color:var(--at)"' : ''}><div><div class="dn">${k.slice(1)}. ${esc(p)}</div>${sim && resp[k + '_det'] ? `<div class="dm"><b>${esc(resp[k + '_det'])}</b></div>` : sim ? `<div class="motivo">Sem detalhe informado (${esc(d)})</div>` : ''}</div><div class="acoes">${v == null || v === '' ? chip('c-ag', 'ag', 'Sem resposta') : sim ? chip('c-at', 'at', 'Sim') : chip('c-ok', 'ok', 'Não')}</div></div>`; }).join('')}</div>
+     <div class="linha-flex" style="gap:6px;flex-wrap:wrap">${botoesDocsKit(kitDoTermo(t), t.nome)}</div>
+     <div class="docs">${TERMO_PERGUNTAS.map(([k, p, , campos]) => {
+       const v = resp[k]; const sim = String(v || '').toLowerCase() === 'sim';
+       const vals = campos.map(([s, r]) => [r, resp[k + '_' + s]]).filter(([, x]) => x); const antigo = k !== 'q11' ? resp[k + '_det'] : '';
+       return `<div class="doc" ${sim ? 'style="border-color:var(--at)"' : ''}><div><div class="dn">${k.slice(1)}. ${esc(p)}</div>${sim ? (vals.length ? `<div class="dm">${vals.map(([r, x]) => `${esc(r)}: <b>${esc(x)}</b>`).join('<br>')}</div>` : '') + (antigo ? `<div class="dm"><b>${esc(antigo)}</b></div>` : '') + (!vals.length && !antigo ? '<div class="motivo">Sem detalhe informado</div>' : '') : ''}</div><div class="acoes">${v == null || v === '' ? chip('c-ag', 'ag', 'Sem resposta') : sim ? chip('c-at', 'at', 'Sim') : chip('c-ok', 'ok', 'Não')}</div></div>`;
+     }).join('')}</div>
      <div class="apoio" style="font-size:12.5px">Código de Conduta: ${resp.codigo_conduta_aberto_em ? 'link aberto em ' + quando(resp.codigo_conduta_aberto_em) : 'link não foi aberto na tela'}${resp.codigo_conduta_ciente ? ' · declarou ciência' : ''}.</div>
      ${t.tratado_em ? `<div class="faixa"><p><b>Tratado</b> em ${quando(t.tratado_em)} por ${esc(t.tratado_por || '')}.${t.parecer ? ' Parecer: ' + esc(t.parecer) : ''}</p></div>` : `<form id="fParecer" class="linha-flex"><input id="parecerTx" maxlength="2000" placeholder="Parecer da Comissão de Ética (fica com seu nome e a data)" style="flex:1;min-width:200px;border:1px solid var(--linha);border-radius:10px;padding:9px 12px;background:var(--sup)"><button class="bt pri" type="submit">Marcar como tratado</button></form>`}
-   </article>` : ''}</div>` : '<div class="vazio">Nenhum termo assinado ainda. Eles chegam quando o colaborador assina o kit na integração.</div>'}`;
+   </article>` : ''}</div>` : '<div class="vazio">Nenhum termo assinado ainda. Eles chegam quando o colaborador assina o kit na integração.</div>'}
+  ${documentosAssinadosBox()}`;
 };
 POS.compliance = () => {
   $('#fParecer')?.addEventListener('submit', async (e) => { e.preventDefault(); const tx = $('#parecerTx').value.trim(); if (await tentar(() => api.termoTratar(E.selTermo, tx), 'Termo marcado como tratado')) await recarregar(); });
@@ -2814,6 +2954,16 @@ document.addEventListener('click', async (e) => {
       toast(plural(n, 'cobrança na fila', 'cobranças na fila')); await recarregar(); break;
     }
     case 'editar': abrirEdicao(id); break;
+    case 'compExcel': excelTermos(); break;
+    case 'compDoc': { el.disabled = true; await baixarTrechoKit(el.dataset.p, el.dataset.q, el.dataset.n); el.disabled = false; break; }
+    case 'etSalvar': {
+      const box = document.querySelector(`[data-et="${el.dataset.i}"]`); const e0 = (E.etapasInt || [])[+el.dataset.i]; const o = e0 ? { id: e0.id } : {};
+      box.querySelectorAll('[data-f]').forEach((x) => { o[x.dataset.f] = x.type === 'checkbox' ? x.checked : x.value.trim(); });
+      o.dia = +o.dia || 1; o.ordem = +o.ordem || 0; o.atualizado_em = new Date().toISOString();
+      if (!o.nome) { toast('Dê um nome à etapa.', true); break; }
+      if (await tentar(() => api.salvarEtapaInt(o), 'Etapa salva')) await recarregar(); break;
+    }
+    case 'etApagar': if (confirm('Remover esta etapa? Os checks já dados nela também saem.') && await tentar(() => api.apagarEtapaInt(+id), 'Etapa removida')) await recarregar(); break;
     case 'exameCobrar': { el.disabled = true; const r = await tentar(() => api.cobrarExame(id)); toast(r ? 'Cobrança do exame na fila de e-mails' : 'Nada para cobrar: exame já com resultado', !r); await recarregar(); if ($('.gaveta')) abrirFicha(id); break; }
     case 'vacinaCobrar': { el.disabled = true; const r = await tentar(() => api.cobrarVacina(id)); toast(r ? 'Cobrança da carteirinha na fila de e-mails' : 'Nada para cobrar: vacina já registrada', !r); await recarregar(); break; }
     case 'osKit': { const b = await tentar(() => api.baixarKitArquivo(el.dataset.p)); if (b) window.open(URL.createObjectURL(b), '_blank'); break; }
@@ -3259,9 +3409,22 @@ $('#arquivoDoc').addEventListener('change', async (e) => { const fs = [...e.targ
 $('#arquivoXlsx').addEventListener('change', async (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) { try { await lerPlanilha(f); } catch (err) { toast('Não consegui ler esta planilha: ' + err.message, true); } } });
 setInterval(() => { if (E.perfil && !$('#camada').innerHTML && !document.querySelector('.modal-veu') && ['inicio', 'painel', 'documentos', 'entregas', 'emails', 'compliance'].includes(E.view)) recarregar(); }, 120000);
 
+// SQL 50: troca de turma no checklist, check de uma etapa e busca nos documentos do Compliance
+document.addEventListener('change', async (ev) => {
+  const s = ev.target;
+  if (s.id === 'intData') { E.intData = s.value; render(); return; }
+  if (s.id === 'compBusca') { E.compBusca = s.value; render(); return; }
+  if (!s.matches || !s.matches('select[data-etapa]')) return;
+  let motivo = null;
+  if (s.value === 'faltou') { motivo = await perguntar('Por que não cumpriu a etapa?', 'Ex.: o gestor tirou da integração para uma reunião de equipe', ''); if (motivo === null) { render(); return; } }
+  if (await tentar(() => api.integracaoMarcar(s.dataset.adm, +s.dataset.etapa, s.value, motivo), 'Etapa marcada')) {
+    E.marcasInt = (await tentar(() => api.integracaoMarcas())) || E.marcasInt;
+  }
+  render();
+});
 // versão publicada: o navegador pode guardar o index.html antigo e mostrar a tela de antes.
 // O versao.txt diz qual é a atual; se for mais nova, busca o index de novo e recarrega (uma vez por versão).
-const VERSAO = 75;
+const VERSAO = 76;
 async function conferirVersao() {
   try {
     const nova = parseInt(await (await fetch('versao.txt', { cache: 'no-store' })).text(), 10);
