@@ -651,3 +651,11 @@ details.itin .tab-wrap{margin-top:8px}
 .coluna.vazia{flex:0 1 180px;min-width:170px}
 .cartao .chips .chip{max-width:100%;white-space:normal;text-align:left}
 .menu button .rot-item{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.25}
+
+/* v75 (28/10/2026): nada sai do cartão do Painel, qualquer que seja o texto ou o zoom */
+.cartao{overflow:hidden;min-width:0}
+.cartao .nm,.cartao .sub{overflow-wrap:anywhere}
+.cartao .chips{min-width:0;max-width:100%}
+.cartao .chips > *{max-width:100%;min-width:0}
+.cartao .chip{max-width:100%;white-space:normal;text-align:left;overflow-wrap:anywhere}
+.menu .versao-app{font-size:11px;color:var(--mudo)}

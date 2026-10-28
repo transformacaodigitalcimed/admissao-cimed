@@ -815,7 +815,7 @@ function render() {
   $('#menu').innerHTML = `<div class="marca-lateral"><span class="pilula">CIMED</span><div><b>Plataforma de Admissão</b><small>Admissão e onboarding</small></div></div>`
     + itens.filter((i) => i[4] === 1).map(item).join('')
     + (sec2.length ? '<div class="divisor"></div><div class="rot">Configuração</div>' + sec2.map(item).join('') : '')
-    + `<div class="rodape-menu"><button data-act="recarregar">Atualizar dados</button><button data-act="tema">Tema claro ou escuro</button></div>`;
+    + `<div class="rodape-menu"><button data-act="recarregar">Atualizar dados</button><button data-act="tema">Tema claro ou escuro</button><span class="versao-app">Versão ${VERSAO}</span></div>`;
   $('#main').innerHTML = (VIEWS[E.view] || VIEWS.inicio)();
   if ($('#esteiraHost')) $('#esteiraHost').hidden = E.view !== 'kit';
   POS[E.view]?.();
@@ -3261,7 +3261,7 @@ setInterval(() => { if (E.perfil && !$('#camada').innerHTML && !document.querySe
 
 // versão publicada: o navegador pode guardar o index.html antigo e mostrar a tela de antes.
 // O versao.txt diz qual é a atual; se for mais nova, busca o index de novo e recarrega (uma vez por versão).
-const VERSAO = 74;
+const VERSAO = 75;
 async function conferirVersao() {
   try {
     const nova = parseInt(await (await fetch('versao.txt', { cache: 'no-store' })).text(), 10);
