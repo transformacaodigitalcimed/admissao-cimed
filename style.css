@@ -663,3 +663,9 @@ details.itin .tab-wrap{margin-top:8px}
 /* v77 (28/10/2026): barras do painel do Compliance com rótulo e número mais largos */
 .funil.larga .l{grid-template-columns:230px minmax(0,1fr) 72px}
 @media (max-width:760px){.funil.larga .l{grid-template-columns:130px minmax(0,1fr) 64px}}
+
+/* v79 (28/10/2026): termos do Compliance em linhas; o aberto fica marcado e o detalhe ocupa a largura toda */
+.t-termos tr.aberto td{background:var(--sup2)}
+.t-termos tr.aberto td:first-child{box-shadow:inset 4px 0 0 var(--amarelo)}
+.t-termos tr.det > td{padding:12px;background:var(--bg)}
+.t-termos tr.det:hover td{background:var(--bg)}

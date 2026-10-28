@@ -2820,12 +2820,9 @@ function excelTermos() {
   XLSX.writeFile(wb, 'termos-de-transparencia-' + iso(new Date()) + '.xlsx');
 }
 VIEWS.compliance = () => {
-  const l = E.termos; const t = l.find((x) => x.id === E.selTermo);
-  const linha = (x) => `<button class="item-esq" data-act="selTermo" data-id="${x.id}" aria-current="${x.id === E.selTermo}"><span class="linha-flex" style="gap:6px">${x.algum_sim ? chip('c-at', 'at', 'Há "Sim"') : chip('c-ok', 'ok', 'Tudo "Não"')}${x.tratado_em ? chip('c-ag', 'ok', 'Tratado') : ''}<small class="num">${quando(x.assinado_em || x.criado_em)}</small></span><b>${esc(titulo(x.nome))}</b><small>${esc(x.cargo || '')}${x.local ? ' · ' + esc(x.local) : ''}${x.matricula ? ' · ' + esc(x.matricula) : ''}</small></button>`;
-  const resp = t ? t.respostas || {} : {};
-  return `<div class="cab"><div class="t"><span class="olho">Compliance</span><h1>Termo de Transparência</h1><p class="apoio">Os termos assinados no kit admissional, com as respostas às 11 perguntas. Só quem tem o papel Compliance vê esta tela e estas respostas: nem o R&S, nem a Admissão, nem o gestor. Qualquer "Sim" gera um e-mail para a área Compliance; registre aqui o parecer quando a Comissão de Ética e Conduta concluir.</p></div>${l.length ? '<div class="linha-flex"><button class="bt" data-act="compExcel">Baixar relatório em Excel</button></div>' : ''}</div>
-  ${l.length ? `<div class="grade" style="grid-template-columns:minmax(0,360px) minmax(0,1fr)"><div class="lista-esq">${l.map(linha).join('')}</div>
-   ${t ? `<article class="caixa pilha"><div><span class="olho">Termo assinado em ${quando(t.assinado_em || t.criado_em)}${t.codigo ? ' · código ' + esc(t.codigo) : ''} · ${t.origem === 'kit_online' ? 'celular do colaborador' : 'computador de apoio da integração'}</span><h2>${esc(titulo(t.nome))}</h2><span class="apoio">${esc(t.cargo || '—')}${t.setor ? ' · ' + esc(t.setor) : ''} · ${esc(t.local || '—')}${t.matricula ? ' · matrícula ' + esc(t.matricula) : ''}${t.cpf ? ' · CPF ' + fmtCpf(t.cpf) : ''}</span></div>
+  const l = E.termos;
+  // 28/10: uma linha por pessoa; o termo abre embaixo da linha e fecha no mesmo clique (ou em "Fechar")
+  const detalhe = (t) => { const resp = t.respostas || {}; return `<article class="caixa pilha" style="margin:0"><div class="linha-flex" style="align-items:flex-start"><div style="flex:1"><span class="olho">Termo assinado em ${quando(t.assinado_em || t.criado_em)}${t.codigo ? ' · código ' + esc(t.codigo) : ''} · ${t.origem === 'kit_online' ? 'celular do colaborador' : 'computador de apoio da integração'}</span><h2>${esc(titulo(t.nome))}</h2><span class="apoio">${esc(t.cargo || '—')}${t.setor ? ' · ' + esc(t.setor) : ''} · ${esc(t.local || '—')}${t.matricula ? ' · matrícula ' + esc(t.matricula) : ''}${t.cpf ? ' · CPF ' + fmtCpf(t.cpf) : ''}</span></div><button class="bt peq" data-act="selTermo" data-id="${t.id}">Fechar</button></div>
      <div class="linha-flex" style="gap:6px;flex-wrap:wrap">${botoesDocsKit(kitDoTermo(t), t.nome)}</div>
      <div class="docs">${TERMO_PERGUNTAS.map(([k, p, , campos]) => {
        const v = resp[k]; const sim = String(v || '').toLowerCase() === 'sim';
@@ -2834,7 +2831,10 @@ VIEWS.compliance = () => {
      }).join('')}</div>
      <div class="apoio" style="font-size:12.5px">Código de Conduta: ${resp.codigo_conduta_aberto_em ? 'link aberto em ' + quando(resp.codigo_conduta_aberto_em) : 'link não foi aberto na tela'}${resp.codigo_conduta_ciente ? ' · declarou ciência' : ''}.</div>
      ${t.tratado_em ? `<div class="faixa"><p><b>Tratado</b> em ${quando(t.tratado_em)} por ${esc(t.tratado_por || '')}.${t.parecer ? ' Parecer: ' + esc(t.parecer) : ''}</p></div>` : `<form id="fParecer" class="linha-flex"><input id="parecerTx" maxlength="2000" placeholder="Parecer da Comissão de Ética (fica com seu nome e a data)" style="flex:1;min-width:200px;border:1px solid var(--linha);border-radius:10px;padding:9px 12px;background:var(--sup)"><button class="bt pri" type="submit">Marcar como tratado</button></form>`}
-   </article>` : ''}</div>` : '<div class="vazio">Nenhum termo assinado ainda. Eles chegam quando o colaborador assina o kit na integração.</div>'}
+   </article>`; };
+  const linha = (x) => { const ab = x.id === E.selTermo; return `<tr class="clic${ab ? ' aberto' : ''}" data-act="selTermo" data-id="${x.id}"><td><b>${esc(titulo(x.nome))}</b>${x.matricula ? `<br><span class="apoio" style="font-size:12px">matrícula ${esc(x.matricula)}</span>` : ''}</td><td>${esc(x.cargo || '—')}<br><span class="apoio" style="font-size:12px">${esc(x.local || '')}</span></td><td class="num">${quando(x.assinado_em || x.criado_em)}</td><td>${x.algum_sim ? chip('c-at', 'at', 'Há "Sim"') : chip('c-ok', 'ok', 'Tudo "Não"')}</td><td>${x.tratado_em ? chip('c-ag', 'ok', 'Tratado') : x.algum_sim ? chip('c-cr', 'cr', 'Esperando parecer') : '<span class="apoio">não precisa</span>'}</td><td><span class="bt peq">${ab ? 'Fechar' : 'Abrir'}</span></td></tr>${ab ? `<tr class="det"><td colspan="6">${detalhe(x)}</td></tr>` : ''}`; };
+  return `<div class="cab"><div class="t"><span class="olho">Compliance</span><h1>Termo de Transparência</h1><p class="apoio">Os termos assinados no kit admissional, com as respostas às 11 perguntas. Só quem tem o papel Compliance vê esta tela e estas respostas: nem o R&S, nem a Admissão, nem o gestor. Qualquer "Sim" gera um e-mail para a área Compliance; registre aqui o parecer quando a Comissão de Ética e Conduta concluir. Clique na linha para abrir o termo e clique de novo para fechar.</p></div>${l.length ? '<div class="linha-flex"><button class="bt" data-act="compExcel">Baixar relatório em Excel</button></div>' : ''}</div>
+  ${l.length ? `<div class="tab-wrap"><table class="t-termos"><thead><tr><th>Pessoa</th><th>Cargo · local</th><th>Assinado em</th><th>Respostas</th><th>Parecer</th><th></th></tr></thead><tbody>${l.map(linha).join('')}</tbody></table></div>` : '<div class="vazio">Nenhum termo assinado ainda. Eles chegam quando o colaborador assina o kit na integração.</div>'}
   ${painelTermos()}
   ${documentosAssinadosBox()}`;
 };
@@ -3405,7 +3405,7 @@ document.addEventListener('click', async (e) => {
       if (await tentar(() => api.salvarDestinatario(Object.assign({ ativo: true }, o)), 'Destinatários salvos')) await recarregar(); break;
     }
     case 'destApagar': if (await tentar(() => api.apagarDestinatario(+id || id), 'Removido')) await recarregar(); break;
-    case 'selTermo': E.selTermo = id; render(); break;
+    case 'selTermo': E.selTermo = E.selTermo === id ? null : id; render(); break;
   }
 });
 
@@ -3460,7 +3460,7 @@ document.addEventListener('change', async (ev) => {
 });
 // versão publicada: o navegador pode guardar o index.html antigo e mostrar a tela de antes.
 // O versao.txt diz qual é a atual; se for mais nova, busca o index de novo e recarrega (uma vez por versão).
-const VERSAO = 78;
+const VERSAO = 79;
 async function conferirVersao() {
   try {
     const nova = parseInt(await (await fetch('versao.txt', { cache: 'no-store' })).text(), 10);
