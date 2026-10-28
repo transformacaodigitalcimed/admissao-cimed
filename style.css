@@ -659,3 +659,7 @@ details.itin .tab-wrap{margin-top:8px}
 .cartao .chips > *{max-width:100%;min-width:0}
 .cartao .chip{max-width:100%;white-space:normal;text-align:left;overflow-wrap:anywhere}
 .menu .versao-app{font-size:11px;color:var(--mudo)}
+
+/* v77 (28/10/2026): barras do painel do Compliance com rótulo e número mais largos */
+.funil.larga .l{grid-template-columns:230px minmax(0,1fr) 72px}
+@media (max-width:760px){.funil.larga .l{grid-template-columns:130px minmax(0,1fr) 64px}}

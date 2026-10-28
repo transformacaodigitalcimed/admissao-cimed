@@ -484,7 +484,7 @@ const NAV = [
   ['cronograma', 'Cronograma e corte', 'esp', () => tem('rs', 'admissao'), 1],
   ['integracao', 'Integração · etapas', 'esp', () => tem('admissao') && temSql50(), 1],
   ['documentos', 'Documentos', 'docs', () => tem('admissao'), 1],
-  ['compliance', 'Termo de Transparência', 'docs', () => tem('compliance'), 1],
+  ['compliance', 'Compliance', 'docs', () => tem('compliance'), 1],
   ['kit', 'Esteira de assinatura', 'kit', () => tem('admissao', 'signatario'), 1],
   ['remuneracao', 'Remuneração', 'remun', () => tem('remuneracao', 'admissao'), 1],
   ['saude', 'Saúde ocupacional', 'saude', () => tem('saude'), 1],
@@ -2769,6 +2769,38 @@ async function baixarTrechoKit(pdf, qual, nome) {
   const a = document.createElement('a'); a.href = url; a.download = nomeArquivoSeguro(doc[2] + ' - ' + (nome || '')) + '.pdf'; a.click();
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
+// indicadores do Termo de Transparência para o Compliance (28/10/2026)
+const TERMO_CURTO = { q1: 'Familiar na Cimed', q2: 'Relacionamento na mesma área', q3: 'Serviço a órgão público', q4: 'Familiar agente público', q5: 'Vínculo com concorrente', q6: 'Vínculo com parceiro ou fornecedor', q7: 'Vínculo com empresa em litígio', q8: 'Sócio de parceiro ou fornecedor', q9: 'Sócio de outra empresa', q10: 'Serviço a outra empresa', q11: 'Outra situação' };
+function painelTermos() {
+  const todos = E.termos || []; if (!todos.length) return '';
+  const mesDe = (x) => String(x.assinado_em || x.criado_em || '').slice(0, 7);
+  const locais = [...new Set(todos.map((x) => x.local).filter(Boolean))].sort();
+  const meses = [...new Set(todos.map(mesDe).filter(Boolean))].sort().reverse();
+  const l = todos.filter((x) => (!E.compFLocal || x.local === E.compFLocal) && (!E.compFMes || mesDe(x) === E.compFMes));
+  const n = l.length; const pct = (a, b) => (b ? Math.round((a * 100) / b) : 0);
+  const sim = l.filter((x) => x.algum_sim).length; const pend = l.filter((x) => x.algum_sim && !x.tratado_em).length; const trat = l.filter((x) => x.tratado_em).length;
+  const kpi = (v, rot, sub) => `<div class="caixa kpi"><b class="num">${v}</b><span>${rot}</span>${sub ? `<small class="apoio" style="font-size:12px">${sub}</small>` : ''}</div>`;
+  const porQ = TERMO_PERGUNTAS.map(([k]) => { const resp = l.filter((x) => (x.respostas || {})[k]); const s = resp.filter((x) => String(x.respostas[k]).toLowerCase() === 'sim').length; return { k, s, r: resp.length }; });
+  const maxQ = Math.max(1, ...porQ.map((x) => x.s));
+  const agrupa = (f) => Object.entries(l.reduce((m, x) => { const c = f(x) || '—'; (m[c] = m[c] || []).push(x); return m; }, {})).map(([s, xs]) => ({ s, t: xs.length, sim: xs.filter((x) => x.algum_sim).length }));
+  const porLocal = agrupa((x) => x.local).sort((a, b) => b.t - a.t);
+  const porMes = agrupa(mesDe).sort((a, b) => b.s.localeCompare(a.s)).slice(0, 12).map((x) => Object.assign(x, { s: x.s === '—' ? '—' : x.s.slice(5) + '/' + x.s.slice(0, 4) }));
+  const duplas = (xs) => { const mx = Math.max(1, ...xs.map((x) => x.t)); return `<div class="funil">${xs.map((x) => `<div class="l l-dupla"><span>${esc(x.s)}</span><div class="barra dupla" title="${esc(x.s)}: ${x.t} termos · ${x.sim} com algum Sim (${pct(x.sim, x.t)}%)"><i style="width:${(x.t / mx) * 100}%"></i><i style="width:${(x.sim / mx) * 100}%"></i></div><b class="num">${x.t} · ${x.sim}</b></div>`).join('')}</div>`; };
+  const topo = porQ.filter((x) => x.s).sort((a, b) => b.s - a.s)[0];
+  const frases = [
+    n ? `${pct(sim, n)}% dos termos têm pelo menos um "Sim" (${sim} de ${n}).` : '',
+    topo ? `A pergunta com mais "Sim" é a ${topo.k.slice(1)} (${TERMO_CURTO[topo.k]}): ${topo.s} ${topo.s === 1 ? 'termo' : 'termos'}.` : 'Nenhuma resposta "Sim" neste recorte.',
+    pend ? `${plural(pend, 'termo com "Sim" espera', 'termos com "Sim" esperam')} o parecer da Comissão de Ética e Conduta.` : (sim ? 'Todos os termos com "Sim" já têm parecer.' : ''),
+  ].filter(Boolean);
+  return `<div class="cab" style="margin-top:22px"><div class="t"><span class="olho">Indicadores</span><h2>Termo de Transparência em números</h2><p class="apoio">Quantos termos foram assinados, quantos têm "Sim" e em quais perguntas. Passe o mouse nas barras para ver os números.</p></div></div>
+  <div class="filtros"><label class="olho" for="compFLocal">Local</label><select id="compFLocal"><option value="">Todos</option>${locais.map((x) => `<option ${x === E.compFLocal ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
+    <label class="olho" for="compFMes">Mês da assinatura</label><select id="compFMes"><option value="">Todos</option>${meses.map((x) => `<option value="${x}" ${x === E.compFMes ? 'selected' : ''}>${x.slice(5)}/${x.slice(0, 4)}</option>`).join('')}</select></div>
+  <div class="grade g4">${kpi(n, 'termos assinados', '')}${kpi(sim, 'com algum "Sim"', pct(sim, n) + '% dos termos')}${kpi(pend, 'esperando parecer', 'com "Sim" e sem parecer')}${kpi(trat, 'com parecer', 'marcados como tratados')}</div>
+  <div class="caixa pilha"><h2>Leitura automática</h2>${frases.map((f) => `<p class="apoio" style="margin:0">${esc(f)}</p>`).join('')}</div>
+  <div class="caixa pilha"><h2>Respostas "Sim" por pergunta</h2><div class="funil larga">${porQ.map((x) => `<div class="l"><span title="${esc(TERMO_PERGUNTAS.find((q) => q[0] === x.k)[1])}">${x.k.slice(1)}. ${esc(TERMO_CURTO[x.k])}</span><div class="barra" title="${x.s} de ${x.r} responderam Sim (${pct(x.s, x.r)}%)"><i style="width:${(x.s / maxQ) * 100}%"></i></div><b class="num">${x.s} · ${pct(x.s, x.r)}%</b></div>`).join('')}</div></div>
+  <div class="grade g2"><div class="caixa pilha"><h2>Por local</h2><p class="apoio" style="font-size:12.5px">Termos assinados (amarelo) · com algum "Sim" (azul)</p>${duplas(porLocal)}</div>
+    <div class="caixa pilha"><h2>Por mês</h2><p class="apoio" style="font-size:12.5px">Termos assinados (amarelo) · com algum "Sim" (azul)</p>${duplas(porMes)}</div></div>`;
+}
 // relatório com todos os campos respondidos do Termo de Transparência
 function excelTermos() {
   if (!window.XLSX) { toast('O gerador de Excel não carregou. Verifique a internet.', true); return; }
@@ -2802,6 +2834,7 @@ VIEWS.compliance = () => {
      <div class="apoio" style="font-size:12.5px">Código de Conduta: ${resp.codigo_conduta_aberto_em ? 'link aberto em ' + quando(resp.codigo_conduta_aberto_em) : 'link não foi aberto na tela'}${resp.codigo_conduta_ciente ? ' · declarou ciência' : ''}.</div>
      ${t.tratado_em ? `<div class="faixa"><p><b>Tratado</b> em ${quando(t.tratado_em)} por ${esc(t.tratado_por || '')}.${t.parecer ? ' Parecer: ' + esc(t.parecer) : ''}</p></div>` : `<form id="fParecer" class="linha-flex"><input id="parecerTx" maxlength="2000" placeholder="Parecer da Comissão de Ética (fica com seu nome e a data)" style="flex:1;min-width:200px;border:1px solid var(--linha);border-radius:10px;padding:9px 12px;background:var(--sup)"><button class="bt pri" type="submit">Marcar como tratado</button></form>`}
    </article>` : ''}</div>` : '<div class="vazio">Nenhum termo assinado ainda. Eles chegam quando o colaborador assina o kit na integração.</div>'}
+  ${painelTermos()}
   ${documentosAssinadosBox()}`;
 };
 POS.compliance = () => {
@@ -3414,6 +3447,8 @@ document.addEventListener('change', async (ev) => {
   const s = ev.target;
   if (s.id === 'intData') { E.intData = s.value; render(); return; }
   if (s.id === 'compBusca') { E.compBusca = s.value; render(); return; }
+  if (s.id === 'compFLocal') { E.compFLocal = s.value; render(); return; }
+  if (s.id === 'compFMes') { E.compFMes = s.value; render(); return; }
   if (!s.matches || !s.matches('select[data-etapa]')) return;
   let motivo = null;
   if (s.value === 'faltou') { motivo = await perguntar('Por que não cumpriu a etapa?', 'Ex.: o gestor tirou da integração para uma reunião de equipe', ''); if (motivo === null) { render(); return; } }
@@ -3424,7 +3459,7 @@ document.addEventListener('change', async (ev) => {
 });
 // versão publicada: o navegador pode guardar o index.html antigo e mostrar a tela de antes.
 // O versao.txt diz qual é a atual; se for mais nova, busca o index de novo e recarrega (uma vez por versão).
-const VERSAO = 76;
+const VERSAO = 77;
 async function conferirVersao() {
   try {
     const nova = parseInt(await (await fetch('versao.txt', { cache: 'no-store' })).text(), 10);
